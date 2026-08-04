@@ -1,0 +1,13 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Dashboard — DistriCore{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0">Signed in as {{ user.full_name }}</h2>
+  <p class="muted">Roles: {{ roles|join:", " }}</p>
+  <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+  <p><strong>M0 — Foundation.</strong> Identity, roles, OTP login, audit, health and logging
+     are in place. Business screens arrive from M1 (products and customers).</p>
+  <p class="muted">No products, customers, orders, invoices or stock exist yet, by design
+     (00 §20.2).</p>
+</div>
+{% endblock %}

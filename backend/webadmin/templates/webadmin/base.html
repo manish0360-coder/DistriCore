@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="{{ request.LANGUAGE_CODE|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}DistriCore{% endblock %}</title>
+  <style>
+    :root { --navy:#0d1f38; --line:#dde4ed; --muted:#69748a; --bad:#bc3b2c; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+           color:#1c2331; background:#f6f8fb; line-height:1.5; }
+    header { background:var(--navy); color:#fff; padding:14px 20px; display:flex;
+             justify-content:space-between; align-items:center; }
+    header b { letter-spacing:.5px; }
+    main { max-width:960px; margin:32px auto; padding:0 20px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:4px; padding:24px; }
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+    input { width:100%; padding:10px; border:1px solid var(--line); border-radius:3px;
+            font-size:15px; margin-bottom:16px; }
+    button { background:var(--navy); color:#fff; border:0; padding:10px 20px;
+             border-radius:3px; font-size:15px; cursor:pointer; }
+    .error { background:#fdefee; border-left:3px solid var(--bad); padding:10px 14px;
+             margin-bottom:16px; font-size:14px; }
+    .muted { color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+{% block chrome %}
+  <header>
+    <b>DistriCore</b>
+    {% if user.is_authenticated %}
+      <form method="post" action="{% url 'webadmin:logout' %}" style="margin:0">
+        {% csrf_token %}<button type="submit">Sign out</button>
+      </form>
+    {% endif %}
+  </header>
+{% endblock %}
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

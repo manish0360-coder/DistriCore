@@ -1,0 +1,34 @@
+# Production overrides: immutable image, no source mount, TLS at the edge.
+services:
+  db:
+    ports: []                       # never exposed outside the compose network
+
+  app:
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    volumes:
+      - media_data:/srv/media
+      - backup_data:/srv/backups
+      - static_data:/app/staticfiles
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - static_data:/srv/static:ro
+      - media_data:/srv/media:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  static_data:
+  caddy_data:
+  caddy_config:

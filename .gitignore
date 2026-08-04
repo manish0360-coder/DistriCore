@@ -1,56 +1,41 @@
+# Secrets — N-11. Never relax these.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
+secrets/
+
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-
-# Virtual environments
 .venv/
 venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
 
-# Environment
-.env
-.env.*
-
-# Logs
-logs/
-*.log
-
-# Database
+# Django
+/backend/media/
+/backend/staticfiles/
 *.sqlite3
 
-# IDE
-.vscode/
+# Ops
+/backups/
+*.dump
+
+# Editors / OS
 .idea/
-
-# macOS
+.vscode/
 .DS_Store
-
-# Windows
 Thumbs.db
 
-# Flutter
-build/
-.dart_tool/
-
-# Android
-android/.gradle/
-android/local.properties
-
-# iOS
-ios/Pods/
-
-# Node
-node_modules/
-
-# Docker
-docker-data/
-
-# Coverage
-.coverage
-htmlcov/
-
-# Temporary
-tmp/
-temp/
+# Flutter (M8)
+/mobile/build/
+/mobile/.dart_tool/

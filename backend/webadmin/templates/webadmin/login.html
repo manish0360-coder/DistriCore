@@ -1,0 +1,17 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Sign in — DistriCore{% endblock %}
+{% block chrome %}{% endblock %}
+{% block content %}
+<div class="card" style="max-width:380px;margin:60px auto">
+  <h2 style="margin-top:0">Sign in</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label for="phone">Mobile number</label>
+    <input id="phone" name="phone" autocomplete="username" inputmode="tel" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+{% endblock %}

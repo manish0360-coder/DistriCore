@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: districore_test
+          POSTGRES_USER: districore
+          POSTGRES_PASSWORD: districore
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+
+    env:
+      DATABASE_URL: postgres://districore:districore@localhost:5432/districore_test
+      DISTRICORE_SECRET_KEY: ci-only-not-a-real-secret-0000000000000000
+      DISTRICORE_ALLOWED_HOSTS: localhost
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      # import-linter resolves packages statically; they must be on the path.
+      PYTHONPATH: backend
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 1. Secret scan FIRST. A leaked secret is the only unrecoverable failure here.
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -r pyproject.toml --extra dev
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # 2-3. Fast static checks
+      - name: Lint
+        run: ruff check .
+      - name: Format check
+        run: ruff format --check .
+      - name: Type check
+        run: mypy backend/ || true   # advisory until M2; hard gate from M3
+
+      # 4. Architecture contracts — N-01 and N-02, mechanically
+      - name: Import contracts
+        run: lint-imports
+
+      # 5. Structural-enabler gate (ADR-0004)
+      - name: Stock structural columns present
+        run: python ops/check_structural_columns.py
+
+      # 6. Migrations complete
+      - name: No missing migrations
+        run: python backend/manage.py makemigrations --check --dry-run
+
+      # 7-8. Tests
+      - name: Tests
+        run: pytest --cov --cov-report=xml --cov-fail-under=80
+
+      - name: Adversarial suite
+        run: pytest -m adversarial -v
+
+      # 9. Image builds
+      - name: Build image
+        run: docker build -f docker/Dockerfile -t districore:ci .
+
+      # 10. Dependency vulnerabilities
+      - name: Dependency audit
+        run: pip-audit --strict || true

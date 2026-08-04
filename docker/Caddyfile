@@ -1,0 +1,33 @@
+# Automatic TLS. Removes an entire class of operational work and outage (00 §3.1).
+{$DISTRICORE_DOMAIN:localhost} {
+	encode gzip
+
+	# Static assets served by Caddy, never by the application.
+	handle_path /static/* {
+		root * /srv/static
+		file_server
+	}
+
+	# Media is NEVER served directly — it goes through an authorised view
+	# (04 T-25, NFR-SEC-006). No handler here, deliberately.
+
+	handle {
+		reverse_proxy app:8000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

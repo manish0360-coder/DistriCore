@@ -1,0 +1,21 @@
+# Development overrides: source mounted for live reload, database reachable from the host.
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"   # loopback only — never 0.0.0.0
+
+  app:
+    build:
+      target: dev
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DISTRICORE_COLLECTSTATIC: "false"
+    volumes:
+      - ../backend:/app/backend      # live edit (FD-09)
+      - ../pyproject.toml:/app/pyproject.toml:ro  # ruff / pytest / import-linter config
+      - ../ops:/app/ops:ro
+      - media_data:/srv/media
+      - backup_data:/srv/backups
+    ports:
+      - "127.0.0.1:8000:8000"
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
