@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M0 — Foundation** (complete, awaiting review) |
+| Current milestone | **M0 — Foundation** — verified 8/8, tagged `m0-foundation` |
 | Next milestone | M1 — Master data (products, customers, zones) |
 | Edition | 1a |
 | Design corpus | `docs/00`–`05`, frozen |
@@ -13,7 +13,7 @@
 | # | Milestone | State |
 | --- | --- | --- |
 | P0 | Engineering Foundation | Complete (repo, Docker, CI, standards, ADRs) |
-| M0 | Foundation — identity, roles, OTP, audit, health, logging | **Complete — under review** |
+| M0 | Foundation — identity, roles, OTP, audit, health, logging | **Verified & tagged** — see `docs/M0_Verification_Report.md` |
 | M1 | Master data | Not started |
 | M2 | Inventory core | Not started |
 | M3 | Pricing | Not started |
@@ -26,6 +26,15 @@
 | M10 | Hardening | Not started |
 | M11 | Go-live | Not started |
 | M12 | Retailer role (Edition 1b) | Not started |
+
+## Technical debt
+
+Tracked in `docs/M0_Verification_Report.md` §6. Two items are scheduled into M1:
+
+| # | Item | Due |
+| --- | --- | --- |
+| TD-1 | Commit `uv.lock` — builds are not yet byte-reproducible (FD-03, FD-04) | M1 |
+| TD-5 | `app_user.customer_id`, deferred until the customer table exists | M1 |
 
 ## Open items carried forward
 
