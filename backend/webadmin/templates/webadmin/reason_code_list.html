@@ -1,0 +1,12 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Reason codes — DistriCore{% endblock %}
+{% block heading %}Stock reason codes{% endblock %}
+{% block rows %}
+<tr><th>Code</th><th>Name</th><th>Direction</th><th>Restockable</th><th>System</th></tr>
+{% for r in page.object_list %}
+<tr>
+  <td>{{ r.code }}</td><td>{{ r.name }}</td><td>{{ r.get_direction_display }}</td>
+  <td>{{ r.is_restockable|yesno:"yes,no" }}</td><td>{{ r.is_system|yesno:"yes,no" }}</td>
+</tr>
+{% endfor %}
+{% endblock %}

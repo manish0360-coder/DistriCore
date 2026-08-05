@@ -128,25 +128,28 @@ show_missing = true
 # import-linter — makes N-01 and N-02 mechanically enforceable (00 §6.3)
 # ---------------------------------------------------------------------------
 [tool.importlinter]
-root_packages = ["core", "identity", "api", "webadmin"]
+root_packages = ["core", "identity", "catalogue", "customers", "inventory", "api", "webadmin"]
 include_external_packages = false
 
 [[tool.importlinter.contracts]]
 name = "N-01/N-02: delivery layers must not touch models directly"
 type = "forbidden"
 source_modules = ["api", "webadmin"]
-forbidden_modules = ["core.models", "identity.models"]
+forbidden_modules = [
+    "core.models", "identity.models",
+    "catalogue.models", "customers.models", "inventory.models",
+]
 # Direct imports only: reaching models THROUGH a service is the required path.
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "N-01: domain modules must not import a delivery layer"
 type = "forbidden"
-source_modules = ["core", "identity"]
+source_modules = ["core", "identity", "catalogue", "customers", "inventory"]
 forbidden_modules = ["api", "webadmin"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "03 §2.1: module graph is layered and acyclic"
 type = "layers"
-layers = ["api | webadmin", "identity", "core"]
+layers = ["api | webadmin", "catalogue | customers | inventory", "identity", "core"]

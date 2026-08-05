@@ -280,5 +280,5 @@ def user_payload(user: User) -> dict[str, Any]:
         "phone": user.phone,
         "language": user.language,
         "roles": sorted(user.role_codes()),
-        "customer_id": None,  # populated in M1, when the customer table exists
+        "customer_id": user.customer_id,
     }

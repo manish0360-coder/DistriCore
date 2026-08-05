@@ -25,6 +25,55 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
+class MediaFile(models.Model):
+    """Every uploaded file (04 T-25).
+
+    One table, so there is one upload path, one validation routine, one authorisation
+    check and one retention policy — instead of four of each (NFR-MNT-001).
+
+    ``storage_path`` is always RELATIVE. An absolute path would break the moment the
+    media root moves or object storage arrives (EP-J).
+    """
+
+    class Purpose(models.TextChoices):
+        PRODUCT_IMAGE = "PRODUCT_IMAGE", "Product image"
+        DELIVERY_PHOTO = "DELIVERY_PHOTO", "Delivery photo"
+        VISIT_PHOTO = "VISIT_PHOTO", "Visit photo"
+        INVOICE_PDF = "INVOICE_PDF", "Invoice PDF"
+        OFFER_IMAGE = "OFFER_IMAGE", "Offer image"
+        LOGO = "LOGO", "Business logo"
+
+    storage_path = models.CharField(max_length=500)
+    original_filename = models.CharField(max_length=255, blank=True)
+    content_type = models.CharField(max_length=100)
+    size_bytes = models.BigIntegerField()
+    sha256 = models.CharField(max_length=64, blank=True)
+    purpose = models.CharField(max_length=30, choices=Purpose.choices)
+    width = models.IntegerField(null=True, blank=True)
+    height = models.IntegerField(null=True, blank=True)
+    uploaded_by = models.ForeignKey(
+        "identity.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="uploaded_media",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "media_file"
+        indexes = [
+            models.Index(fields=["purpose", "-uploaded_at"], name="ix_media_purpose_uploaded"),
+            models.Index(fields=["sha256"], name="ix_media_sha256"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(size_bytes__gt=0), name="ck_media_size"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.purpose}:{self.storage_path}"
+
+
 class AuditLogQuerySet(models.QuerySet["AuditLog"]):
     def update(self, **kwargs: Any) -> int:
         raise AuditLogImmutable("audit_log is append-only (N-04, I-12)")
@@ -55,6 +104,8 @@ class AuditLog(models.Model):
         CANCEL = "CANCEL", "Cancel"
         CREDIT_LIMIT_CHANGE = "CREDIT_LIMIT_CHANGE", "Credit limit change"
         CREDIT_OVERRIDE = "CREDIT_OVERRIDE", "Credit override"
+        UPDATE = "UPDATE", "Update"
+        DEACTIVATE = "DEACTIVATE", "Deactivate"
         PRICE_CHANGE = "PRICE_CHANGE", "Price change"
         STOCK_ADJUST = "STOCK_ADJUST", "Stock adjustment"
         PAYMENT_REVERSE = "PAYMENT_REVERSE", "Payment reversal"

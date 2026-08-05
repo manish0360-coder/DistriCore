@@ -61,6 +61,11 @@ migrate: ## Apply migrations
 makemigrations: ## Generate migrations
 	$(DC) exec app python manage.py makemigrations
 
+.PHONY: lock
+lock: ## Regenerate uv.lock inside the container (TD-1). Commit the result.
+	$(DC) exec -T -w /app app uv lock
+	@echo "uv.lock regenerated — commit it. Builds are not reproducible without it (FD-03)."
+
 .PHONY: superuser
 superuser: ## Create an owner account
 	$(DC) exec app python manage.py createsuperuser

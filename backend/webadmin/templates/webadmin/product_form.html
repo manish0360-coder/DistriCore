@@ -1,0 +1,35 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{% if product %}Edit{% else %}New{% endif %} product — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:600px">
+  <h2 style="margin-top:0">{% if product %}Edit product{% else %}New product{% endif %}</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Code</label>
+    <input name="code" value="{{ product.code|default:'' }}" {% if product %}readonly{% endif %} required>
+    <label>Name</label>
+    <input name="name" value="{{ product.name|default:'' }}" required>
+    <label>Selling price (per {{ product.unit_name|default:'PCS' }})</label>
+    <input name="selling_price" value="{{ product.selling_price|default:'0.00' }}" required>
+    <label>GST rate %</label>
+    <input name="tax_rate_percent" value="{{ product.tax_rate_percent|default:'0.00' }}">
+    <label>HSN code</label>
+    <input name="hsn_code" value="{{ product.hsn_code|default:'' }}">
+    <label>Unit name</label>
+    <input name="unit_name" value="{{ product.unit_name|default:'PCS' }}">
+    <label>Pack size (pieces per pack)</label>
+    <input name="pack_size" value="{{ product.pack_size|default:1 }}">
+    <label>Pack name</label>
+    <input name="pack_name" value="{{ product.pack_name|default:'CASE' }}">
+    <label>Description</label>
+    <input name="description" value="{{ product.description|default:'' }}">
+    {% if product %}
+    <label><input type="checkbox" name="is_active" {% if product.is_active %}checked{% endif %}
+           style="width:auto;margin-right:6px"> Active</label>
+    {% endif %}
+    <button type="submit">Save</button>
+    <a href="{% url 'webadmin:product-list' %}" class="muted" style="margin-left:12px">Cancel</a>
+  </form>
+</div>
+{% endblock %}

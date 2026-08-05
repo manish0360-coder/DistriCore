@@ -1,0 +1,24 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Products — DistriCore{% endblock %}
+{% block heading %}Products{% endblock %}
+{% block action %}<a class="btn" href="{% url 'webadmin:product-new' %}">Add product</a>{% endblock %}
+{% block search %}
+<form method="get" style="margin-bottom:12px">
+  <input name="q" value="{{ q }}" placeholder="Search by name or code" style="max-width:320px;margin:0">
+</form>
+{% endblock %}
+{% block rows %}
+<tr><th>Code</th><th>Name</th><th>HSN</th><th class="r">Price</th><th class="r">GST %</th>
+    <th class="r">Pack</th><th></th></tr>
+{% for p in page.object_list %}
+<tr>
+  <td>{{ p.code }}</td>
+  <td>{{ p.name }}{% if not p.is_active %} <span class="off">inactive</span>{% endif %}</td>
+  <td>{{ p.hsn_code|default:"—" }}</td>
+  <td class="r">{{ p.selling_price }}</td>
+  <td class="r">{{ p.tax_rate_percent }}</td>
+  <td class="r">{{ p.pack_size }} {{ p.unit_name }}</td>
+  <td class="r"><a href="{% url 'webadmin:product-edit' p.pk %}">Edit</a></td>
+</tr>
+{% endfor %}
+{% endblock %}

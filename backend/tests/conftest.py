@@ -64,3 +64,42 @@ def auth(api):
         return api
 
     return _auth
+
+
+@pytest.fixture
+def zone(seeded_roles):
+    from tests.factories import ZoneFactory
+
+    return ZoneFactory()
+
+
+@pytest.fixture
+def customer(seeded_roles):
+    from tests.factories import CustomerFactory
+
+    return CustomerFactory()
+
+
+@pytest.fixture
+def product(seeded_roles):
+    from tests.factories import ProductFactory
+
+    return ProductFactory()
+
+
+@pytest.fixture
+def retailer_login(retailer, customer):
+    """A retailer account bound to a shop — the AD-11 scoping case."""
+    retailer.customer = customer
+    retailer.save(update_fields=["customer"])
+    retailer.__dict__.pop("_role_codes", None)
+    return retailer
+
+
+@pytest.fixture
+def delivery_only(seeded_roles):
+    """DELIVERY without SALESMAN — the narrower field role."""
+    from core.permissions import Role
+    from tests.factories import UserFactory
+
+    return UserFactory(roles=[Role.DELIVERY])

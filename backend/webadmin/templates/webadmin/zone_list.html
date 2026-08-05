@@ -1,0 +1,13 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Zones — DistriCore{% endblock %}
+{% block heading %}Zones (Ariya){% endblock %}
+{% block rows %}
+<tr><th>Name</th><th>Road</th><th>PIN</th><th>Panchayat</th><th>Ward</th><th>City</th><th>Salesman</th></tr>
+{% for z in page.object_list %}
+<tr>
+  <td>{{ z.name }}</td><td>{{ z.road_name|default:"—" }}</td><td>{{ z.pin_code|default:"—" }}</td>
+  <td>{{ z.panchayat|default:"—" }}</td><td>{{ z.ward_number|default:"—" }}</td>
+  <td>{{ z.city|default:"—" }}</td><td>{{ z.assigned_user.full_name|default:"unassigned" }}</td>
+</tr>
+{% endfor %}
+{% endblock %}

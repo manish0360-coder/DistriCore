@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     "axes",
     "core.apps.CoreConfig",
     "identity.apps.IdentityConfig",
+    "catalogue.apps.CatalogueConfig",
+    "customers.apps.CustomersConfig",
+    "inventory.apps.InventoryConfig",
     "webadmin.apps.WebAdminConfig",
 ]
 

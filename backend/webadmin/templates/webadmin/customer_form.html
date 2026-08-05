@@ -1,0 +1,44 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{% if customer %}Edit{% else %}New{% endif %} customer — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:600px">
+  <h2 style="margin-top:0">{% if customer %}Edit customer{% else %}New customer{% endif %}</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Code</label>
+    <input name="code" value="{{ customer.code|default:'' }}" {% if customer %}readonly{% endif %} required>
+    <label>Shop name</label>
+    <input name="shop_name" value="{{ customer.shop_name|default:'' }}" required>
+    <label>Owner name</label>
+    <input name="owner_name" value="{{ customer.owner_name|default:'' }}">
+    <label>Phone</label>
+    <input name="phone" value="{{ customer.phone|default:'' }}" required>
+    <label>Alternate phone</label>
+    <input name="alt_phone" value="{{ customer.alt_phone|default:'' }}">
+    <label>GSTIN</label>
+    <input name="gstin" value="{{ customer.gstin|default:'' }}">
+    <label>Zone</label>
+    <select name="zone_id" style="width:100%;padding:10px;margin-bottom:16px">
+      <option value="">— none —</option>
+      {% for z in zones %}
+      <option value="{{ z.pk }}" {% if customer.zone_id == z.pk %}selected{% endif %}>{{ z.name }}</option>
+      {% endfor %}
+    </select>
+    <label>Billing address</label>
+    <input name="billing_address" value="{{ customer.billing_address|default:'' }}" required>
+    <label>Delivery address (blank = same as billing)</label>
+    <input name="delivery_address" value="{{ customer.delivery_address|default:'' }}">
+    <label>Credit limit (owner only)</label>
+    <input name="credit_limit_amount" value="{{ customer.credit_limit_amount|default:'0.00' }}">
+    <label>Credit days</label>
+    <input name="credit_days" value="{{ customer.credit_days|default:0 }}">
+    {% if customer %}
+    <label><input type="checkbox" name="is_active" {% if customer.is_active %}checked{% endif %}
+           style="width:auto;margin-right:6px"> Active</label>
+    {% endif %}
+    <button type="submit">Save</button>
+    <a href="{% url 'webadmin:customer-list' %}" class="muted" style="margin-left:12px">Cancel</a>
+  </form>
+</div>
+{% endblock %}

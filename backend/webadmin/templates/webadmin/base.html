@@ -22,12 +22,31 @@
     .error { background:#fdefee; border-left:3px solid var(--bad); padding:10px 14px;
              margin-bottom:16px; font-size:14px; }
     .muted { color:var(--muted); font-size:13px; }
+    nav a { color:#b9cbe4; text-decoration:none; margin-right:16px; font-size:14px; }
+    nav a:hover { color:#fff; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th { text-align:left; background:#eef2f7; padding:8px; font-size:13px; color:var(--navy); }
+    td { padding:8px; border-bottom:1px solid var(--line); }
+    tr:hover td { background:#f9fbfd; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    .btn { background:var(--navy); color:#fff; padding:8px 16px; border-radius:3px;
+           text-decoration:none; font-size:14px; display:inline-block; }
+    .pager { margin-top:16px; font-size:13px; }
+    .r { text-align:right; }
+    .off { color:var(--bad); font-size:12px; }
   </style>
 </head>
 <body>
 {% block chrome %}
   <header>
     <b>DistriCore</b>
+    {% if user.is_authenticated %}<nav>
+      <a href="{% url 'webadmin:dashboard' %}">Home</a>
+      <a href="{% url 'webadmin:product-list' %}">Products</a>
+      <a href="{% url 'webadmin:customer-list' %}">Customers</a>
+      <a href="{% url 'webadmin:zone-list' %}">Zones</a>
+      <a href="{% url 'webadmin:reason-code-list' %}">Reasons</a>
+    </nav>{% endif %}
     {% if user.is_authenticated %}
       <form method="post" action="{% url 'webadmin:logout' %}" style="margin:0">
         {% csrf_token %}<button type="submit">Sign out</button>

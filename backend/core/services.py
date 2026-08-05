@@ -7,6 +7,7 @@ concern; no view, serialiser or template writes ``AuditLog`` directly.
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any
 
 from django.http import HttpRequest
@@ -32,10 +33,33 @@ _SENSITIVE = {
 }
 
 
+def _canonical(value: Any) -> Any:
+    """Canonical JSON form of an audited value.
+
+    A Decimal is written as its own fixed-scale string. JSON has no decimal type, so
+    without this a Decimal would be coerced to a float by the encoder — importing
+    exactly the error N-07 forbids — or rendered inconsistently by whatever str() the
+    call site happened to apply.
+
+    The scale comes from the value itself, because it was fixed when the value entered
+    the domain (core.fields.to_money / to_quantity). This is defence in depth, not the
+    place where canonical form is decided.
+    """
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _canonical(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical(v) for v in value]
+    return value
+
+
 def _scrub(state: dict[str, Any] | None) -> dict[str, Any] | None:
     if state is None:
         return None
-    return {k: ("[redacted]" if k.lower() in _SENSITIVE else v) for k, v in state.items()}
+    return {
+        k: ("[redacted]" if k.lower() in _SENSITIVE else _canonical(v)) for k, v in state.items()
+    }
 
 
 def record_audit(

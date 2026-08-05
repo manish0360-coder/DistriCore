@@ -1,0 +1,22 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Customers — DistriCore{% endblock %}
+{% block heading %}Customers{% endblock %}
+{% block action %}<a class="btn" href="{% url 'webadmin:customer-new' %}">Add customer</a>{% endblock %}
+{% block search %}
+<form method="get" style="margin-bottom:12px">
+  <input name="q" value="{{ q }}" placeholder="Search by shop, code or phone" style="max-width:320px;margin:0">
+</form>
+{% endblock %}
+{% block rows %}
+<tr><th>Code</th><th>Shop</th><th>Phone</th><th>Zone</th><th class="r">Credit limit</th><th></th></tr>
+{% for c in page.object_list %}
+<tr>
+  <td>{{ c.code }}</td>
+  <td>{{ c.shop_name }}{% if not c.is_active %} <span class="off">inactive</span>{% endif %}</td>
+  <td>{{ c.phone }}</td>
+  <td>{{ c.zone.name|default:"—" }}</td>
+  <td class="r">{{ c.credit_limit_amount }}</td>
+  <td class="r"><a href="{% url 'webadmin:customer-edit' c.pk %}">Edit</a></td>
+</tr>
+{% endfor %}
+{% endblock %}

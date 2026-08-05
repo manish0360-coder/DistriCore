@@ -53,6 +53,16 @@ class User(AbstractBaseUser, TimeStampedModel):
     alt_phone = models.CharField(max_length=20, blank=True)
     full_name = models.CharField(max_length=200)
     language = models.CharField(max_length=5, choices=Language.choices, default=Language.HINDI)
+    # Set ONLY for RETAILER users. On the many side because one shop may later have
+    # several logins, while one login always belongs to exactly one shop (04 T-01).
+    # Deferred from M0 (TD-5) because the customer table did not exist yet.
+    customer = models.ForeignKey(
+        "customers.Customer",
+        null=True,
+        blank=True,
+        on_delete=models.RESTRICT,
+        related_name="logins",
+    )
     is_active = models.BooleanField(default=True)
     is_superuser = models.BooleanField(default=False)
     last_login_at = models.DateTimeField(null=True, blank=True)
@@ -72,7 +82,14 @@ class User(AbstractBaseUser, TimeStampedModel):
 
     class Meta:
         db_table = "app_user"
-        indexes = [models.Index(fields=["is_active"], name="ix_app_user_is_active")]
+        indexes = [
+            models.Index(fields=["is_active"], name="ix_app_user_is_active"),
+            models.Index(
+                fields=["customer"],
+                name="ix_app_user_customer",
+                condition=models.Q(customer__isnull=False),
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.full_name} <{self.phone}>"

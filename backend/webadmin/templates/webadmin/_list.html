@@ -1,0 +1,22 @@
+{% extends "webadmin/base.html" %}
+{% block content %}
+<div class="toolbar">
+  <h2 style="margin:0">{% block heading %}{% endblock %}</h2>
+  {% block action %}{% endblock %}
+</div>
+{% block search %}{% endblock %}
+<div class="card">
+  {% if page.object_list %}
+    <table>{% block rows %}{% endblock %}</table>
+  {% else %}
+    <p class="muted" style="margin:0">Nothing here yet.</p>
+  {% endif %}
+</div>
+{% if page.has_other_pages %}
+<div class="pager">
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">&larr; Previous</a>{% endif %}
+  <span class="muted">&nbsp;Page {{ page.number }} of {{ page.paginator.num_pages }}&nbsp;</span>
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next &rarr;</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
