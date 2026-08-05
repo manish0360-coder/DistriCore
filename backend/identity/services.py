@@ -30,7 +30,7 @@ from core.exceptions import (
 )
 from core.models import AuditLog
 from core.permissions import Role, require_roles
-from core.services import record_audit
+from core.services import get_business_profile, record_audit
 from identity.models import OtpRequest, User, UserRole
 from identity.models import Role as RoleModel
 from identity.sms import get_sms_provider
@@ -77,7 +77,7 @@ def request_otp(
         phone=phone,
         code_hash=make_password(code),
         purpose=purpose,
-        expires_at=timezone.now() + timedelta(minutes=settings.OTP_EXPIRY_MINUTES),
+        expires_at=timezone.now() + timedelta(minutes=_otp_expiry_minutes()),
         requested_ip=ip_address[:45],
     )
 
@@ -244,6 +244,19 @@ def revoke_role(*, actor: User, user: User, role_code: str) -> None:
 
 
 # --------------------------------------------------------------------------- helpers
+def _otp_expiry_minutes() -> int:
+    """D-5: the owner-editable value wins; the environment variable is the fallback.
+
+    04 T-05 places this on business_profile. M0 read it from settings, which made the
+    document untrue. Reading the profile with a settings fallback keeps a fresh database
+    working before anyone has opened the configuration screen.
+    """
+    try:
+        return int(get_business_profile().otp_expiry_minutes)
+    except Exception:
+        return int(settings.OTP_EXPIRY_MINUTES)
+
+
 def _generate_code(length: int) -> str:
     """Cryptographically random numeric code. ``secrets``, never ``random``."""
     return "".join(secrets.choice("0123456789") for _ in range(length))

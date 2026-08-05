@@ -13,7 +13,7 @@ from typing import Any
 from django.http import HttpRequest
 
 from core.context import get_request_id
-from core.models import AuditLog
+from core.models import AuditLog, BusinessProfile
 
 logger = logging.getLogger("districore.audit")
 
@@ -124,3 +124,65 @@ def client_ip(request: HttpRequest | None) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()[:45]
     return (request.META.get("REMOTE_ADDR") or "")[:45]
+
+
+# --------------------------------------------------------------------------- config
+SINGLETON_ID = 1
+
+
+def get_business_profile() -> BusinessProfile:
+    """The single tier-3 configuration row (04 T-05, M3-10).
+
+    Created on demand rather than assumed: a fresh database, a restored backup and a
+    test database must all behave identically, and a missing profile would otherwise be
+    a 500 on the first order.
+    """
+    profile = BusinessProfile.objects.filter(pk=SINGLETON_ID).first()
+    if profile is None:
+        profile, _ = BusinessProfile.objects.get_or_create(
+            pk=SINGLETON_ID, defaults={"legal_name": "DistriCore"}
+        )
+    return profile
+
+
+def update_business_profile(*, actor: Any, **fields: Any) -> BusinessProfile:
+    """Owner-only. Every change is audited: this row governs discounts and credit."""
+    from core.permissions import Role, require_roles
+
+    require_roles(actor, Role.OWNER)
+    profile = get_business_profile()
+    editable = {
+        "legal_name",
+        "trade_name",
+        "gstin",
+        "state_code",
+        "address_line1",
+        "address_line2",
+        "city",
+        "state",
+        "pin_code",
+        "phone",
+        "email",
+        "invoice_footer",
+        "max_manual_discount_percent",
+        "credit_limit_mode",
+        "otp_expiry_minutes",
+    }
+    payload = {k: v for k, v in fields.items() if k in editable}
+    if not payload:
+        return profile
+    before = {k: getattr(profile, k) for k in payload}
+    for key, value in payload.items():
+        setattr(profile, key, value)
+    profile.updated_by = actor if getattr(actor, "pk", None) else None
+    profile.save()
+    record_audit(
+        action=AuditLog.Action.UPDATE,
+        entity_type="business_profile",
+        entity_id=profile.pk,
+        actor=actor,
+        surface=AuditLog.Surface.WEB,
+        before_state=before,
+        after_state=payload,
+    )
+    return profile

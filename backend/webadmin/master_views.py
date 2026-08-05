@@ -20,11 +20,14 @@ from catalogue import services as product_services
 from core import media as media_services
 from core.exceptions import DomainError, ValidationFailed
 from core.permissions import Role
+from core.services import get_business_profile, update_business_profile
 from customers import selectors as customer_selectors
 from customers import services as customer_services
 from identity.selectors import active_users_with_role
 from inventory import selectors as stock_selectors
 from inventory import services as stock_services
+from orders import selectors as order_selectors
+from orders import services as order_services
 
 PAGE_SIZE = 25
 
@@ -290,6 +293,143 @@ def stock_entry(request: HttpRequest) -> HttpResponse:
         {
             "products": product_selectors.active_products(),
             "reasons": stock_selectors.active_reason_codes(),
+            "error": error,
+        },
+    )
+
+
+# --------------------------------------------------------------------------- profile
+@login_required
+@require_http_methods(["GET", "POST"])
+def business_profile_form(request: HttpRequest) -> HttpResponse:
+    """Tier-3 configuration (FD-12): the owner edits this, not a developer."""
+    error = ""
+    if request.method == "POST":
+        data = request.POST
+        try:
+            update_business_profile(
+                actor=request.user,
+                legal_name=data.get("legal_name", ""),
+                trade_name=data.get("trade_name", ""),
+                gstin=data.get("gstin", ""),
+                state_code=data.get("state_code", ""),
+                address_line1=data.get("address_line1", ""),
+                city=data.get("city", ""),
+                state=data.get("state", ""),
+                pin_code=data.get("pin_code", ""),
+                phone=data.get("phone", ""),
+                invoice_footer=data.get("invoice_footer", ""),
+                max_manual_discount_percent=_decimal(
+                    data.get("max_manual_discount_percent", ""), "10"
+                ),
+                credit_limit_mode=data.get("credit_limit_mode", "WARN"),
+                otp_expiry_minutes=int(data.get("otp_expiry_minutes") or 10),
+            )
+        except DomainError as exc:
+            error = exc.detail
+        else:
+            return redirect("webadmin:business-profile")
+    return render(
+        request,
+        "webadmin/business_profile.html",
+        {"profile": get_business_profile(), "error": error},
+    )
+
+
+# --------------------------------------------------------------------------- orders
+@login_required
+def order_list(request: HttpRequest) -> HttpResponse:
+    queryset = order_selectors.search_orders(
+        request.user, status=request.GET.get("status") or None
+    ).prefetch_related("lines")
+    return render(
+        request,
+        "webadmin/order_list.html",
+        {"page": _page(request, queryset), "status": request.GET.get("status", "")},
+    )
+
+
+@login_required
+def order_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    order = order_selectors.get_order_for(request.user, pk)
+    if order is None:
+        return redirect("webadmin:order-list")
+    return render(
+        request,
+        "webadmin/order_detail.html",
+        {"order": order, "credit": order_services.evaluate_credit(order=order)},
+    )
+
+
+@login_required
+@require_http_methods(["POST"])
+def order_confirm(request: HttpRequest, pk: int) -> HttpResponse:
+    order = order_selectors.get_order_for(request.user, pk)
+    if order is not None:
+        try:
+            order_services.confirm_order(actor=request.user, order=order)
+        except DomainError:
+            pass
+    return redirect("webadmin:order-detail", pk=pk)
+
+
+@login_required
+@require_http_methods(["POST"])
+def order_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    order = order_selectors.get_order_for(request.user, pk)
+    if order is not None:
+        try:
+            order_services.cancel_order(
+                actor=request.user, order=order, reason=request.POST.get("reason", "")
+            )
+        except DomainError:
+            pass
+    return redirect("webadmin:order-detail", pk=pk)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def order_new(request: HttpRequest) -> HttpResponse:
+    """Owner order capture. One product per line; the service resolves every price."""
+    error = ""
+    if request.method == "POST":
+        data = request.POST
+        customer = (
+            customer_selectors.search_customers(request.user)
+            .filter(pk=data.get("customer_id") or 0)
+            .first()
+        )
+        lines = []
+        for product_id, quantity in zip(
+            data.getlist("product_id"), data.getlist("quantity"), strict=False
+        ):
+            if product_id and quantity and _decimal(quantity) > 0:
+                product = product_selectors.active_products().filter(pk=product_id).first()
+                if product is not None:
+                    # The "in packs" checkbox is a UI affordance. The view translates it
+                    # into the service's unambiguous contract rather than passing a flag.
+                    key = "pack_quantity" if data.get("in_packs") == "on" else "quantity"
+                    lines.append({"product": product, key: _decimal(quantity)})
+        try:
+            if customer is None:
+                raise ValidationFailed("Select a customer.")
+            order = order_services.place_order(
+                actor=request.user,
+                customer=customer,
+                lines=lines,
+                notes=data.get("notes", ""),
+                override_credit=data.get("override_credit") == "on",
+            )
+        except DomainError as exc:
+            error = exc.detail
+        else:
+            return redirect("webadmin:order-detail", pk=order.pk)
+    return render(
+        request,
+        "webadmin/order_form.html",
+        {
+            "customers": customer_selectors.search_customers(request.user, is_active=True),
+            "products": product_selectors.active_products(),
             "error": error,
         },
     )

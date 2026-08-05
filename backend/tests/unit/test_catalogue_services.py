@@ -85,3 +85,19 @@ def test_deactivate_never_deletes(owner, product):
 def test_pack_conversion(product):
     assert product.to_base_units(2, in_packs=True) == 24
     assert product.to_base_units(2) == 2
+
+
+@pytest.mark.parametrize(
+    ("entered", "in_packs", "expected"),
+    [
+        ("2", True, "24.000"),
+        ("2", False, "2.000"),
+        ("2.5", False, "2.500"),
+        ("0.75", True, "9.000"),
+    ],
+)
+def test_base_unit_conversion_preserves_fractions(product, entered, in_packs, expected):
+    """Regression: the previous signature returned int and truncated 2.5 to 2."""
+    result = product.to_base_units(Decimal(entered), in_packs=in_packs)
+    assert result == Decimal(expected)
+    assert isinstance(result, Decimal)

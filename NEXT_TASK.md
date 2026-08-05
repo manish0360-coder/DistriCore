@@ -1,47 +1,74 @@
 # Next Task
 
-> The only hand-written handoff artifact (ADR-0005 §5.3). Everything else comes from `make brief`.
-> Design reasoning lives in `docs/M3_Design_Review.md`.
+> Design reasoning: `docs/M3_Design_Review.md` · amendment: ADR-0007.
 
-**Milestone:** M3 — Commercial Operations *(pricing + orders, merged by ADR-0007)*
-**Task:** 0 — **BLOCKED on design sign-off. Do not write code.**
-
----
-
-## Blocked on
-
-| # | Item | Party | Where |
-| --- | --- | --- | --- |
-| 1 | **D-1 … D-5** — credit exposure formula, price signature, order numbering, audit scope, OTP config | Product Architect | `M3_Design_Review.md` §3 |
-| 2 | **M3-1 … M3-10 irreversible decisions** | All | §5 |
-| 3 | **R-3** adopted as binding | All | §4 |
-| 4 | `M3_Design_Review.md` accepted | All | §7 |
-
-Non-blocking: TD-1 (`uv.lock`) · TD-15 (`offer` milestone) · TD-17 (trigger escape hatch,
-**due in this milestone**).
+**Milestone:** M3 — Commercial Operations
+**Task:** all 9 implemented — **awaiting `make verify`**
 
 ---
 
-## Provisional task decomposition — refine after sign-off
+## Run this
 
-| # | Task | Delivers |
-| --- | --- | --- |
-| 1 | `business_profile` | Singleton with `CHECK (id=1)`, seeded, owner screen (M3-10) |
-| 2 | Pricing | `resolve_price`, bounded manual discount read from the profile (D-2) |
-| 3 | `sales_order` + `sales_order_line` | Models, migration, snapshots, `client_uuid` (M3-1, M3-2, M3-5) |
-| 4 | Order capture | Line-level tax and rounding, totals in one transaction (M3-7, M3-8) |
-| 5 | Credit validation | `credit_exposure` selector, WARN/BLOCK, override, audit (D-1) |
-| 6 | Lifecycle | Five states, transitions enforced in `CORE`, cancel with reason (M3-3, M3-4) |
-| 7 | **Boundary test suite** | **Prove no order operation creates a `StockMovement`** (M3-6) |
-| 8 | API | `05` §9.3 order endpoints |
-| 9 | Admin | Order list, capture form, confirm/cancel. **Close TD-17** |
+```bash
+cd /mnt/e/Projects/DistriCore && make verify
+```
 
-## Do not
+Expected: 8/8 stages, 303 tests, coverage above 80%.
 
-- **Do not write a `StockMovement` from any order path.** M3-6 — stock is issued at
-  dispatch (M5). This is the M2 boundary
-- Do not write a `customer_ledger_entry` — the receivable begins at the invoice (M5)
-- Do not implement schemes, slabs, free goods or customer-specific pricing — Edition 2
-- Do not implement approval workflows — Edition 2 (DV-9 is warn-and-override only)
-- Do not make `order_number` gapless — D-3
-- Do not let salesmen create orders — Edition 1 has no field order capture (DV-1)
+## If green
+
+1. Commit with the message below, push, tag `m3-commercial-operations`.
+2. Ask for `docs/M3_Verification_Report.md`.
+3. Then M5 — Fulfilment & Billing (no M4; ADR-0007).
+
+```
+feat(orders): add commercial operations — pricing, business profile, sales orders
+
+Implements M3 of the roadmap as amended by ADR-0007 (original M3 and M4 merged).
+
+An order is commercial intent: it changes no physical fact and no financial fact.
+No path creates a StockMovement (M3-6) or a ledger entry — proven by a dedicated
+boundary suite, not by convention.
+
+Design decisions per docs/M3_Design_Review.md:
+  D-1 credit exposure = settled balance + open uninvoiced orders; the formula does
+      not change at M6, only the first term's source
+  D-2 resolve_price accepts customer and ignores it in Edition 1
+  D-3 order_number is not a gapless series; invoices are
+  D-4 every state-changing operation on an order is audited
+  D-5 otp_expiry_minutes reads business_profile, settings as fallback
+  R-3 immutable records are their own audit; mutable records need one
+  M3-1..M3-10 irreversible, including line snapshots and line-level rounding
+
+Closes TD-17 (append-only escape hatch runbook).
+
+Refs: FR-ORD-001..037, FR-PRC-001..021, 04 T-05 T-14 T-15
+```
+
+## If red
+
+Send me the stage number and raw error.
+
+---
+
+## Delivered
+
+| # | Task | State |
+| --- | --- | :-: |
+| 1 | `business_profile` singleton + owner settings screen (M3-10, D-5) | done |
+| 2 | `pricing` module — `resolve_price`, bounded discount, line arithmetic (D-2, M3-8) | done |
+| 3 | `sales_order` + `sales_order_line` with snapshots and `client_uuid` (M3-1, M3-2, M3-5) | done |
+| 4 | Order capture — line-level rounding, totals in one transaction (M3-7, M3-8) | done |
+| 5 | Credit validation — exposure, WARN/BLOCK, override, audit (D-1, DV-9) | done |
+| 6 | Lifecycle — 5 states enforced in CORE, cancel with reason (M3-3, M3-4) | done |
+| 7 | **Boundary suite — 8 tests proving no order path touches the ledger** (M3-6) | done |
+| 8 | API — orders, confirm, cancel, credit status | done |
+| 9 | Admin — order list, capture, detail, confirm/cancel. **TD-17 closed** | done |
+
+## To record in the M3 report
+
+- **M6 layering tension:** `credit_exposure` lives in `orders.selectors` because it needs
+  open orders. At M6 the settled term becomes the ledger, which `03` §2.1 places in
+  `receivables` — a module *above* orders. Resolve before M6; do not paper over it.
+- `settled_balance` returns `opening_balance_amount` until M6, so exposure understates
+  reality for an already-billed customer. Inherent to milestone order, recorded not hidden.

@@ -44,9 +44,11 @@
       <a href="{% url 'webadmin:dashboard' %}">Home</a>
       <a href="{% url 'webadmin:product-list' %}">Products</a>
       <a href="{% url 'webadmin:customer-list' %}">Customers</a>
+      <a href="{% url 'webadmin:order-list' %}">Orders</a>
       <a href="{% url 'webadmin:stock-list' %}">Stock</a>
       <a href="{% url 'webadmin:zone-list' %}">Zones</a>
       <a href="{% url 'webadmin:reason-code-list' %}">Reasons</a>
+      <a href="{% url 'webadmin:business-profile' %}">Settings</a>
     </nav>{% endif %}
     {% if user.is_authenticated %}
       <form method="post" action="{% url 'webadmin:logout' %}" style="margin:0">

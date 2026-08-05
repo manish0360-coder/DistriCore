@@ -1,0 +1,35 @@
+{% extends "webadmin/base.html" %}
+{% block title %}New order — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:720px">
+  <h2 style="margin-top:0">New order</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Customer</label>
+    <select name="customer_id" style="width:100%;padding:10px;margin-bottom:16px" required>
+      <option value="">— select —</option>
+      {% for c in customers %}<option value="{{ c.pk }}">{{ c.code }} — {{ c.shop_name }}</option>{% endfor %}
+    </select>
+    <label><input type="checkbox" name="in_packs" style="width:auto;margin-right:6px"> Quantities are in packs</label>
+    <table>
+      <tr><th>Product</th><th style="width:140px">Quantity</th></tr>
+      {% for i in "12345" %}
+      <tr>
+        <td><select name="product_id" style="width:100%;padding:8px">
+          <option value="">—</option>
+          {% for p in products %}<option value="{{ p.pk }}">{{ p.code }} — {{ p.name }} ({{ p.selling_price }})</option>{% endfor %}
+        </select></td>
+        <td><input name="quantity" style="margin:0"></td>
+      </tr>
+      {% endfor %}
+    </table>
+    <label>Notes</label><input name="notes">
+    <label><input type="checkbox" name="override_credit" style="width:auto;margin-right:6px">
+      Override the credit limit if exceeded</label>
+    <button type="submit">Place order</button>
+    <a href="{% url 'webadmin:order-list' %}" class="muted" style="margin-left:12px">Cancel</a>
+  </form>
+  <p class="muted">Prices and tax are resolved by the server. Placing an order moves no stock.</p>
+</div>
+{% endblock %}

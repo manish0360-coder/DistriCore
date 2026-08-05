@@ -10,9 +10,12 @@ table whose mutability would make every historical record unprovable (N-04, I-12
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, ClassVar
 
 from django.db import models
+
+from core.fields import PercentField
 
 
 class TimeStampedModel(models.Model):
@@ -23,6 +26,72 @@ class TimeStampedModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class BusinessProfile(TimeStampedModel):
+    """The distributor's own details and the tunables the owner may change (04 T-05).
+
+    **Exactly one row, enforced by the database** (M3-10). A second row would make
+    "which profile?" a question every reader has to answer.
+
+    This is FD-12 tier-3 configuration: values the owner changes without a developer.
+    Seller identity is snapshotted onto each invoice at issue (M5, D-02), so editing it
+    here never rewrites a document already issued.
+    """
+
+    class CreditMode(models.TextChoices):
+        WARN = "WARN", "Warn and allow override"
+        BLOCK = "BLOCK", "Refuse the order"
+
+    legal_name = models.CharField(max_length=200)
+    trade_name = models.CharField(max_length=200, blank=True)
+    gstin = models.CharField(max_length=15, blank=True)
+    state_code = models.CharField(max_length=2, blank=True)
+    address_line1 = models.CharField(max_length=200, blank=True)
+    address_line2 = models.CharField(max_length=200, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    pin_code = models.CharField(max_length=10, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    email = models.CharField(max_length=200, blank=True)
+    logo_media = models.ForeignKey(
+        "core.MediaFile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    invoice_footer = models.TextField(blank=True)
+
+    # --- tunables ---------------------------------------------------------
+    max_manual_discount_percent = PercentField(default=Decimal("10.00"))
+    credit_limit_mode = models.CharField(
+        max_length=10, choices=CreditMode.choices, default=CreditMode.WARN
+    )
+    otp_expiry_minutes = models.SmallIntegerField(default=10)
+
+    updated_by = models.ForeignKey(
+        "identity.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        db_table = "business_profile"
+        constraints = [
+            # M3-10: singleton, enforced by the database rather than by convention.
+            models.CheckConstraint(condition=models.Q(id=1), name="ck_business_profile_singleton"),
+            models.CheckConstraint(
+                condition=models.Q(
+                    max_manual_discount_percent__gte=0, max_manual_discount_percent__lte=100
+                ),
+                name="ck_business_profile_discount",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(otp_expiry_minutes__gt=0), name="ck_business_profile_otp"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.legal_name or "DistriCore"
 
 
 class MediaFile(models.Model):
@@ -105,6 +174,8 @@ class AuditLog(models.Model):
         CREDIT_LIMIT_CHANGE = "CREDIT_LIMIT_CHANGE", "Credit limit change"
         CREDIT_OVERRIDE = "CREDIT_OVERRIDE", "Credit override"
         UPDATE = "UPDATE", "Update"
+        CONFIRM = "CONFIRM", "Confirm"
+        DISCOUNT_APPLIED = "DISCOUNT_APPLIED", "Manual discount applied"
         DEACTIVATE = "DEACTIVATE", "Deactivate"
         PRICE_CHANGE = "PRICE_CHANGE", "Price change"
         STOCK_ADJUST = "STOCK_ADJUST", "Stock adjustment"

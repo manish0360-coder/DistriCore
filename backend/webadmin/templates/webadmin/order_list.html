@@ -1,0 +1,28 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Orders — DistriCore{% endblock %}
+{% block heading %}Orders{% endblock %}
+{% block action %}<a class="btn" href="{% url 'webadmin:order-new' %}">New order</a>{% endblock %}
+{% block search %}
+<form method="get" style="margin-bottom:12px">
+  <select name="status" style="max-width:220px;padding:10px" onchange="this.form.submit()">
+    <option value="">All statuses</option>
+    {% for s in "PLACED,CONFIRMED,DISPATCHED,DELIVERED,CANCELLED"|slice:":999" %}{% endfor %}
+    <option value="PLACED" {% if status == 'PLACED' %}selected{% endif %}>Placed</option>
+    <option value="CONFIRMED" {% if status == 'CONFIRMED' %}selected{% endif %}>Confirmed</option>
+    <option value="CANCELLED" {% if status == 'CANCELLED' %}selected{% endif %}>Cancelled</option>
+  </select>
+</form>
+{% endblock %}
+{% block rows %}
+<tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th class="r">Total</th><th></th></tr>
+{% for o in page.object_list %}
+<tr>
+  <td>{{ o.order_number }}</td>
+  <td>{{ o.order_date|date:"d M Y" }}</td>
+  <td>{{ o.customer.shop_name }}</td>
+  <td>{{ o.get_status_display }}{% if o.credit_warning_shown %} <span class="off">credit</span>{% endif %}</td>
+  <td class="r">{{ o.total_amount }}</td>
+  <td class="r"><a href="{% url 'webadmin:order-detail' o.pk %}">View</a></td>
+</tr>
+{% endfor %}
+{% endblock %}

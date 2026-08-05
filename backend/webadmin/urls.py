@@ -24,4 +24,11 @@ urlpatterns = [
     path("stock/", master_views.stock_list, name="stock-list"),
     path("stock/movements/", master_views.stock_movements, name="stock-movements"),
     path("stock/entry/", master_views.stock_entry, name="stock-entry"),
+    # --- commercial operations (M3) ---
+    path("settings/", master_views.business_profile_form, name="business-profile"),
+    path("orders/", master_views.order_list, name="order-list"),
+    path("orders/new/", master_views.order_new, name="order-new"),
+    path("orders/<int:pk>/", master_views.order_detail, name="order-detail"),
+    path("orders/<int:pk>/confirm/", master_views.order_confirm, name="order-confirm"),
+    path("orders/<int:pk>/cancel/", master_views.order_cancel, name="order-cancel"),
 ]

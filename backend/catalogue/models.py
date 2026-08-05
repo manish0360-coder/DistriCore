@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db import models
 
-from core.fields import MoneyField, PercentField
+from core.fields import MoneyField, PercentField, to_quantity
 from core.models import TimeStampedModel
 
 
@@ -62,11 +64,16 @@ class Product(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.code} {self.name}"
 
-    def to_base_units(self, quantity: float | int, in_packs: bool = False) -> int:
+    def to_base_units(self, quantity: Decimal | str | int, *, in_packs: bool = False) -> Decimal:
         """Convert an entered quantity to base units.
 
-        Kept on the model because it is a property OF the product, and because every
-        caller must use the same conversion — mixed units in the ledger would make
-        every aggregate wrong.
+        Returns a **Decimal at quantity scale**, never an int. The previous signature
+        returned ``int`` and truncated: ordering 2.5 kg stored 2. ``QuantityField`` is
+        NUMERIC(14,3) exactly so fractional units work (M3-2, N-07).
+
+        Lives on the model because it is a property OF the product, and because every
+        caller must use the same conversion — mixed units in the ledger would make every
+        aggregate wrong.
         """
-        return int(quantity) * (self.pack_size if in_packs else 1)
+        entered = to_quantity(quantity)
+        return to_quantity(entered * self.pack_size) if in_packs else entered

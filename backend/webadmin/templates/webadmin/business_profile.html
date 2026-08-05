@@ -1,0 +1,33 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Settings — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:640px">
+  <h2 style="margin-top:0">Business settings</h2>
+  <p class="muted">These values appear on every GST invoice and govern discounts and credit.</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Legal name</label><input name="legal_name" value="{{ profile.legal_name }}" required>
+    <label>Trade name</label><input name="trade_name" value="{{ profile.trade_name }}">
+    <label>GSTIN</label><input name="gstin" value="{{ profile.gstin }}">
+    <label>State code</label><input name="state_code" value="{{ profile.state_code }}">
+    <label>Address</label><input name="address_line1" value="{{ profile.address_line1 }}">
+    <label>City</label><input name="city" value="{{ profile.city }}">
+    <label>State</label><input name="state" value="{{ profile.state }}">
+    <label>PIN code</label><input name="pin_code" value="{{ profile.pin_code }}">
+    <label>Phone</label><input name="phone" value="{{ profile.phone }}">
+    <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+    <label>Maximum manual discount (%)</label>
+    <input name="max_manual_discount_percent" value="{{ profile.max_manual_discount_percent }}">
+    <label>Credit limit behaviour</label>
+    <select name="credit_limit_mode" style="width:100%;padding:10px;margin-bottom:16px">
+      <option value="WARN" {% if profile.credit_limit_mode == 'WARN' %}selected{% endif %}>Warn, owner may override</option>
+      <option value="BLOCK" {% if profile.credit_limit_mode == 'BLOCK' %}selected{% endif %}>Refuse the order</option>
+    </select>
+    <label>OTP validity (minutes)</label>
+    <input name="otp_expiry_minutes" value="{{ profile.otp_expiry_minutes }}">
+    <label>Invoice footer</label><input name="invoice_footer" value="{{ profile.invoice_footer }}">
+    <button type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}

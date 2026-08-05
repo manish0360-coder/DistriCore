@@ -1,0 +1,60 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{{ order.order_number }} — DistriCore{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="toolbar">
+    <h2 style="margin:0">{{ order.order_number }} — {{ order.get_status_display }}</h2>
+    <div>
+      {% if order.status == 'PLACED' %}
+      <form method="post" action="{% url 'webadmin:order-confirm' order.pk %}" style="display:inline">
+        {% csrf_token %}<button type="submit">Confirm</button>
+      </form>{% endif %}
+    </div>
+  </div>
+  <p class="muted">{{ order.customer.code }} — {{ order.customer.shop_name }}
+     &nbsp;|&nbsp; {{ order.order_date|date:"d M Y" }} &nbsp;|&nbsp; {{ order.get_source_display }}</p>
+
+  {% if order.credit_warning_shown %}
+  <div class="note"><b>Credit limit exceeded.</b>
+    Limit {{ credit.credit_limit_amount }} &nbsp;|&nbsp; exposure {{ credit.exposure_amount }}
+    &nbsp;|&nbsp; available {{ credit.available_amount }}.
+    {% if order.credit_override_at %}Overridden by {{ order.credit_override_by.full_name }}.{% endif %}
+  </div>
+  {% endif %}
+  {% if order.status == 'CANCELLED' %}
+  <div class="error">Cancelled: {{ order.cancelled_reason }}</div>
+  {% endif %}
+
+  <table>
+    <tr><th>#</th><th>Product</th><th class="r">Qty</th><th class="r">Rate</th>
+        <th class="r">Discount</th><th class="r">Taxable</th><th class="r">GST</th><th class="r">Total</th></tr>
+    {% for l in order.lines.all %}
+    <tr>
+      <td>{{ l.line_number }}</td>
+      <td>{{ l.product_code }} — {{ l.product_name }}</td>
+      <td class="r">{{ l.quantity }} {{ l.unit_name }}{% if l.pack_quantity %}<br><span class="muted">{{ l.pack_quantity }} pack</span>{% endif %}</td>
+      <td class="r">{{ l.unit_price }}</td>
+      <td class="r">{{ l.discount_amount }}</td>
+      <td class="r">{{ l.taxable_amount }}</td>
+      <td class="r">{{ l.tax_amount }} <span class="muted">({{ l.tax_rate_percent }}%)</span></td>
+      <td class="r">{{ l.line_total }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="tot"><td colspan="5"></td>
+      <td class="r">{{ order.subtotal_amount }}</td>
+      <td class="r">{{ order.tax_amount }}</td>
+      <td class="r"><b>{{ order.total_amount }}</b></td></tr>
+  </table>
+  <p class="muted">Values are frozen at capture. Changing a product's price later does not
+     alter this order.</p>
+
+  {% if order.status == 'PLACED' or order.status == 'CONFIRMED' %}
+  <form method="post" action="{% url 'webadmin:order-cancel' order.pk %}" style="margin-top:16px">
+    {% csrf_token %}
+    <label>Cancel this order — reason required</label>
+    <input name="reason" placeholder="Why is this being cancelled?">
+    <button type="submit">Cancel order</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

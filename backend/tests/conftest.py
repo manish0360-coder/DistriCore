@@ -125,3 +125,21 @@ def receipt_reason(db):
     from inventory.models import ReasonCode
 
     return ReasonCode.objects.get(code="PURCHASE_IN")
+
+
+@pytest.fixture
+def profile(db):
+    """The tier-3 configuration singleton, created on demand (M3-10)."""
+    from core.services import get_business_profile
+
+    return get_business_profile()
+
+
+@pytest.fixture
+def credit_customer(seeded_roles, profile):
+    """A customer with a ten-thousand-rupee limit — the design review's C-0142."""
+    from decimal import Decimal
+
+    from tests.factories import CustomerFactory
+
+    return CustomerFactory(code="C-0142", credit_limit_amount=Decimal("10000.00"))

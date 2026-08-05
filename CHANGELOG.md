@@ -4,6 +4,68 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M3 — Commercial Operations
+
+Pricing and orders merged into one milestone by ADR-0007: a pricing service with nothing
+to price cannot verify PO-6. There is no M4.
+
+**Added**
+
+- `core.BusinessProfile` — tier-3 configuration singleton enforced by `CHECK (id = 1)`.
+  Seller identity for GST invoices, the manual-discount ceiling, credit-limit mode and OTP
+  validity. Created on demand so a fresh database, a restored backup and a test database
+  behave identically.
+- `pricing` module — `resolve_price`, the bounded manual discount, and line arithmetic.
+  Owns no tables: it exists so every surface resolves a price through one function.
+- `orders` module — `SalesOrder` and `SalesOrderLine`. Lines snapshot product name, unit
+  price, tax rate and pack size at capture, so a later price change cannot rewrite an
+  agreement already made.
+- Five-state order lifecycle enforced in `CORE`, never settable by PATCH. Confirm and
+  cancel are action endpoints, not status writes.
+- Credit validation — exposure derived as settled balance plus agreed-but-unbilled orders.
+  Warn-and-override or refuse, per `business_profile.credit_limit_mode`.
+- `client_uuid` idempotency on orders: replaying a key returns the original order.
+- Five API endpoints and six owner screens, including business settings.
+- **Eight adversarial tests proving the M2 boundary**: place, amend, discount, confirm and
+  cancel all leave the stock ledger untouched, and the `orders` package imports no
+  `inventory` module.
+- 67 tests (245 -> 312); coverage 93.56% -> 93.38%.
+
+**Fixed**
+
+- **`Product.to_base_units()` silently truncated fractional quantities.** It returned
+  `int` and did `int(quantity)`, so ordering 2.5 kg would have stored 2. `QuantityField`
+  is NUMERIC(14,3) precisely so fractional units work. Found by fixing the ambiguous
+  quantity contract; `mypy` had flagged the exact line in an earlier advisory run.
+- Order line input admitted two encodings of one fact — `quantity` plus an `in_packs` flag
+  *and* `pack_quantity` — which could disagree and produced `Decimal("None")`. The caller
+  now supplies exactly one; ambiguous input is refused, not resolved by default.
+- The order/inventory boundary test asserted on raw source text and matched the word
+  `StockMovement` inside the docstring explaining that stock is never moved. It now parses
+  each module's AST across the whole `orders` package.
+
+**Changed**
+
+- `import-linter` layers extended to
+  `api|webadmin > orders > pricing > inventory > catalogue|customers > identity > core`,
+  matching `03` §2.1.
+- `otp_expiry_minutes` now reads `business_profile` with the environment variable as a
+  fallback, as `04` T-05 always specified.
+
+**Decisions**
+
+- ADR-0007 — merge pricing and orders into Commercial Operations; M4 retired, not reused.
+- `M3_Design_Review.md`: D-1 credit exposure formula · D-2 price signature · D-3 order
+  numbers are not gapless · D-4 audit every state change · D-5 OTP config source ·
+  **R-3 immutable records are their own audit, mutable records need one** · M3-1…M3-10
+  irreversible.
+
+**Documentation**
+
+- TD-17 closed: the append-only escape hatch is documented in
+  `docs/runbooks/incident-response.md` with two-person authorisation, a verified backup
+  first, and a usage log.
+
 ### M2 — Inventory & stock ledger
 
 **Added**

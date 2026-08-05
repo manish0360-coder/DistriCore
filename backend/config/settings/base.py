@@ -40,6 +40,8 @@ INSTALLED_APPS = [
     "catalogue.apps.CatalogueConfig",
     "customers.apps.CustomersConfig",
     "inventory.apps.InventoryConfig",
+    "pricing.apps.PricingConfig",
+    "orders.apps.OrdersConfig",
     "webadmin.apps.WebAdminConfig",
 ]
 
