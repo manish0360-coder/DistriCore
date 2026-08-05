@@ -3,8 +3,8 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M1 — Master data** — implementation complete, awaiting `make verify` |
-| Next milestone | M1 — Master data (products, customers, zones) |
+| Current milestone | **M1 — Master data** — verified 8/8, 192/192 tests, 93.01% coverage |
+| Next milestone | **M2 — Inventory & stock ledger** (plan proposed, not started) |
 | Edition | 1a |
 | Design corpus | `docs/00`–`05`, frozen |
 
@@ -12,10 +12,10 @@
 
 | # | Milestone | State |
 | --- | --- | --- |
-| P0 | Engineering Foundation | Complete (repo, Docker, CI, standards, ADRs) |
-| M0 | Foundation — identity, roles, OTP, audit, health, logging | **Verified & tagged** — see `docs/M0_Verification_Report.md` |
-| M1 | Master data — products, customers, zones, reason codes, media | **Implemented — verification pending** |
-| M2 | Inventory core | Not started |
+| P0 | Engineering Foundation | Complete |
+| M0 | Foundation — identity, roles, OTP, audit, health, logging | **Verified & tagged** — `docs/M0_Verification_Report.md` |
+| M1 | Master data — zones, customers, products, reason codes, media | **Verified** — `docs/M1_Verification_Report.md` |
+| M2 | Inventory core — stock ledger | Plan proposed, awaiting approval |
 | M3 | Pricing | Not started |
 | M4 | Orders (web) | Not started |
 | M5 | Fulfilment & billing | Not started |
@@ -27,28 +27,30 @@
 | M11 | Go-live | Not started |
 | M12 | Retailer role (Edition 1b) | Not started |
 
+## Verification history
+
+| Milestone | Stages | Tests | Coverage | Contracts |
+| --- | :-: | --: | --: | :-: |
+| M0 | 8/8 | 100 | 87.3% | 3 kept |
+| M1 | 8/8 | **192** | **93.01%** | 3 kept |
+
+## Blocking before M2
+
+| # | Item | Owner |
+| --- | --- | --- |
+| 1 | **Irreversible decisions I-02 … I-12 signed off** (`04` §17) — M2 writes `stock_movement` | All |
+| 2 | TD-1 — confirm `uv.lock` is committed | Engineering |
+| 3 | TD-15 — assign a milestone to `offer` (roadmap gap) | Product Architect |
+
 ## Technical debt
 
-Tracked in `docs/M0_Verification_Report.md` §6. Two items are scheduled into M1:
+Full list in `docs/M1_Verification_Report.md` §6. Highest priority:
 
 | # | Item | Due |
 | --- | --- | --- |
-| TD-1 | Commit `uv.lock` — builds are not yet byte-reproducible (FD-03, FD-04) | M1 |
-| TD-5 | ~~`app_user.customer_id`~~ | **Closed in M1** |
+| TD-12 | No zone create/edit screen — the customer form's zone dropdown is empty on a fresh install | M2 |
+| TD-13 | No product image upload in the admin form | M2 |
+| TD-11 | **SMS / DLT registration not started — blocks go-live** | Now |
+| TD-1 | `uv.lock` committed | Now |
 
-## Open items carried forward
-
-| # | Item | Owner | Blocks |
-| --- | --- | --- | --- |
-| P0-8 | **SMS / DLT registration submitted** — unbounded external lead time | Business | M8 go-live |
-| CF-1 | Statutory e-invoicing obligation confirmed? | Business | M5 |
-| K-1 | Android upload keystore generated and backed up twice | Engineering | M8 |
-| I-01…I-12 | Irreversible decisions signed off (`04` §17) | All | M2 schema |
-
-## Amendments to the frozen corpus
-
-| ADR | Amends | Summary |
-| --- | --- | --- |
-| 0002 | `00` §4.1, `03` §2.1 | `platform` module renamed `core` — it shadowed the stdlib |
-| 0003 | — | `django.contrib.admin` excluded — it bypasses the service layer |
-| 0004 | `00` §15.3, §20.1 | §15.3 is a per-table checklist; stock columns bound to M2 by a CI gate |
+**Closed:** TD-5 (`app_user.customer_id`) in M1.
