@@ -1,0 +1,32 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Stock entry — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:600px">
+  <h2 style="margin-top:0">Stock entry</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Product</label>
+    <select name="product_id" style="width:100%;padding:10px;margin-bottom:16px" required>
+      <option value="">— select —</option>
+      {% for p in products %}<option value="{{ p.pk }}">{{ p.code }} — {{ p.name }}</option>{% endfor %}
+    </select>
+    <label>Type</label>
+    <select name="movement_type" style="width:100%;padding:10px;margin-bottom:16px" required>
+      <option value="RECEIPT">Goods received (adds stock)</option>
+      <option value="ISSUE">Goods issued (removes stock)</option>
+      <option value="ADJUSTMENT">Adjustment (either way, audited)</option>
+    </select>
+    <label>Quantity</label><input name="quantity" required>
+    <label><input type="checkbox" name="in_packs" style="width:auto;margin-right:6px"> Quantity is in packs/cases</label>
+    <label>Reason</label>
+    <select name="reason_code_id" style="width:100%;padding:10px;margin-bottom:16px" required>
+      <option value="">— select —</option>
+      {% for r in reasons %}<option value="{{ r.pk }}">{{ r.code }} — {{ r.name }}</option>{% endfor %}
+    </select>
+    <label>Notes</label><input name="notes">
+    <button type="submit">Record movement</button>
+    <a href="{% url 'webadmin:stock-list' %}" class="muted" style="margin-left:12px">Cancel</a>
+  </form>
+</div>
+{% endblock %}

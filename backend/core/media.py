@@ -23,6 +23,13 @@ from core.storage import get_media_storage
 
 logger = logging.getLogger("districore.media")
 
+# Purpose constants re-exported so a delivery layer never imports the model (N-02).
+PURPOSE_PRODUCT_IMAGE = MediaFile.Purpose.PRODUCT_IMAGE
+PURPOSE_DELIVERY_PHOTO = MediaFile.Purpose.DELIVERY_PHOTO
+PURPOSE_VISIT_PHOTO = MediaFile.Purpose.VISIT_PHOTO
+PURPOSE_OFFER_IMAGE = MediaFile.Purpose.OFFER_IMAGE
+PURPOSE_LOGO = MediaFile.Purpose.LOGO
+
 # Content types accepted on upload. Sniffed, not trusted from the client header.
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 

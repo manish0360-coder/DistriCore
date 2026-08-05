@@ -3,8 +3,8 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M1 — Master data** — verified 8/8, 192/192 tests, 93.01% coverage |
-| Next milestone | **M2 — Inventory & stock ledger** (plan proposed, not started) |
+| Current milestone | **M2 — Inventory & stock ledger** — verified 8/8, 245/245 tests, 93.56% coverage |
+| Next milestone | **M3 — Pricing** (not started) |
 | Edition | 1a |
 | Design corpus | `docs/00`–`05`, frozen |
 
@@ -14,8 +14,8 @@
 | --- | --- | --- |
 | P0 | Engineering Foundation | Complete |
 | M0 | Foundation — identity, roles, OTP, audit, health, logging | **Verified & tagged** — `docs/M0_Verification_Report.md` |
-| M1 | Master data — zones, customers, products, reason codes, media | **Verified** — `docs/M1_Verification_Report.md` |
-| M2 | Inventory core — stock ledger | **Design reviewed & revised — awaiting sign-off** (`docs/M2_Design_Review.md`) |
+| M1 | Master data — zones, customers, products, reason codes, media | **Verified & tagged** — `docs/M1_Verification_Report.md` |
+| M2 | Inventory — stock ledger | **Verified** — `docs/M2_Verification_Report.md` |
 | M3 | Pricing | Not started |
 | M4 | Orders (web) | Not started |
 | M5 | Fulfilment & billing | Not started |
@@ -29,35 +29,45 @@
 
 ## Verification history
 
-| Milestone | Stages | Tests | Coverage | Contracts |
-| --- | :-: | --: | --: | :-: |
-| M0 | 8/8 | 100 | 87.3% | 3 kept |
-| M1 | 8/8 | **192** | **93.01%** | 3 kept |
+| Milestone | Stages | Tests | Coverage | Contracts | Verify cycles |
+| --- | :-: | --: | --: | :-: | :-: |
+| M0 | 8/8 | 100 | 87.30% | 3 kept | 4 |
+| M1 | 8/8 | 192 | 93.01% | 3 kept | 4 |
+| M2 | 8/8 | **245** | **93.56%** | 3 kept | **1** |
 
-## Blocking before M2
+> M2 passed on the first cycle. Every decision was frozen in `M2_Design_Review.md` before
+> code was written and none was revised during implementation. That is the return on a
+> design review.
+
+## Structural gates
+
+| Gate | State |
+| --- | --- |
+| `ops/check_structural_columns.py` | **Satisfied at M2.** `location_id` and `lot_id` present on every movement from the first row (ADR-0004, E-06) |
+| `lint-imports` — 3 contracts | Kept. Has caught 4 violations across 3 milestones, all introduced by the rule's author |
+| `make verify` | 8 blocking stages. The only authority (N-12) |
+
+## Blocking before M3
 
 | # | Item | Owner |
 | --- | --- | --- |
-| 1 | **D-3 — audit scope for stock events** (`M2_Design_Review.md` §2) | Product Architect |
-| 2 | **M2-1 … M2-11 irreversible decisions** (`M2_Design_Review.md` §4) | All |
-| 3 | **I-02 … I-12** (`04` §17) — M2 writes `stock_movement` | All |
-| 4 | `M2_Design_Review.md` accepted | All |
-| 5 | TD-1 — confirm `uv.lock` is committed | Engineering |
-| 6 | TD-15 — assign a milestone to `offer` (roadmap gap) | Product Architect |
+| 1 | M2 committed, tagged `m2-inventory`, pushed | Engineering |
+| 2 | **TD-17 — trigger escape hatch into `incident-response.md`** | Engineering (do in M3) |
+| 3 | TD-1 — confirm `uv.lock` is committed | Engineering |
+| 4 | TD-15 — assign a milestone to `offer` | Product Architect |
 
-**Independent review:** M2 design scored 95/100. Four of five observations accepted (see
-`M2_Design_Review.md` §5); `allow_negative_allocation` rejected for M2 and deferred to
-Edition 2 (ADR-0006).
+**No irreversible decisions are outstanding for M3.** Pricing writes no new ledger.
 
 ## Technical debt
 
-Full list in `docs/M1_Verification_Report.md` §6. Highest priority:
+Full list in `docs/M2_Verification_Report.md` §7. Highest priority:
 
 | # | Item | Due |
 | --- | --- | --- |
-| TD-12 | No zone create/edit screen — the customer form's zone dropdown is empty on a fresh install | M2 |
-| TD-13 | No product image upload in the admin form | M2 |
 | TD-11 | **SMS / DLT registration not started — blocks go-live** | Now |
+| TD-17 | Trigger escape hatch not written into the runbook | M3 |
 | TD-1 | `uv.lock` committed | Now |
+| TD-14 | `Product._has_history()` still inert — stock movements now exist | M4 |
+| TD-16 | `SOURCE_DOCUMENT_REGISTRY` accept path proven only by monkeypatch | M5 |
 
-**Closed:** TD-5 (`app_user.customer_id`) in M1.
+**Closed:** TD-5 (M1) · TD-12, TD-13 (M2).

@@ -4,6 +4,51 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M2 — Inventory & stock ledger
+
+**Added**
+
+- `stock_location` — structural enabler (M2-1). One seeded row, no UI. Multi-warehouse
+  (EP-A) becomes an Edition 2 feature rather than a migration of live history.
+- `stock_lot` — structural enabler (M2-2). Default lot created lazily on first movement by
+  select-then-upsert: one query on the hot path, no savepoint, race-free.
+- `stock_movement` — **the single source of truth for inventory.** Signed quantity,
+  append-only, with four database CHECK constraints: source-or-reason (BR-007),
+  non-zero, paired source reference, and sign-per-type for RECEIPT/ISSUE (M2-11).
+- Append-only enforced at four layers: instance save, instance delete, queryset
+  update/delete, and a PostgreSQL trigger. Seven adversarial tests attack all four.
+- `inventory.services` — `receive_stock`, `issue_stock`, `adjust_stock` and
+  `record_manual_movement`. The only writer of a stock movement in the codebase.
+- Derived on-hand selectors anchored on `Product` with `Coalesce` to a typed zero, so a
+  product with no movements returns `0.000` rather than disappearing from the report.
+  Includes balance `as_of` any past instant, and a negative-stock report.
+- `GET /api/v1/stock`, `GET`/`POST /api/v1/stock/movements`.
+- Owner screens: stock on hand, movement ledger, and a single stock-entry form.
+- **TD-12 closed** — zone create and edit screens. The customer form's zone dropdown was
+  unfillable on a fresh install.
+- **TD-13 closed** — product image upload in the admin form.
+- 53 tests (192 -> 245); coverage 93.01% -> 93.56%.
+
+**Changed**
+
+- `import-linter` layers corrected to `api|webadmin > inventory > catalogue|customers >
+  identity > core`, matching `03` §2.1. The previous contract was stricter than the
+  architecture it encoded and forbade `inventory` from calling `catalogue`.
+- Movement-type dispatch moved from the API view into
+  `inventory.services.record_manual_movement`. The branch was a business rule (sign per
+  type) sitting in a delivery layer.
+- Media purpose constants re-exported from `core.media` so no delivery layer imports the
+  model.
+
+**Decisions**
+
+- ADR-0005 — AI-assisted development workflow.
+- ADR-0006 — negative stock permitted in Edition 1; allocation controls deferred to
+  Edition 2.
+- `M2_Design_Review.md` frozen before implementation: D-1 (lazy upsert lot), D-2 (no locks,
+  negatives permitted), D-3 (audit iff ADJUSTMENT), R-1 (dimension-anchored aggregates),
+  R-2 (validated source instances), M2-1…M2-11 irreversible.
+
 ### M1 — Master data
 
 **Added**

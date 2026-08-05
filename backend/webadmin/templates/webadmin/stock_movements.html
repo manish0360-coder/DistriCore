@@ -1,0 +1,19 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Stock movements — DistriCore{% endblock %}
+{% block heading %}Stock movement ledger{% endblock %}
+{% block search %}<p class="muted" style="margin-bottom:12px">
+  Append-only. A correction is a new movement, never an edit.</p>{% endblock %}
+{% block rows %}
+<tr><th>When</th><th>Product</th><th class="r">Qty</th><th>Type</th><th>Reason</th><th>By</th><th>Notes</th></tr>
+{% for m in page.object_list %}
+<tr>
+  <td>{{ m.occurred_at|date:"d M Y H:i" }}</td>
+  <td>{{ m.product.code }}</td>
+  <td class="r">{{ m.quantity }}</td>
+  <td>{{ m.get_movement_type_display }}</td>
+  <td>{{ m.reason_code.code|default:m.source_document_type|default:"—" }}</td>
+  <td>{{ m.created_by.full_name|default:"system" }}</td>
+  <td>{{ m.notes|truncatechars:40 }}</td>
+</tr>
+{% endfor %}
+{% endblock %}

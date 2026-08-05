@@ -152,4 +152,6 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "03 §2.1: module graph is layered and acyclic"
 type = "layers"
-layers = ["api | webadmin", "catalogue | customers | inventory", "identity", "core"]
+# 03 §2.1: inventory may call catalogue (stock is stock OF a product).
+# catalogue must never call inventory.
+layers = ["api | webadmin", "inventory", "catalogue | customers", "identity", "core"]

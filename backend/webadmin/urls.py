@@ -17,4 +17,11 @@ urlpatterns = [
     path("customers/<int:pk>/", master_views.customer_form, name="customer-edit"),
     path("zones/", master_views.zone_list, name="zone-list"),
     path("reason-codes/", master_views.reason_code_list, name="reason-code-list"),
+    # --- TD-12: the zone screens that M1 left missing ---
+    path("zones/new/", master_views.zone_form, name="zone-new"),
+    path("zones/<int:pk>/", master_views.zone_form, name="zone-edit"),
+    # --- stock (M2) ---
+    path("stock/", master_views.stock_list, name="stock-list"),
+    path("stock/movements/", master_views.stock_movements, name="stock-movements"),
+    path("stock/entry/", master_views.stock_entry, name="stock-entry"),
 ]

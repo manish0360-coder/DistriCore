@@ -103,3 +103,25 @@ def delivery_only(seeded_roles):
     from tests.factories import UserFactory
 
     return UserFactory(roles=[Role.DELIVERY])
+
+
+@pytest.fixture
+def location(db):
+    """The single seeded location. Migration 0004 creates it; this fetches it."""
+    from inventory.models import StockLocation
+
+    return StockLocation.objects.get(is_default=True)
+
+
+@pytest.fixture
+def damage_reason(db):
+    from inventory.models import ReasonCode
+
+    return ReasonCode.objects.get(code="DAMAGE")
+
+
+@pytest.fixture
+def receipt_reason(db):
+    from inventory.models import ReasonCode
+
+    return ReasonCode.objects.get(code="PURCHASE_IN")

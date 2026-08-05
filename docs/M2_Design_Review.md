@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M2_Design_Review` |
-| Version | 1.1.0 |
-| Status | **Awaiting sign-off — implementation must not begin** |
+| Version | 1.2.0 |
+| Status | **FROZEN — signed off 2026-08-05. Implementation authorised** |
 | Date | 2026-08-05 |
 | Milestone | M2 — Inventory & stock ledger |
 | Reviewers | Product Architect (ChatGPT) · Independent (Gemini, 95/100) · Chief Systems Engineer |
@@ -100,7 +100,7 @@ Should enforcement ever be wanted, the anchor already exists: `SELECT ... FOR UP
 `stock_lot` row serialises writers per product-lot, then `SUM`, then `INSERT`. It is a
 one-function change and the same anchor M5 allocation will use.
 
-### D-3 — Audit scope for stock events **— STILL OPEN**
+### D-3 — Audit scope for stock events **— DECIDED: Option A**
 
 `stock_movement` is *already* an immutable, attributed, timestamped, reason-bearing record. A
 parallel `audit_log` row for every document-driven issue duplicates it and roughly doubles the
@@ -111,11 +111,20 @@ write volume of the largest table in the system.
 | **A — discretionary only** (movements carrying a `reason_code`) | ~50k | The document *is* the record for document-driven movements. `02A` §13.2 read as "the irreversible subset" |
 | **B — every movement** | ~500k | `02A` §13.2 read literally as "stock events". Uniform, no judgement call at the call site |
 
-**Chief Systems Engineer recommends A.** The cost of B is storage, not correctness — so if the
-Product Architect reads §13.2 as B, that reading wins and implementation is unaffected beyond
-one conditional.
+**DECIDED — Option A** (Product Architect, 2026-08-05):
 
-**This decision blocks task 5.** Tasks 1–4 are unaffected.
+> Audit only *discretionary* stock movements — manual adjustments, administrative
+> corrections, exceptional inventory operations. Routine ledger entries (receipts, issues,
+> returns, opening balance) are already immutable inside `stock_movement` and must not
+> generate duplicate audit records.
+
+**Implementation rule, stated crisply so no call site has to judge:**
+
+> **A movement is audited if and only if `movement_type == 'ADJUSTMENT'`.**
+
+`RECEIPT`, `ISSUE`, `RETURN` and `OPENING` are routine and write no `audit_log` row. The
+movement itself carries actor, timestamp, reason and immutability — everything an audit row
+would have duplicated.
 
 ---
 
@@ -168,17 +177,17 @@ cheaply reversible.
 
 | # | Decision | Cost to reverse | Signed |
 | --- | --- | :-: | :-: |
-| **M2-1** | `location_id` on every movement, defaulted to the seeded location (I-03, E-06) | High | ☐ |
-| **M2-2** | `lot_id` on every movement, defaulted to the per-product lot (I-03) | High | ☐ |
-| **M2-3** | **Derived balance — no `quantity_on_hand` column anywhere** (I-05) | **Severe** | ☐ |
-| **M2-4** | Append-only, enforced by trigger | **Severe** | ☐ |
-| **M2-5** | Signed `quantity`, not separate in/out columns | High | ☐ |
-| **M2-6** | Base units only; `pack_size` converts at capture | **Severe** | ☐ |
-| **M2-7** | `NUMERIC(14,3)` quantity via `to_quantity()` (I-07) | High | ☐ |
-| **M2-8** | `CHECK (source_document_id IS NOT NULL OR reason_code_id IS NOT NULL)` (BR-007) | **Severe** | ☐ |
-| **M2-9** | Polymorphic source, no FK — **compensated by R-2** (`04` T-13) | Medium | ☐ |
-| **M2-10** | `occurred_at` separate from `created_at` (offline capture, M9) | High | ☐ |
-| **M2-11** | **Sign-per-type `CHECK`** — see below | High | ☐ |
+| **M2-1** | `location_id` on every movement, defaulted to the seeded location (I-03, E-06) | High | **Signed** |
+| **M2-2** | `lot_id` on every movement, defaulted to the per-product lot (I-03) | High | **Signed** |
+| **M2-3** | **Derived balance — no `quantity_on_hand` column anywhere** (I-05) | **Severe** | **Signed** |
+| **M2-4** | Append-only, enforced by trigger | **Severe** | **Signed** |
+| **M2-5** | Signed `quantity`, not separate in/out columns | High | **Signed** |
+| **M2-6** | Base units only; `pack_size` converts at capture | **Severe** | **Signed** |
+| **M2-7** | `NUMERIC(14,3)` quantity via `to_quantity()` (I-07) | High | **Signed** |
+| **M2-8** | `CHECK (source_document_id IS NOT NULL OR reason_code_id IS NOT NULL)` (BR-007) | **Severe** | **Signed** |
+| **M2-9** | Polymorphic source, no FK — **compensated by R-2** (`04` T-13) | Medium | **Signed** |
+| **M2-10** | `occurred_at` separate from `created_at` (offline capture, M9) | High | **Signed** |
+| **M2-11** | **Sign-per-type `CHECK`** — see below | High | **Signed** |
 
 ### M2-11 — sign-per-type check *(added by the Chief Systems Engineer; not raised in review)*
 
@@ -238,14 +247,14 @@ Implementation may not begin until all four are complete.
 
 | # | Item | Party | Status |
 | --- | --- | --- | :-: |
-| 1 | **D-3 — audit scope for stock events** (§2) | Product Architect | ☐ |
-| 2 | **M2-1 … M2-11 irreversible decisions** (§4) | All | ☐ |
-| 3 | **I-02 … I-12** carried from `04` §17 | All | ☐ |
-| 4 | This document accepted | All | ☐ |
+| 1 | **D-3 — audit scope for stock events** (§2) | Product Architect | **Signed — Option A, 2026-08-05** |
+| 2 | **M2-1 … M2-11 irreversible decisions** (§4) | All | **Signed — 2026-08-05** |
+| 3 | **I-02 … I-12** carried from `04` §17 | All | **Signed — 2026-08-05, via M2-1…M2-11** |
+| 4 | This document accepted | All | **Signed — 2026-08-05** |
 
 Also outstanding, not blocking design but blocking a clean start: TD-1 (`uv.lock` committed)
 and TD-15 (`offer` assigned a milestone).
 
 ---
 
-*No code has been written or authorised. Task decomposition is in `NEXT_TASK.md`.*
+*Architecture frozen 2026-08-05. Implementation authorised. Task decomposition in `NEXT_TASK.md`.*

@@ -17,10 +17,14 @@ from django.views.decorators.http import require_http_methods
 
 from catalogue import selectors as product_selectors
 from catalogue import services as product_services
-from core.exceptions import DomainError
+from core import media as media_services
+from core.exceptions import DomainError, ValidationFailed
+from core.permissions import Role
 from customers import selectors as customer_selectors
 from customers import services as customer_services
-from inventory import selectors as reason_selectors
+from identity.selectors import active_users_with_role
+from inventory import selectors as stock_selectors
+from inventory import services as stock_services
 
 PAGE_SIZE = 25
 
@@ -55,6 +59,13 @@ def product_form(request: HttpRequest, pk: int | None = None) -> HttpResponse:
     if request.method == "POST":
         data = request.POST
         try:
+            # TD-13: image upload was missing from the admin form in M1.
+            image_id = product.image_media_id if product else None
+            upload = request.FILES.get("image")
+            if upload:
+                image_id = media_services.store_upload(
+                    actor=request.user, upload=upload, purpose=media_services.PURPOSE_PRODUCT_IMAGE
+                ).pk
             if product is None:
                 product_services.create_product(
                     actor=request.user,
@@ -67,6 +78,7 @@ def product_form(request: HttpRequest, pk: int | None = None) -> HttpResponse:
                     unit_name=data.get("unit_name") or "PCS",
                     pack_size=int(data.get("pack_size") or 1),
                     pack_name=data.get("pack_name") or "CASE",
+                    image_media_id=image_id,
                 )
             else:
                 product_services.update_product(
@@ -85,6 +97,7 @@ def product_form(request: HttpRequest, pk: int | None = None) -> HttpResponse:
                     pack_size=int(data.get("pack_size") or 1),
                     pack_name=data.get("pack_name") or "CASE",
                     is_active=data.get("is_active") == "on",
+                    image_media_id=image_id,
                 )
         except DomainError as exc:
             error = exc.detail
@@ -177,5 +190,106 @@ def reason_code_list(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "webadmin/reason_code_list.html",
-        {"page": _page(request, reason_selectors.active_reason_codes().order_by("code"))},
+        {"page": _page(request, stock_selectors.active_reason_codes().order_by("code"))},
+    )
+
+
+# --------------------------------------------------------------------------- zones
+# TD-12: zone services and tests existed since M1, but there was no screen — the
+# customer form's zone dropdown was empty on a fresh install and the owner could only
+# create a zone through the shell.
+@login_required
+@require_http_methods(["GET", "POST"])
+def zone_form(request: HttpRequest, pk: int | None = None) -> HttpResponse:
+    zone = customer_selectors.active_zones().filter(pk=pk).first() if pk else None
+    error = ""
+    if request.method == "POST":
+        data = request.POST
+        fields: dict[str, Any] = {
+            "road_name": data.get("road_name", ""),
+            "pin_code": data.get("pin_code", ""),
+            "panchayat": data.get("panchayat", ""),
+            "ward_number": data.get("ward_number", ""),
+            "city": data.get("city", ""),
+        }
+        assigned = data.get("assigned_user_id") or ""
+        fields["assigned_user_id"] = int(assigned) if assigned.isdigit() else None
+        try:
+            if zone is None:
+                customer_services.create_zone(
+                    actor=request.user, name=data.get("name", ""), **fields
+                )
+            else:
+                customer_services.update_zone(
+                    actor=request.user, zone=zone, name=data.get("name", zone.name), **fields
+                )
+        except DomainError as exc:
+            error = exc.detail
+        else:
+            return redirect("webadmin:zone-list")
+    return render(
+        request,
+        "webadmin/zone_form.html",
+        {"zone": zone, "salesmen": active_users_with_role(Role.SALESMAN), "error": error},
+    )
+
+
+# --------------------------------------------------------------------------- stock
+@login_required
+def stock_list(request: HttpRequest) -> HttpResponse:
+    """Derived on-hand. Anchored on Product (R-1) so nothing silently disappears."""
+    return render(
+        request,
+        "webadmin/stock_list.html",
+        {
+            "page": _page(request, stock_selectors.stock_on_hand()),
+            "negative_count": stock_selectors.negative_stock().count(),
+        },
+    )
+
+
+@login_required
+def stock_movements(request: HttpRequest) -> HttpResponse:
+    return render(
+        request,
+        "webadmin/stock_movements.html",
+        {"page": _page(request, stock_selectors.movements_for())},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def stock_entry(request: HttpRequest) -> HttpResponse:
+    """One form for receipt, issue and adjustment. The service decides the sign."""
+    error = ""
+    if request.method == "POST":
+        data = request.POST
+        product = product_selectors.search_products().filter(pk=data.get("product_id") or 0).first()
+        reason = stock_selectors.get_active_reason_code(int(data.get("reason_code_id") or 0))
+        try:
+            if product is None or reason is None:
+                raise ValidationFailed("Select a product and a reason.")
+            quantity = _decimal(data.get("quantity", ""))
+            if data.get("in_packs") == "on":
+                quantity = product.to_base_units(quantity, in_packs=True)
+            stock_services.record_manual_movement(
+                actor=request.user,
+                product=product,
+                quantity=quantity,
+                movement_type=data.get("movement_type", ""),
+                reason_code=reason,
+                notes=data.get("notes", ""),
+            )
+        except DomainError as exc:
+            error = exc.detail
+        else:
+            return redirect("webadmin:stock-list")
+    return render(
+        request,
+        "webadmin/stock_entry.html",
+        {
+            "products": product_selectors.active_products(),
+            "reasons": stock_selectors.active_reason_codes(),
+            "error": error,
+        },
     )

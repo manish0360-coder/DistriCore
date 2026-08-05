@@ -13,7 +13,7 @@ from django.utils import timezone
 from catalogue.models import Product
 from customers.models import Customer, Zone
 from identity.models import OtpRequest, Role, User, UserRole
-from inventory.models import ReasonCode
+from inventory.models import ReasonCode, StockLocation
 
 
 class RoleFactory(factory.django.DjangoModelFactory):
@@ -105,3 +105,13 @@ class ReasonCodeFactory(factory.django.DjangoModelFactory):
     name = "Damaged goods"
     direction = "OUT"
     is_restockable = False
+
+
+class StockLocationFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = StockLocation
+        django_get_or_create = ("code",)
+
+    code = "MAIN"
+    name = "Main Warehouse"
+    is_default = True

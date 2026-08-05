@@ -1,73 +1,70 @@
 # Next Task
 
-> The only hand-written handoff artifact (ADR-0005 §5.3). Rewritten at the end of every task.
-> Everything else a session needs comes from `make brief`.
-> **Design reasoning lives in `docs/M2_Design_Review.md`, not here.**
+> The only hand-written handoff artifact (ADR-0005 §5.3). Everything else comes from `make brief`.
+> Design reasoning lives in `docs/M2_Design_Review.md` (FROZEN, signed 2026-08-05).
 
 **Milestone:** M2 — Inventory & stock ledger
-**Task:** 0 of 9 — **BLOCKED. Do not write code.**
+**Task:** all 9 implemented — **awaiting `make verify`**
 
 ---
 
-## Blocked on — all four must be signed
+## Run this
 
-| # | Item | Party | Where |
-| --- | --- | --- | --- |
-| 1 | **D-3 — audit scope for stock events** (Option A discretionary vs B every movement) | Product Architect | `M2_Design_Review.md` §2 |
-| 2 | **M2-1 … M2-11 irreversible decisions** | All | `M2_Design_Review.md` §4 |
-| 3 | **I-02 … I-12** carried from `04` §17 | All | `04_Database_Design.md` §17 |
-| 4 | `M2_Design_Review.md` accepted | All | §6 |
+```bash
+cd /mnt/e/Projects/DistriCore && make verify
+```
 
-Non-blocking but wanted before a clean start: TD-1 (`uv.lock` committed) · TD-15 (`offer`
-assigned a milestone).
+Expected: 8/8 stages, 245 tests, coverage above 80%.
 
-> **D-3 blocks task 5 only.** Tasks 1–4 are unaffected by it, but items 2–4 gate everything.
+## If green
+
+1. Commit with the message below, push.
+2. Tag `m2-inventory`.
+3. Ask for `docs/M2_Verification_Report.md`.
+4. Then M3 — Pricing.
+
+```
+feat(inventory): add the stock ledger
+
+Implements M2 of the frozen roadmap. Three tables, no stored quantity anywhere:
+stock on hand is SUM(stock_movement.quantity) (N-03, E-01, BR-004).
+
+Design decisions per docs/M2_Design_Review.md (frozen 2026-08-05):
+  D-1 select-then-upsert lot creation, savepoint-free
+  D-2 negative stock permitted and reported; no locks, no deadlock surface (ADR-0006)
+  D-3 audit iff movement_type == ADJUSTMENT
+  R-1 aggregate selectors anchor on the dimension, Coalesce to a typed zero
+  R-2 polymorphic sources accept validated model instances only
+  M2-11 sign-per-type CHECK for RECEIPT and ISSUE
+
+Closes TD-12 (zone screens) and TD-13 (product image upload) from M1.
+
+Refs: FR-STK-001..026, 04 T-08 T-11 T-12 T-13
+```
+
+## If red
+
+Send me the stage number and raw error. I will not start M3 until 8/8.
 
 ---
 
-## Task decomposition — 9 tasks, each independently verifiable
+## Delivered
 
-Per ADR-0005 §6.2: commit and push after **each**. A session must never span more than one.
-
-| # | Task | Delivers | Gated by |
-| --- | --- | --- | --- |
-| 1 | `stock_location` | Model, migration, one seeded default row, no UI | M2-1 |
-| 2 | `stock_lot` | Model, migration, **select-then-upsert** lazy creation (D-1) | M2-2, D-1 |
-| 3 | `stock_movement` | Model, migration, `CHECK` source-or-reason (M2-8), **sign-per-type `CHECK`** (M2-11). **`ops/check_structural_columns.py` becomes blocking here** | M2-1…M2-11 |
-| 4 | Append-only | Trigger migration with `reverse_sql`; adversarial tests for raw `UPDATE`/`DELETE`; **escape-hatch runbook entry** in `incident-response.md` | M2-4 |
-| 5 | `inventory.services` | `receive_stock` / `issue_stock` / `adjust_stock` — the only writers. **Accept validated model instances for `source_document` (R-2)** | D-3 |
-| 6 | Derived selectors | On-hand per product. **Anchored on `Product`, `Coalesce` to a typed `Decimal("0.000")` (R-1)** | M2-3, R-1 |
-| 7 | Concurrency suite | Adversarial: N concurrent movements sum correctly; randomised sequence reconciles | NFR-INT-002/003 |
-| 8 | API | `GET /stock`, `GET /stock/movements`, `POST /stock/movements` | `05` §9.7 |
-| 9 | Admin + debt | Stock list, stock-in and adjustment forms. **Close TD-12 (zone form) and TD-13 (product image)** | — |
-
----
-
-## Design changes folded in since the review
-
-| Change | Source | Task |
+| # | Task | State |
 | --- | --- | :-: |
-| Select-then-upsert for lot creation, savepoint-free | D-1 revised | 2 |
-| **R-1** — aggregate selectors anchor on the dimension; `Coalesce` to a typed zero | Review #4 | 6 |
-| **R-2** — polymorphic sources accept validated model instances only | Review #5 | 5 |
-| **M2-11** — sign-per-type `CHECK` for `RECEIPT` / `ISSUE` | Chief Systems Engineer | 3 |
-| Trigger escape hatch documented as a runbook step, not a code path | Review #3 | 4 |
-| `allow_negative_allocation` **rejected for M2**, deferred to Edition 2 | ADR-0006 | — |
+| 1 | `stock_location` + seeded default | done |
+| 2 | `stock_lot` + select-then-upsert lazy creation (D-1) | done |
+| 3 | `stock_movement` + 4 CHECK constraints. **ADR-0004 gate now passes** | done |
+| 4 | Append-only trigger + 7 adversarial tests | done |
+| 5 | `inventory.services` — the only writer; R-2 registry; D-3 audit rule | done |
+| 6 | Derived selectors anchored on `Product` (R-1); `as_of`; negative-stock report | done |
+| 7 | Concurrency suite — 10 parallel writers, randomised reconciliation | done |
+| 8 | `GET /stock`, `GET/POST /stock/movements` | done |
+| 9 | Stock screens + **TD-12** zone form + **TD-13** product image | done |
 
----
+## Known, to record in the M2 report
 
-## Constraints binding on every task
-
-- **Irreversible:** M2-1 … M2-11 (`M2_Design_Review.md` §4)
-- **Non-negotiable:** N-03, N-05, N-10, BR-004, BR-007
-- **Rules:** R-1 (dimension anchor), R-2 (validated instances)
-- Structural gate `ops/check_structural_columns.py` becomes blocking at task 3
-
-## Do not
-
-- Do not add a cached balance table — EP-E, only if measured
-- Do not implement allocation or reservation — Edition 2
-- Do not implement `allow_negative_allocation` — ADR-0006
-- Do not implement a physical count workflow — Edition 2
-- Do not write a `stock_movement` anywhere outside `inventory.services`
-- Do not take a lock on the stock path — M2 is deliberately lock-free (D-2)
+- `SOURCE_DOCUMENT_REGISTRY` is empty in M2 by design; `fulfilment.Delivery` registers at M5.
+  The accept path is covered by a monkeypatched test, not by a real caller.
+- The trigger escape hatch still needs writing into `docs/runbooks/incident-response.md`.
+- TD-1 (`uv.lock`) and TD-15 (`offer` milestone) remain open.

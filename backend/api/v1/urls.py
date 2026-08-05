@@ -6,7 +6,7 @@ last installed, and the version must be visible to both sides (AD-01, E-07).
 
 from django.urls import path
 
-from api.v1 import auth_views, master_views
+from api.v1 import auth_views, master_views, stock_views
 
 app_name = "v1"
 
@@ -26,4 +26,7 @@ urlpatterns = [
     path("reason-codes", master_views.ReasonCodeListView.as_view(), name="reason-code-list"),
     path("media", master_views.MediaUploadView.as_view(), name="media-upload"),
     path("media/<int:pk>", master_views.MediaDetailView.as_view(), name="media-detail"),
+    # --- stock (M2) ---
+    path("stock", stock_views.StockOnHandView.as_view(), name="stock-on-hand"),
+    path("stock/movements", stock_views.StockMovementListView.as_view(), name="stock-movements"),
 ]

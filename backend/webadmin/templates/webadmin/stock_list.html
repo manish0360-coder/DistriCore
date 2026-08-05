@@ -1,0 +1,22 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Stock — DistriCore{% endblock %}
+{% block heading %}Stock on hand{% endblock %}
+{% block action %}<a class="btn" href="{% url 'webadmin:stock-entry' %}">Stock entry</a>{% endblock %}
+{% block search %}
+<p class="muted" style="margin-bottom:12px">
+  Derived from the movement ledger — nothing is stored.
+  <a href="{% url 'webadmin:stock-movements' %}">View all movements</a>
+  {% if negative_count %} &nbsp;|&nbsp; <span class="off">{{ negative_count }} product(s) below zero —
+  paperwork is behind, reconcile with a stock entry.</span>{% endif %}
+</p>
+{% endblock %}
+{% block rows %}
+<tr><th>Code</th><th>Product</th><th class="r">On hand</th><th class="r">Packs</th><th>Unit</th></tr>
+{% for p in page.object_list %}
+<tr>
+  <td>{{ p.code }}</td><td>{{ p.name }}</td>
+  <td class="r">{% if p.on_hand < 0 %}<span class="off">{{ p.on_hand }}</span>{% else %}{{ p.on_hand }}{% endif %}</td>
+  <td class="r">{{ p.on_hand_packs|default:"" }}</td><td>{{ p.unit_name }}</td>
+</tr>
+{% endfor %}
+{% endblock %}

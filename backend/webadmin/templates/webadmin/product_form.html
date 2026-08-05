@@ -4,7 +4,7 @@
 <div class="card" style="max-width:600px">
   <h2 style="margin-top:0">{% if product %}Edit product{% else %}New product{% endif %}</h2>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     <label>Code</label>
     <input name="code" value="{{ product.code|default:'' }}" {% if product %}readonly{% endif %} required>
@@ -22,6 +22,9 @@
     <input name="pack_size" value="{{ product.pack_size|default:1 }}">
     <label>Pack name</label>
     <input name="pack_name" value="{{ product.pack_name|default:'CASE' }}">
+    <label>Product image (JPEG, PNG or WebP)</label>
+    <input type="file" name="image" accept="image/jpeg,image/png,image/webp">
+    {% if product.image_media_id %}<p class="muted">Current image attached.</p>{% endif %}
     <label>Description</label>
     <input name="description" value="{{ product.description|default:'' }}">
     {% if product %}
