@@ -15,6 +15,10 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 # --- lifecycle --------------------------------------------------------------
+.PHONY: brief
+brief: ## Generate the session bootstrap (ADR-0005 §5.2). Paste into a new AI session.
+	@./scripts/brief.sh
+
 .PHONY: up
 up: .env ## Build and start the dev stack
 	$(DC) up -d --build --wait
@@ -119,6 +123,7 @@ verify: ## Docker verification — the ONLY authority (N-12, 00 §5.2)
 	@echo "==> 8/8  health endpoint"
 	@curl -fsS http://localhost:8000/healthz | head -c 400; echo
 	$(DC) down -v
+	@printf "PASS  %s  %s\n" "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$(git rev-parse --short HEAD 2>/dev/null || echo nogit)" > .verify-result
 	@echo ""
 	@echo "  VERIFIED. This is the only result that counts (N-12)."
 

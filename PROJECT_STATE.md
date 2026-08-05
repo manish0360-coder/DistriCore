@@ -15,7 +15,7 @@
 | P0 | Engineering Foundation | Complete |
 | M0 | Foundation — identity, roles, OTP, audit, health, logging | **Verified & tagged** — `docs/M0_Verification_Report.md` |
 | M1 | Master data — zones, customers, products, reason codes, media | **Verified** — `docs/M1_Verification_Report.md` |
-| M2 | Inventory core — stock ledger | Plan proposed, awaiting approval |
+| M2 | Inventory core — stock ledger | **Design reviewed & revised — awaiting sign-off** (`docs/M2_Design_Review.md`) |
 | M3 | Pricing | Not started |
 | M4 | Orders (web) | Not started |
 | M5 | Fulfilment & billing | Not started |
@@ -38,9 +38,16 @@
 
 | # | Item | Owner |
 | --- | --- | --- |
-| 1 | **Irreversible decisions I-02 … I-12 signed off** (`04` §17) — M2 writes `stock_movement` | All |
-| 2 | TD-1 — confirm `uv.lock` is committed | Engineering |
-| 3 | TD-15 — assign a milestone to `offer` (roadmap gap) | Product Architect |
+| 1 | **D-3 — audit scope for stock events** (`M2_Design_Review.md` §2) | Product Architect |
+| 2 | **M2-1 … M2-11 irreversible decisions** (`M2_Design_Review.md` §4) | All |
+| 3 | **I-02 … I-12** (`04` §17) — M2 writes `stock_movement` | All |
+| 4 | `M2_Design_Review.md` accepted | All |
+| 5 | TD-1 — confirm `uv.lock` is committed | Engineering |
+| 6 | TD-15 — assign a milestone to `offer` (roadmap gap) | Product Architect |
+
+**Independent review:** M2 design scored 95/100. Four of five observations accepted (see
+`M2_Design_Review.md` §5); `allow_negative_allocation` rejected for M2 and deferred to
+Edition 2 (ADR-0006).
 
 ## Technical debt
 

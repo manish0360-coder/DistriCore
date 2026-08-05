@@ -26,6 +26,10 @@ coverage.xml
 /backend/staticfiles/
 *.sqlite3
 
+# Session scratchpad — non-authoritative, disposable (ADR-0005 §5.4)
+docs/_session/NOTES.md
+.verify-result
+
 # Ops
 /backups/
 *.dump
