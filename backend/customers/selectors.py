@@ -44,3 +44,26 @@ def search_customers(
 
 def active_zones() -> QuerySet[Zone]:
     return Zone.objects.filter(is_active=True).select_related("assigned_user")
+
+
+def state_code_for(customer: Customer) -> str:
+    """This customer's GST state code, or ``""`` when it is not knowable (D-3).
+
+    Order of authority:
+
+    1. ``state_code``, set explicitly by the owner;
+    2. the first two characters of the GSTIN — an Indian GSTIN **encodes** the state
+       there, so for a registered buyer the answer is already on file;
+    3. unknown.
+
+    This function answers *"which state is this customer in"* and nothing else. What to
+    do when the answer is unknown is a tax decision, and tax decisions belong to
+    ``billing`` — keeping the fallback out of here is what stops a master-data module
+    quietly deciding a statutory question.
+    """
+    if customer.state_code:
+        return customer.state_code
+    gstin = (customer.gstin or "").strip()
+    if len(gstin) >= 2 and gstin[:2].isdigit():
+        return gstin[:2]
+    return ""

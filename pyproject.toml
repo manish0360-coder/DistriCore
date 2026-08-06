@@ -17,14 +17,43 @@ dependencies = [
     "gunicorn>=22.0,<24",                   # WSGI server
     "whitenoise>=6.7,<7",                   # static files from the app container
     "httpx>=0.27,<0.29",                    # SMS provider HTTP (kept provider-agnostic)
+    "weasyprint>=62,<67",                   # invoice PDF from the web template (00 §7, 03 §7)
 ]
 
 [project.optional-dependencies]
+# ---------------------------------------------------------------------------
+# The verification toolchain is PINNED, not bounded (FD-03, TD-1).
+#
+# Evidence, not precaution. Two `make verify` runs from the same commit:
+#
+#   run 1  pytest 9.1.1 · pytest-django 4.12.0 · pytest-cov 7.1.0 · Django 5.1.15
+#          -> 447 collected, 403 passed
+#   run 2  pytest 9.1.1 · pytest-django 4.13.0 · pytest-cov 7.1.0 · Django 5.1.15
+#          -> Django's TestCase failed to initialise; 414 cascading errors
+#
+# One variable differed, and the crash was inside the package that moved:
+# pytest_django/fixtures.py::_django_db_helper, on the `_pre_setup_ran_eagerly`
+# attribute 4.13.0 added when it reworked that fixture.
+#
+# Stage 1 builds --no-cache and installs with `uv pip install -r pyproject.toml`,
+# which resolves from PyPI and does not read a lockfile. Open-ended specifiers
+# therefore let the gate's own toolchain change underneath unchanged source.
+# N-12 makes the Docker run the sole authority on correctness; an authority that
+# answers differently on consecutive days is not one.
+#
+# Moving any `==` below is a deliberate act with a verify run attached.
+# ---------------------------------------------------------------------------
 dev = [
-    "pytest>=8.3", "pytest-django>=4.9", "pytest-cov>=5.0",
-    "factory-boy>=3.3",
-    "ruff>=0.6", "mypy>=1.11", "django-stubs[compatible-mypy]>=5.0",
-    "import-linter>=2.0", "pre-commit>=3.8", "pip-audit>=2.7",
+    "pytest==9.1.1",                        # defines the gate's semantics
+    "pytest-django==4.12.0",                # THE regression; 4.13.0 breaks _django_db_helper
+    "pytest-cov==7.1.0",                    # owns the stage 7 coverage number
+    "factory-boy>=3.3,<4",
+    "ruff>=0.6,<0.15",                      # owns stage 4; a new rule is a new failure
+    "mypy>=1.11,<2",
+    "django-stubs[compatible-mypy]>=5.0,<6",
+    "import-linter>=2.0,<3",                # owns stage 5
+    "pre-commit>=3.8,<5",
+    "pip-audit>=2.7,<3",
 ]
 
 [build-system]
@@ -128,7 +157,10 @@ show_missing = true
 # import-linter — makes N-01 and N-02 mechanically enforceable (00 §6.3)
 # ---------------------------------------------------------------------------
 [tool.importlinter]
-root_packages = ["core", "identity", "catalogue", "customers", "inventory", "pricing", "orders", "api", "webadmin"]
+root_packages = [
+    "core", "identity", "catalogue", "customers", "inventory", "ledger",
+    "pricing", "orders", "fulfilment", "billing", "api", "webadmin",
+]
 include_external_packages = false
 
 [[tool.importlinter.contracts]]
@@ -138,7 +170,8 @@ source_modules = ["api", "webadmin"]
 forbidden_modules = [
     "core.models", "identity.models",
     "catalogue.models", "customers.models", "inventory.models",
-    "pricing.models", "orders.models",
+    "ledger.models", "pricing.models", "orders.models",
+    "fulfilment.models", "billing.models",
 ]
 # Direct imports only: reaching models THROUGH a service is the required path.
 allow_indirect_imports = true
@@ -146,7 +179,10 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "N-01: domain modules must not import a delivery layer"
 type = "forbidden"
-source_modules = ["core", "identity", "catalogue", "customers", "inventory", "pricing", "orders"]
+source_modules = [
+    "core", "identity", "catalogue", "customers", "inventory", "ledger",
+    "pricing", "orders", "fulfilment", "billing",
+]
 forbidden_modules = ["api", "webadmin"]
 allow_indirect_imports = true
 
@@ -155,11 +191,23 @@ name = "03 §2.1: module graph is layered and acyclic"
 type = "layers"
 # 03 §2.1: inventory may call catalogue (stock is stock OF a product).
 # catalogue must never call inventory.
+#
+# ADR-0008 / M5-6: `ledger` is a SIBLING of `inventory`, not a member of `customers`.
+# They are the two append-only fact tables over master data — stock over catalogue,
+# money over customers — and neither imports the other:
+#
+#     catalogue -> Product   is to   inventory -> StockMovement
+#     customers -> Customer  is to   ledger    -> CustomerLedgerEntry
+#
+# `billing` sits above `fulfilment` because an invoice is issued for a dispatch; both
+# sit above `orders`. `receivables` (M6) will be inserted above `billing`.
 layers = [
     "api | webadmin",
+    "billing",
+    "fulfilment",
     "orders",
     "pricing",
-    "inventory",
+    "inventory | ledger",
     "catalogue | customers",
     "identity",
     "core",

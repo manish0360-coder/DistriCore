@@ -11,12 +11,24 @@ from django.db.models.functions import Coalesce
 from core.fields import MoneyField
 from core.permissions import Role, has_role
 from customers.models import Customer
+from ledger import selectors as ledger_selectors
 from orders.models import SalesOrder
 
 ZERO_MONEY = Value(Decimal("0.00"), output_field=MoneyField())
 
-# Orders that represent live commercial exposure: agreed but not yet billed.
-OPEN_STATUSES = (SalesOrder.Status.PLACED, SalesOrder.Status.CONFIRMED)
+# D-9 — orders that are still alive commercially. NOT the same thing as "unbilled".
+#
+# M3 had this list as (PLACED, CONFIRMED) and that was correct only while no order could
+# reach DISPATCHED. M5 makes DISPATCHED reachable, and a dispatched-but-uninvoiced order
+# would then belong to NEITHER exposure term — the wrong status for the open term, no
+# ledger entry for the settled term. It would vanish from exposure at the exact moment
+# the distributor is most exposed: goods gone, nothing billed.
+LIVE_STATUSES = (
+    SalesOrder.Status.PLACED,
+    SalesOrder.Status.CONFIRMED,
+    SalesOrder.Status.DISPATCHED,
+    SalesOrder.Status.DELIVERED,
+)
 
 
 def visible_orders(actor: Any) -> QuerySet[SalesOrder]:
@@ -32,7 +44,12 @@ def visible_orders(actor: Any) -> QuerySet[SalesOrder]:
 
 
 def open_order_value(customer: Customer) -> Decimal:
-    """Value of this customer's orders that are agreed but not yet billed.
+    """Value of this customer's orders that are **agreed but not yet billed** (D-9).
+
+    The predicate is ledger presence, not order status. An order leaves this term at the
+    instant its invoice writes a ledger entry, and enters ``settled_balance`` in the same
+    transaction — so the two terms **partition** rather than overlap, and double counting
+    is impossible by construction rather than by careful status lists.
 
     R-1: anchored on ``Customer`` and coalesced to a typed zero, so a customer with no
     orders returns ``0.00`` rather than ``None``.
@@ -43,7 +60,10 @@ def open_order_value(customer: Customer) -> Decimal:
             exposure=Coalesce(
                 Sum(
                     "orders__total_amount",
-                    filter=Q(orders__status__in=OPEN_STATUSES),
+                    filter=(
+                        Q(orders__status__in=LIVE_STATUSES)
+                        & ~Q(orders__pk__in=ledger_selectors.settled_order_ids(customer))
+                    ),
                     output_field=MoneyField(),
                 ),
                 ZERO_MONEY,
@@ -58,20 +78,23 @@ def open_order_value(customer: Customer) -> Decimal:
 def settled_balance(customer: Customer) -> Decimal:
     """What the customer already owes from billed activity.
 
-    **D-1, and the honest limitation of milestone order.** The receivables ledger arrives
-    in M6; until then the only settled figure available is the opening balance loaded at
-    go-live. Exposure therefore understates reality for any customer who has been billed
-    — inherent to the sequence, not to this design.
+    **The ledger is the source** (D-2, ADR-0008). ``customer.opening_balance_amount``
+    is documentation; the balance that counts is ``SUM(customer_ledger_entry.amount)``,
+    and an ``OPENING`` entry loaded at go-live (ACT-E) is how a pre-existing debt enters
+    it.
 
-    At M6 this function's *source* changes to ``SUM(customer_ledger_entry.amount)``. The
-    formula in ``credit_exposure`` does not change, and double counting is impossible by
-    construction: an invoiced order leaves ``open_order_value`` as it enters the ledger.
+    M3's D-1 promised the formula in ``credit_exposure`` would not change when this
+    term's source became the ledger. It has not.
     """
-    return Decimal(customer.opening_balance_amount)
+    return ledger_selectors.settled_balance(customer)
 
 
 def credit_exposure(customer: Customer) -> Decimal:
-    """Total commercial exposure: settled debt plus agreed-but-unbilled orders (D-1)."""
+    """Total commercial exposure: settled debt plus agreed-but-unbilled orders (D-1).
+
+    The two terms are mutually exclusive (D-9): every live order contributes to exactly
+    one of them, and an order moves between them atomically at invoice issue.
+    """
     return settled_balance(customer) + open_order_value(customer)
 
 

@@ -128,6 +128,20 @@ def receipt_reason(db):
 
 
 @pytest.fixture
+def sales_return_reason(db):
+    """The inbound code for goods coming back from a customer.
+
+    Direction ``IN``: a physical sales return increases stock. ``DAMAGE`` is ``OUT`` and
+    cannot express it — which is the reason-code direction rule (04 T-08) doing exactly
+    its job. This is the code D-7's separation relies on: a credit note reverses money,
+    and the goods come back through their own reason-coded movement.
+    """
+    from inventory.models import ReasonCode
+
+    return ReasonCode.objects.get(code="SALES_RETURN")
+
+
+@pytest.fixture
 def profile(db):
     """The tier-3 configuration singleton, created on demand (M3-10)."""
     from core.services import get_business_profile

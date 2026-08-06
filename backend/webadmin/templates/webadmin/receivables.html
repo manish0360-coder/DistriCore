@@ -1,0 +1,19 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Receivables{% endblock %}
+{% block content %}
+<div class="toolbar"><h2 style="margin:0">Receivables</h2></div>
+<div class="card">
+  <table>
+    <tr><th>Customer</th><th>Phone</th><th class="r">Balance</th></tr>
+    {% for c in customers %}
+      <tr>
+        <td><a href="{% url 'webadmin:customer-ledger' c.pk %}">{{ c.shop_name }}</a></td>
+        <td class="muted">{{ c.phone }}</td>
+        <td class="r">{{ c.balance }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="3" class="muted">No customers.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

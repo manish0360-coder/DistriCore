@@ -1,0 +1,132 @@
+{% load humanize_money %}<!DOCTYPE html>
+{% comment %}
+The tax invoice. **One template, two outputs** (00 §7): this renders in the browser and
+is the same HTML WeasyPrint turns into the PDF.
+
+Every value here comes from the invoice row and its own lines. Nothing joins to current
+master data — that is FR-BIL-008 and M5-2, and it is what stops a price change rewriting
+a document already issued.
+{% endcomment %}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ invoice.invoice_number }}</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    body { font-family: "DejaVu Sans", sans-serif; font-size: 10pt; color: #111; }
+    h1 { font-size: 15pt; margin: 0 0 2mm; letter-spacing: .5pt; }
+    .muted { color: #555; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    table { width: 100%; border-collapse: collapse; }
+    .parties td { vertical-align: top; width: 50%; padding: 0 4mm 4mm 0; }
+    .lines th, .lines td { border: .4pt solid #999; padding: 1.6mm 2mm; }
+    .lines th { background: #f0f0f0; font-weight: 600; font-size: 9pt; }
+    .lines td { font-size: 9pt; }
+    .totals { margin-top: 4mm; width: 62mm; margin-left: auto; }
+    .totals td { padding: 1mm 2mm; }
+    .totals .grand td { border-top: .8pt solid #333; font-weight: 700; font-size: 11pt; }
+    .footer { margin-top: 8mm; font-size: 8.5pt; color: #555; }
+    .cancelled { color: #b00; font-weight: 700; border: 1.5pt solid #b00;
+                 padding: 2mm; text-align: center; margin-bottom: 4mm; }
+  </style>
+</head>
+<body>
+
+{% if invoice.status == "CANCELLED" %}
+  <p class="cancelled">CANCELLED — {{ invoice.cancelled_reason }}</p>
+{% endif %}
+
+<h1 class="center">TAX INVOICE</h1>
+
+<table class="parties">
+  <tr>
+    <td>
+      <strong>{{ invoice.seller_legal_name }}</strong><br>
+      <span class="muted">{{ invoice.seller_address }}</span><br>
+      {% if invoice.seller_gstin %}GSTIN: {{ invoice.seller_gstin }}<br>{% endif %}
+      {% if invoice.seller_state_code %}State code: {{ invoice.seller_state_code }}{% endif %}
+    </td>
+    <td>
+      <span class="muted">Invoice</span> <strong>{{ invoice.invoice_number }}</strong><br>
+      <span class="muted">Date</span> {{ invoice.invoice_date|date:"d M Y" }}<br>
+      <span class="muted">Financial year</span> {{ invoice.financial_year }}
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <span class="muted">Billed to</span><br>
+      <strong>{{ invoice.buyer_name }}</strong><br>
+      <span class="muted">{{ invoice.buyer_address }}</span><br>
+      {% if invoice.buyer_gstin %}GSTIN: {{ invoice.buyer_gstin }}<br>{% endif %}
+      State code: {{ invoice.buyer_state_code }}{% if invoice.buyer_state_assumed %}
+        <span class="muted">(assumed — intra-state)</span>{% endif %}
+    </td>
+    <td class="right muted">
+      {% if intra_state %}Intra-state supply — CGST + SGST
+      {% else %}Inter-state supply — IGST{% endif %}
+    </td>
+  </tr>
+</table>
+
+<table class="lines">
+  <thead>
+    <tr>
+      <th>#</th><th>Item</th><th>HSN</th>
+      <th class="right">Qty</th><th class="right">Rate</th>
+      <th class="right">Disc</th><th class="right">Taxable</th>
+      <th class="right">GST%</th>
+      {% if intra_state %}<th class="right">CGST</th><th class="right">SGST</th>
+      {% else %}<th class="right">IGST</th>{% endif %}
+      <th class="right">Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in lines %}
+      <tr>
+        <td>{{ line.line_number }}</td>
+        <td>{{ line.product_name }}<br><span class="muted">{{ line.product_code }}</span></td>
+        <td>{{ line.hsn_code }}</td>
+        <td class="right">{{ line.quantity }} {{ line.unit_name }}</td>
+        <td class="right">{{ line.unit_price }}</td>
+        <td class="right">{{ line.discount_amount }}</td>
+        <td class="right">{{ line.taxable_amount }}</td>
+        <td class="right">{{ line.tax_rate_percent }}</td>
+        {% if intra_state %}
+          <td class="right">{{ line.cgst_amount }}</td>
+          <td class="right">{{ line.sgst_amount }}</td>
+        {% else %}
+          <td class="right">{{ line.igst_amount }}</td>
+        {% endif %}
+        <td class="right">{{ line.line_total }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<table class="totals">
+  <tr><td>Subtotal</td><td class="right">{{ invoice.subtotal_amount }}</td></tr>
+  {% if invoice.discount_amount %}
+    <tr><td>Discount</td><td class="right">-{{ invoice.discount_amount }}</td></tr>
+  {% endif %}
+  <tr><td>Taxable value</td><td class="right">{{ invoice.taxable_amount }}</td></tr>
+  {% if intra_state %}
+    <tr><td>CGST</td><td class="right">{{ invoice.cgst_amount }}</td></tr>
+    <tr><td>SGST</td><td class="right">{{ invoice.sgst_amount }}</td></tr>
+  {% else %}
+    <tr><td>IGST</td><td class="right">{{ invoice.igst_amount }}</td></tr>
+  {% endif %}
+  {% if invoice.round_off_amount %}
+    {# M5-11: visible on the document, not silently absorbed into the total. #}
+    <tr><td>Round off</td><td class="right">{{ invoice.round_off_amount }}</td></tr>
+  {% endif %}
+  <tr class="grand"><td>Payable</td><td class="right">{{ invoice.total_amount }}</td></tr>
+</table>
+
+<p class="footer">
+  {{ invoice.total_amount|rupees_in_words }}<br>
+  E. &amp; O.E. This is a computer-generated invoice.
+</p>
+
+</body>
+</html>

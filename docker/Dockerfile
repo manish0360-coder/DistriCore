@@ -35,8 +35,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     DJANGO_SETTINGS_MODULE=config.settings.prod
 
+# WeasyPrint (00 §, 03 §7) renders the invoice PDF from the same HTML template as the
+# web view. It links against Pango, HarfBuzz and cairo at runtime — these are shared
+# libraries, not Python packages, so uv cannot supply them and a missing one fails at
+# first render rather than at build. Installed here so a clean build proves the PDF path
+# works (verify stage 1).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 curl \
+        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libfribidi0 \
+        libcairo2 libgdk-pixbuf-2.0-0 libffi8 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app

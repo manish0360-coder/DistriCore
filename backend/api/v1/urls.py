@@ -6,7 +6,7 @@ last installed, and the version must be visible to both sides (AD-01, E-07).
 
 from django.urls import path
 
-from api.v1 import auth_views, master_views, order_views, stock_views
+from api.v1 import auth_views, billing_views, master_views, order_views, stock_views
 
 app_name = "v1"
 
@@ -38,5 +38,44 @@ urlpatterns = [
         "customers/<int:pk>/credit",
         order_views.CustomerCreditView.as_view(),
         name="customer-credit",
+    ),
+    # --- fulfilment (M5) ---
+    path("deliveries", billing_views.DeliveryListView.as_view(), name="delivery-list"),
+    path("deliveries/<int:pk>", billing_views.DeliveryDetailView.as_view(), name="delivery-detail"),
+    path(
+        "deliveries/<int:pk>/dispatch",
+        billing_views.DeliveryDispatchView.as_view(),
+        name="delivery-dispatch",
+    ),
+    path(
+        "deliveries/<int:pk>/complete",
+        billing_views.DeliveryCompleteView.as_view(),
+        name="delivery-complete",
+    ),
+    path(
+        "deliveries/<int:pk>/fail",
+        billing_views.DeliveryFailView.as_view(),
+        name="delivery-fail",
+    ),
+    # --- billing (M5) ---
+    path("invoices", billing_views.InvoiceListView.as_view(), name="invoice-list"),
+    path("invoices/<int:pk>", billing_views.InvoiceDetailView.as_view(), name="invoice-detail"),
+    path(
+        "invoices/<int:pk>/cancel",
+        billing_views.InvoiceCancelView.as_view(),
+        name="invoice-cancel",
+    ),
+    path("invoices/<int:pk>/pdf", billing_views.InvoicePdfView.as_view(), name="invoice-pdf"),
+    path("credit-notes", billing_views.CreditNoteListView.as_view(), name="credit-note-list"),
+    # --- ledger (M5) ---
+    path(
+        "customers/<int:pk>/ledger",
+        billing_views.CustomerLedgerView.as_view(),
+        name="customer-ledger",
+    ),
+    path(
+        "customers/<int:pk>/balance",
+        billing_views.CustomerBalanceView.as_view(),
+        name="customer-balance",
     ),
 ]

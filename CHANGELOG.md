@@ -4,6 +4,87 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M5 — Fulfilment & Billing
+
+Dispatch makes stock physical; the invoice makes money owed. M5 exists to keep those two
+boundaries separate, because conflating them is unrecoverable once history exists.
+
+**Added**
+
+- `ledger` module — `CustomerLedgerEntry`, append-only and trigger-enforced. A balance is
+  `SUM(amount)`; nothing is stored. Given its own module rather than folded into
+  `customers` because the architecture already answered this: `StockMovement` does not
+  live inside `catalogue` (ADR-0008).
+- `fulfilment` module — `Delivery`, one per order, with proof of delivery, GPS and
+  `client_uuid` idempotency. **Dispatch writes the ISSUE movements**, carrying
+  `source_document = Delivery` — the first document-driven stock in the system's history,
+  which closes TD-16.
+- `billing` module — GST tax invoice, credit note and `number_series`. Seller and buyer
+  identity and every line value are snapshotted at issue, so a later price change cannot
+  rewrite a document already issued.
+- Gapless per-financial-year numbering under a row lock. A locked counter rather than a
+  PostgreSQL sequence, because sequences are explicitly not gapless and a gap is a
+  question from an auditor.
+- CGST + SGST versus IGST, mutually exclusive and enforced by a database CHECK. Buyer
+  state derived from GSTIN with an explicit override; where neither exists, intra-state is
+  assumed **and recorded on the invoice** as `buyer_state_assumed`.
+- `round_off_amount` stored on the document, not absorbed by whatever renders the total.
+- Invoice PDF via WeasyPrint from the same template as the web view — rendered on first
+  request, cached, and refused replacement by the database. A rendering handed to a
+  retailer must not change because a template did.
+- Credit exposure now partitions on ledger presence rather than order status, so every
+  live order contributes to exactly one term and moves between them atomically at issue.
+- 10 API endpoints, 6 owner screens, `customer.state_code`.
+- 137 tests (312 -> 449); coverage 93.38% -> 94.33%.
+- **20 adversarial tests driving raw SQL at the immutability triggers**, and Scenario F —
+  a failed delivery followed by a full credit note — proving stock rises once, not twice.
+
+**Fixed**
+
+- **`issue_invoice` gated on a caller-supplied stale instance.** `dispatch_delivery`
+  transitions the order through its own locked object, so every other reference kept
+  saying `CONFIRMED`. This failed both ways: it refused invoices for orders that had
+  shipped, and it would have invoiced an order cancelled in the database while the caller
+  held a stale `DISPATCHED` snapshot. Services now re-read the row they gate on, under the
+  lock they need. The same class was found and closed in `assign_delivery`.
+- **`04` T-19's `restocked` flag permitted the same physical goods to be restocked
+  twice.** After a failed delivery the goods really are back on the shelf, so an owner
+  answering "were these restocked?" honestly would inflate stock. A field whose correct
+  answer produces an incorrect result is a design defect; the flag is removed and a credit
+  note writes no stock movement (ADR-0009).
+- **`orders.selectors.OPEN_STATUSES` dropped dispatched-but-uninvoiced orders from credit
+  exposure** — invisible at the moment the distributor is most exposed. Correct M3 code
+  that became wrong the instant M5 made `DISPATCHED` reachable.
+- `Invoice._mutable_fields` omitted `pdf_media`, so the first PDF request would have
+  raised. Found by cross-checking the Python allow-list against the database trigger's.
+
+**Changed**
+
+- The verification toolchain is **pinned**, not bounded. Two `make verify` runs from the
+  same commit produced 403 passing tests and then a dead test framework, differing only in
+  `pytest-django` 4.12.0 → 4.13.0. Stage 1 builds `--no-cache` and resolves from PyPI with
+  no lockfile, so the gate's own toolchain could change underneath unchanged source.
+- The M3 boundary test asserting that `customer_ledger_entry` *does not exist* now asserts
+  the rule it stood for — orders write no ledger entry — plus a structural check that
+  `orders` may import the ledger's reader but never its writer.
+- Layers contract extended to 12 root packages; `inventory | ledger` are siblings.
+
+**Decisions**
+
+- **ADR-0008** — `CustomerLedgerEntry` belongs to a dedicated `ledger` module. Resolves
+  TD-19 a milestone before it was due.
+- **ADR-0009** — a credit note writes no stock movement, deviating from `04` T-19.
+- D-1/C-1 — dispatch writes the ISSUE, not delivery. `04` T-16 superseded.
+- D-3/C-3 — buyer state derived from GSTIN with an explicit override column.
+- D-8 — credit exposure re-evaluated at dispatch, reusing `evaluate_credit` unchanged.
+
+**Documentation**
+
+- `docs/M5_Design_Review.md` v1.1.0 — including §15, the independent review evaluation.
+- `docs/M5_Verification_Report.md` — verified results, seven defects, technical debt.
+
+---
+
 ### M3 — Commercial Operations
 
 Pricing and orders merged into one milestone by ADR-0007: a pricing service with nothing

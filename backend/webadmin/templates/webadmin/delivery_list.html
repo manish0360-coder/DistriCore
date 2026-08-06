@@ -1,0 +1,49 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Deliveries{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h2 style="margin:0">Deliveries</h2>
+  <form method="get">
+    <select name="status" onchange="this.form.submit()">
+      <option value="">All</option>
+      <option value="PENDING" {% if status == "PENDING" %}selected{% endif %}>Pending</option>
+      <option value="DELIVERED" {% if status == "DELIVERED" %}selected{% endif %}>Delivered</option>
+      <option value="FAILED" {% if status == "FAILED" %}selected{% endif %}>Failed</option>
+    </select>
+  </form>
+</div>
+<div class="card">
+  <table>
+    <tr><th>Order</th><th>Customer</th><th>Assigned</th><th>Status</th><th>Dispatched</th><th></th></tr>
+    {% for d in deliveries %}
+      <tr>
+        <td><a href="{% url 'webadmin:order-detail' d.sales_order_id %}">{{ d.sales_order.order_number }}</a></td>
+        <td>{{ d.sales_order.customer.shop_name }}</td>
+        <td>{{ d.assigned_user.full_name }}</td>
+        <td>{{ d.get_status_display }}</td>
+        <td class="muted">{{ d.dispatched_at|default_if_none:"—" }}</td>
+        <td class="r">
+          {% if not d.dispatched_at %}
+            <form method="post" action="{% url 'webadmin:delivery-dispatch' d.pk %}" style="display:inline">
+              {% csrf_token %}<button type="submit">Dispatch</button>
+            </form>
+          {% elif d.status == "PENDING" %}
+            <form method="post" action="{% url 'webadmin:delivery-complete' d.pk %}" style="display:inline">
+              {% csrf_token %}
+              <input type="hidden" name="recipient_name" value="Received">
+              <button type="submit">Delivered</button>
+            </form>
+            <form method="post" action="{% url 'webadmin:delivery-fail' d.pk %}" style="display:inline">
+              {% csrf_token %}
+              <input type="hidden" name="reason" value="Shop closed">
+              <button type="submit">Failed</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="muted">No deliveries yet.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

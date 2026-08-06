@@ -56,6 +56,13 @@ class Customer(TimeStampedModel):
     alt_phone = models.CharField(max_length=20, blank=True)
     # Many small retailers are unregistered, so this must be nullable.
     gstin = models.CharField(max_length=15, blank=True)
+    # D-3 / M5-7: drives CGST+SGST versus IGST at invoice issue.
+    #
+    # An Indian GSTIN encodes the state in its first two characters, so for a registered
+    # buyer this is derivable and normally left blank. It exists as an explicit override
+    # because unregistered retailers have no GSTIN and **a wrong tax split is a legal
+    # defect, not a cosmetic one** — the derivation must be correctable by hand.
+    state_code = models.CharField(max_length=2, blank=True)
     zone = models.ForeignKey(
         Zone, null=True, blank=True, on_delete=models.SET_NULL, related_name="customers"
     )

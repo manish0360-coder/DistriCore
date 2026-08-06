@@ -1,6 +1,6 @@
 from django.urls import path
 
-from webadmin import master_views, views
+from webadmin import fulfilment_views, master_views, views
 
 app_name = "webadmin"
 
@@ -31,4 +31,24 @@ urlpatterns = [
     path("orders/<int:pk>/", master_views.order_detail, name="order-detail"),
     path("orders/<int:pk>/confirm/", master_views.order_confirm, name="order-confirm"),
     path("orders/<int:pk>/cancel/", master_views.order_cancel, name="order-cancel"),
+    # --- fulfilment and billing (M5) ---
+    path("deliveries/", fulfilment_views.delivery_list, name="delivery-list"),
+    path("orders/<int:pk>/assign/", fulfilment_views.delivery_assign, name="delivery-assign"),
+    path(
+        "deliveries/<int:pk>/dispatch/",
+        fulfilment_views.delivery_dispatch,
+        name="delivery-dispatch",
+    ),
+    path(
+        "deliveries/<int:pk>/complete/",
+        fulfilment_views.delivery_complete,
+        name="delivery-complete",
+    ),
+    path("deliveries/<int:pk>/fail/", fulfilment_views.delivery_fail, name="delivery-fail"),
+    path("invoices/", fulfilment_views.invoice_list, name="invoice-list"),
+    path("invoices/<int:pk>/", fulfilment_views.invoice_detail, name="invoice-detail"),
+    path("invoices/<int:pk>/pdf/", fulfilment_views.invoice_pdf, name="invoice-pdf"),
+    path("orders/<int:pk>/invoice/", fulfilment_views.invoice_issue, name="invoice-issue"),
+    path("receivables/", fulfilment_views.receivables, name="receivables"),
+    path("customers/<int:pk>/ledger/", fulfilment_views.customer_ledger, name="customer-ledger"),
 ]

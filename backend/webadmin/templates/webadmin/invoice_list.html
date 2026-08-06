@@ -1,0 +1,23 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block content %}
+<div class="toolbar"><h2 style="margin:0">Invoices</h2></div>
+{% if flash %}<div class="error">{{ flash }}</div>{% endif %}
+<div class="card">
+  <table>
+    <tr><th>Number</th><th>Date</th><th>Customer</th><th class="r">Total</th><th>Status</th><th></th></tr>
+    {% for i in invoices %}
+      <tr>
+        <td><a href="{% url 'webadmin:invoice-detail' i.pk %}">{{ i.invoice_number }}</a></td>
+        <td>{{ i.invoice_date }}</td>
+        <td>{{ i.buyer_name }}</td>
+        <td class="r">{{ i.total_amount }}</td>
+        <td>{% if i.status == "CANCELLED" %}<span class="off">Cancelled</span>{% else %}Issued{% endif %}</td>
+        <td class="r"><a class="btn" href="{% url 'webadmin:invoice-pdf' i.pk %}">PDF</a></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="muted">No invoices yet.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

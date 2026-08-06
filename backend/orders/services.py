@@ -227,6 +227,37 @@ def confirm_order(*, actor: Any, order: SalesOrder) -> SalesOrder:
     return order
 
 
+def mark_dispatched(*, actor: Any, order: SalesOrder) -> SalesOrder:
+    """Move a confirmed order to ``DISPATCHED``. Called by ``fulfilment`` at dispatch.
+
+    **This function writes no stock** — it moves a status and nothing else, which is what
+    keeps M3-6 true after M5 lands. The stock movements are written by
+    ``fulfilment.services.dispatch_delivery`` in the same transaction, because dispatch
+    is a fulfilment act and the ledger belongs to inventory.
+
+    It exists so the state machine stays where M3-4 put it: ``_transition`` remains the
+    single place a status changes, and no module above reaches in to set ``status``
+    directly.
+
+    The role check is repeated here rather than trusted to the caller (N-06): a public
+    service function must be safe on its own terms, whichever module reaches it.
+    """
+    require_roles(actor, Role.OWNER)
+    _transition(actor=actor, order=order, to_status=SalesOrder.Status.DISPATCHED)
+    return order
+
+
+def mark_delivered(*, actor: Any, order: SalesOrder) -> SalesOrder:
+    """Move a dispatched order to ``DELIVERED``. Called by ``fulfilment`` on handover.
+
+    Internal staff, not owner-only: confirming a handover is the delivery person's job,
+    which is the whole point of the DELIVERY role existing (04 T-03).
+    """
+    require_roles(actor, *Role.INTERNAL)
+    _transition(actor=actor, order=order, to_status=SalesOrder.Status.DELIVERED)
+    return order
+
+
 @transaction.atomic
 def cancel_order(*, actor: Any, order: SalesOrder, reason: str) -> SalesOrder:
     """Cancel before dispatch. Nothing physical has happened, so nothing is reversed."""

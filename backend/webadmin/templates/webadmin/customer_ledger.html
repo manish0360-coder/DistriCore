@@ -1,0 +1,29 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{{ customer.shop_name }} — ledger{% endblock %}
+{% block content %}
+<div class="toolbar"><h2 style="margin:0">{{ customer.shop_name }}</h2></div>
+<div class="card" style="margin-bottom:16px">
+  <table>
+    <tr><td>Settled balance (ledger)</td><td class="r"><b>{{ settled_balance }}</b></td></tr>
+    <tr><td>Open orders, not yet billed</td><td class="r">{{ open_order_value }}</td></tr>
+    <tr><td>Credit exposure</td><td class="r"><b>{{ credit_exposure }}</b></td></tr>
+    <tr><td>Credit limit</td><td class="r">{{ customer.credit_limit_amount }}</td></tr>
+  </table>
+  <p class="muted">Every live order contributes to exactly one of the first two rows (D-9).</p>
+</div>
+<div class="card">
+  <table>
+    <tr><th>Date</th><th>Type</th><th>Narration</th><th class="r">Amount</th></tr>
+    {% for e in entries %}
+      <tr>
+        <td>{{ e.entry_date }}</td>
+        <td>{{ e.get_entry_type_display }}</td>
+        <td>{{ e.narration }}</td>
+        <td class="r">{{ e.amount }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4" class="muted">Nothing owed. No entries.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

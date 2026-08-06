@@ -163,18 +163,55 @@ def test_the_orders_package_imports_no_inventory_module():
 
 
 def test_orders_write_no_ledger_entry(owner, credit_customer, stocked):
-    """The receivable begins at the invoice (M5), not when a customer asks for goods."""
-    from django.db import connection
+    """The receivable begins at the invoice (M5), not when a customer asks for goods.
 
+    **This assertion changed in M5, and the change is a strengthening.** It previously
+    read ``the ledger table should not exist`` — a proxy that was only ever true because
+    no milestone had created the table yet. M5 creates it, so the proxy would now fail
+    while the guarantee it stood for remained perfectly intact.
+
+    That is the same class of defect as M3's ``OPEN_STATUSES``: a stand-in for a rule,
+    correct only until the thing it stood in for arrived. The rule is *orders write no
+    ledger entry*, and this now tests exactly that.
+    """
+    from ledger.models import CustomerLedgerEntry
+
+    before = CustomerLedgerEntry.objects.count()
     order = place_order(
         actor=owner,
         customer=credit_customer,
         lines=[{"product": stocked, "quantity": Decimal("10")}],
     )
+    amend_order(actor=owner, order=order, lines=[{"product": stocked, "quantity": Decimal("12")}])
     confirm_order(actor=owner, order=order)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT count(*) FROM information_schema.tables WHERE table_name = %s",
-            ["customer_ledger_entry"],
-        )
-        assert cursor.fetchone()[0] == 0, "the ledger table should not exist until M6"
+    cancel_order(actor=owner, order=order, reason="Retailer changed mind")
+    assert CustomerLedgerEntry.objects.count() == before
+
+
+def test_the_orders_package_cannot_write_the_ledger():
+    """Structural counterpart to the inventory tripwire above.
+
+    ``orders`` *may* read the ledger — D-9 makes ``settled_balance`` the settled term of
+    credit exposure, and that is a read. It must never import the **writer**:
+    ``ledger.services.record_entry`` is the single path a ledger row can be created by,
+    and only ``billing`` is entitled to call it.
+
+    Distinguishing read from write is the whole point. A blanket "orders must not import
+    ledger" would have been simpler and wrong — it would forbid the exposure query the
+    architecture requires.
+    """
+    import orders
+
+    package_root = Path(orders.__file__).parent
+    offenders = {}
+    for module in package_root.rglob("*.py"):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            imported = ""
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported = node.module
+            elif isinstance(node, ast.Import):
+                imported = ",".join(alias.name for alias in node.names)
+            if "ledger.services" in imported:
+                offenders[module.relative_to(package_root).as_posix()] = imported
+    assert offenders == {}, f"orders imports the ledger writer: {offenders}"
