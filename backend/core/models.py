@@ -182,6 +182,10 @@ class AuditLog(models.Model):
         PAYMENT_REVERSE = "PAYMENT_REVERSE", "Payment reversal"
         ROLE_GRANT = "ROLE_GRANT", "Role granted"
         ROLE_REVOKE = "ROLE_REVOKE", "Role revoked"
+        # FR-IAM-014's "distinct high-severity event". `audit_log` has no severity
+        # column, so the action code is the only way an event can be distinguishable —
+        # and break-glass use must be findable without a JSON containment query.
+        OWNER_BOOTSTRAP = "OWNER_BOOTSTRAP", "Owner bootstrapped"
         LOGIN_SUCCESS = "LOGIN_SUCCESS", "Login succeeded"
         LOGIN_FAILED = "LOGIN_FAILED", "Login failed"
 

@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M7_Verification_Report` |
-| Version | **1.1.0** |
+| Version | **1.2.0** |
 | Status | **VERIFIED** — `make verify` 8/8 |
-| Date | 2026-08-08 · **addendum §10 added 2026-08-08** |
+| Date | 2026-08-08 · **addenda §10, §11 added 2026-08-08** |
 | Milestone | M7 — Reporting |
 | Design authority | `docs/M7_Design_Review.md` v1.2.0 (signed, independently reviewed) |
 | Verify cycles to green | **2** |
@@ -411,3 +411,98 @@ annotation gaps around Django's `values()`/`annotate()` return types. Advisory o
 
 **This is the fourth consecutive milestone in which the `mypy` gate was not made blocking**
 and the second in which the untyped surface grew while it stayed advisory.
+
+---
+
+## 11. Addendum — the owner bootstrap gap, verified 2026-08-08
+
+Found immediately after §10 was fixed. With the phone defect gone, login authenticated and
+was then refused with **"This account cannot sign in here."**
+
+### 11.1 Root cause: the system could not reach its own first authorised user
+
+`webadmin/views.py:41` calls `has_role(user, *Role.INTERNAL)`, which reads `user_role`. A
+`createsuperuser` account holds no row there. Traced, not assumed:
+
+| Fact | Verified |
+| --- | --- |
+| Non-test writers of `UserRole` | **One** — `grant_role` |
+| `grant_role`'s first statement | `require_roles(actor, Role.OWNER)` |
+| Production callers of `grant_role` | **None** — it was called only from tests |
+| Management commands / fixtures / seed scripts | **None existed** |
+
+So on a fresh database nobody held OWNER, therefore `grant_role` could never succeed,
+therefore **no user could be granted any role through any supported interface.** Not missing
+data — an unreachable state, whose only exit was a raw `INSERT` into `user_role`: an
+unaudited write into authorisation data, which is what ADR-0003 exists to prevent.
+
+**`is_superuser` is irrelevant by design.** It feeds only `has_perm`, `has_module_perms` and
+`is_staff`, none of which DistriCore consults, because ADR-0003 excluded
+`django.contrib.admin`.
+
+### 11.2 Why authentication succeeded while authorisation failed
+
+Two independent facts in two tables, kept separate by N-06/BR-003. §10 repaired *who you
+are*; nothing had ever written *what you may do*. The message changing from "Incorrect phone
+number or password" to "This account cannot sign in here" was the system correctly reporting
+that it had got further.
+
+### 11.3 What was built
+
+`identity.services.bootstrap_owner` plus `manage.py bootstrap_owner`, per
+`docs/Owner_Bootstrap_Design_Note.md` v1.1.0. **This implements FR-IAM-014**, which sat at
+priority `S` and unbuilt since `02` was written, and satisfies **FR-IAM-005** for the
+account that reaches the admin.
+
+Three properties worth restating:
+
+- **It refuses while any *active* OWNER exists.** *Active*, not *any* — a deactivated sole
+  owner **is** the recovery case FR-IAM-014 describes, and a stricter guard would lock the
+  business out permanently.
+- **`--reason` is optional by ruling.** A mandatory field on a break-glass path fails closed
+  at the worst possible moment and is defeated within a week by a constant string.
+- **The mode is classified by the service from the database**, never accepted from the
+  caller, and the audit row carries the counts it was derived from as well as the label
+  (§7.1 of the note) — a conclusion without its evidence is what makes a trail
+  unfalsifiable.
+
+### 11.4 Verified run
+
+| Metric | M7 | + identity fix | **+ owner bootstrap** |
+| --- | --: | --: | --: |
+| Stages | 8/8 | 8/8 | **8/8** |
+| Tests | 665 | 685 | **703** (+18) |
+| Coverage | 94.47% | 94.78% | **94.83%** |
+| Import contracts | 3 kept | 3 kept | **3 kept, 0 broken** |
+| Missing migrations | none | none | **none** |
+
+The +18 is exactly the 17 tests in `test_identity_bootstrap.py` plus the one added to
+`test_webadmin.py`. Nothing else moved.
+
+`core/0005_alter_auditlog_action` is a **state-only** `AlterField` adding
+`OWNER_BOOTSTRAP` — verified before the run as one operation, 17 choices matching the model
+in order, a single-element delta against `HEAD`, `max_length` unchanged. `choices` is not a
+database constraint on PostgreSQL, so it emits no DDL. Third of its kind after `0003` and
+`0004`.
+
+### 11.5 `00` §20.3 criterion 2 is now true for the first time
+
+> *"A user can log in by OTP on mobile and by password on web."*
+
+This was **never satisfiable on a clean machine** through the supported path. It passed at
+M0 and at every milestone since because the suite reached that state through
+`UserFactory(roles=[...])`, which bypasses `UserManager._create` (TD-30). A clean install
+could fail while the suite stayed green — and did, for eight milestones.
+
+`tests/integration/test_webadmin.py::test_a_clean_install_can_reach_the_admin_through_the_supported_path`
+now asserts it end-to-end: seeded roles, the bootstrap service, a browser login.
+
+### 11.6 What this says about the two defects together
+
+§10 and §11 are the same defect class at two layers: **a rule enforced on one side of a
+boundary and not the other.** The phone had a canonical form on read and not on write. The
+role had a grant path for the second owner and none for the first.
+
+Neither was findable by design review — both are properties of paths the test suite did not
+take. **TD-30 is the common cause**, and it remains open: a factory that bypasses the
+production creation path made both invisible.

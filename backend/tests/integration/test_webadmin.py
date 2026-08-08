@@ -72,6 +72,29 @@ def test_failed_web_login_is_audited(client, owner):
     assert AuditLog.objects.filter(action=AuditLog.Action.LOGIN_FAILED).exists()
 
 
+def test_a_clean_install_can_reach_the_admin_through_the_supported_path(
+    client, seeded_roles
+):
+    """`00` §20.3 criterion 2 — *"a user can log in ... by password on web"*.
+
+    Asserted end-to-end through the **supported** sequence for the first time: nothing but
+    seeded roles, then the bootstrap command, then a browser login. Every earlier
+    authentication test reached this state through `UserFactory(roles=[...])`, which
+    bypasses `UserManager._create` (TD-30) — so a clean install could fail while the suite
+    stayed green, and did.
+    """
+    from identity.services import bootstrap_owner
+
+    bootstrap_owner(phone="7903324153", full_name="Mack", password="Manish.0360")
+
+    response = client.post(
+        LOGIN, {"phone": "7903324153", "password": "Manish.0360"}, follow=True
+    )
+    assert response.status_code == 200
+    assert b"Mack" in response.content
+    assert b"OWNER" in response.content
+
+
 def test_retailer_cannot_use_the_admin(client, retailer):
     """Retailers use the app. The admin is an internal surface (05 §8)."""
     retailer.set_password("retailer-password-123")

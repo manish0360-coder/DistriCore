@@ -4,6 +4,63 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### Fix — the system can now reach its own first authorised user (FR-IAM-014)
+
+**Fixed**
+
+- **A clean installation could not sign in to the admin at all.** `grant_role` requires an
+  OWNER to act; a fresh database has none; and it was the **only** non-test writer of
+  `user_role`. No management command, fixture or seed script existed. So no user could ever
+  be granted the first role through any supported interface — an unreachable state whose
+  only exit was a raw `INSERT` into `user_role`, an unaudited write into authorisation data
+  and precisely what ADR-0003 exists to prevent.
+
+  `createsuperuser` produced an account that authenticated correctly and was then refused
+  with "This account cannot sign in here". `is_superuser` does not help and is not meant
+  to: it feeds only `has_perm`, `has_module_perms` and `is_staff`, none of which DistriCore
+  consults, because ADR-0003 excluded `django.contrib.admin`.
+
+  Together with the phone defect above, the same class at two layers — **a rule enforced on
+  one side of a boundary and not the other.**
+
+**Added**
+
+- `identity.services.bootstrap_owner` and `manage.py bootstrap_owner` — **FR-IAM-014's
+  break-glass procedure**, priority `S` and unbuilt since `02` was written. Creates or
+  promotes a user and grants OWNER. A third delivery surface that parses and delegates:
+  every rule stays in `services.py` (N-01) and the command imports no model.
+- `AuditLog.Action.OWNER_BOOTSTRAP` — FR-IAM-014's *"distinct high-severity event"*.
+  `audit_log` has no severity column, so a distinct action code is the only way break-glass
+  use is findable without a JSON containment query. `core/0005` is a state-only `AlterField`,
+  third of its kind.
+- `make owner PHONE=... [NAME=...] [REASON=...]`, and `make superuser` now says out loud
+  that a login is not an authorisation.
+- `docs/runbooks/first-owner.md` — the documented recovery procedure FR-IAM-014 requires.
+- 18 regression tests (685 -> 703), including **one that asserts the deadlock itself**: with
+  an empty `user_role` table `grant_role` refuses every actor. Without it, a later reader
+  sees that `grant_role` "already does this", deletes the bootstrap as redundant, and
+  restores the lockout with a green suite.
+
+**Behaviour worth knowing**
+
+- Refuses while any **active** owner exists — the ordinary path is then `grant_role`, which
+  records who granted it. *Active*, not *any*: a deactivated sole owner **is** the recovery
+  case, and a stricter guard would lock the business out permanently.
+- Refuses a **deactivated target** rather than granting silently: `has_role` checks
+  `is_active` first, so the grant would succeed and the login would still fail.
+- `--reason` is **optional and never required**. A mandatory field on a break-glass path
+  fails closed at the worst possible moment.
+- The `FIRST_BOOT` / `RECOVERY` mode is classified by the service **from the database**, and
+  the audit row carries the counts it was derived from alongside the label.
+- `actor_user` and `user_role.granted_by` are **NULL**. Nobody authorised this grant; the
+  truthful actor is an operator with shell access, who is unidentifiable.
+
+**Closed**
+
+- **`00` §20.3 criterion 2** — *"a user can log in ... by password on web"* — is satisfiable
+  on a clean machine for the first time, and is now asserted end-to-end through the
+  supported path.
+
 ### Fix — one canonical phone number
 
 **Fixed**

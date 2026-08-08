@@ -1,22 +1,42 @@
 # Next Task
 
-> M7 is verified and closed: `docs/M7_Verification_Report.md` — 8/8, 665/665, 94.47%,
-> 3 contracts kept, 2 verify cycles. Design authority `docs/M7_Design_Review.md` v1.2.0.
+> M7 is verified and closed: `docs/M7_Verification_Report.md` **v1.2.0** — 8/8, **703/703,
+> 94.83%**, 3 contracts kept. Design authority `docs/M7_Design_Review.md` v1.2.0. Post-M7
+> fixes in §10–§11; owner bootstrap in `docs/Owner_Bootstrap_Design_Note.md` v1.1.0.
 
 **Milestone:** M8 — Mobile app (Flutter, `S2`/`S3`)
-**State:** **not started. Two engineering items should close first — see below.**
+**State:** **not started. Four engineering items should close first — see below.**
+
+> **The install works end to end for the first time.** `git clone && make up && make owner`
+> now yields a system the owner can sign in to. That was true at **no previous commit**, and
+> no test caught it, because the suite reached that state through `UserFactory` (TD-30).
 
 ---
 
 ## Do these before M8 opens
 
-Both are cheap now and become entangled the moment a second toolchain enters the repository.
+All four are cheap now and become entangled the moment a second toolchain and a second
+platform enter the repository.
 
 | # | Item | Why now, not later |
 | --: | --- | --- |
-| **1** | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured | M8 adds a Dart build and a second runtime. Measuring after that switch conflates two variables, and the harness already exists |
-| **2** | **TD-21 — make the build reproducible.** `uv.lock` absent, `make lock` non-functional | An unpinned Python build plus a brand-new Dart build is **two** unpinned builds. The M5 toolchain drift that broke a green gate under unchanged source is the precedent |
-| **3** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead** |
+| **1** | **TD-30 — make `UserFactory` use the production creation path.** | **It hid two defects in a row.** M8 builds a client whose entire relationship with the server is authentication, and the factory every auth test uses does not exercise how real users are made. Fix this **before** writing M8's auth tests, not after |
+| **2** | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured | M8 adds a Dart build and a second runtime. Measuring after that switch conflates two variables, and the harness already exists |
+| **3** | **TD-21 — make the build reproducible.** `uv.lock` absent, `make lock` non-functional | An unpinned Python build plus a brand-new Dart build is **two** unpinned builds. The M5 toolchain drift that broke a green gate under unchanged source is the precedent |
+| **4** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead** |
+
+### On TD-30 specifically — it is now first for a reason
+
+`DjangoModelFactory` calls `Manager.create()`, so no factory-built user has ever gone through
+`UserManager._create`, and `UserFactory(roles=[...])` grants roles by a path production could
+not reach. Both post-M7 defects lived exactly there:
+
+| Defect | What the factory hid |
+| --- | --- |
+| Phone normalisation | Factory phones were already canonical, so the missing write-path rule never showed |
+| Owner bootstrap deadlock | Factory users arrived **with roles**, so the absence of any way to grant the first one never showed |
+
+**A clean install could fail while the suite stayed green — and did, for eight milestones.**
 
 ### On TD-27 specifically
 
@@ -94,11 +114,11 @@ self-registration — **a recorded deviation, not a silent scope change.**
 | Item | Note |
 | --- | --- |
 | `reporting` owns nothing | Four AST tests enforce it. If M8 wants a figure on the device, the selector goes in the **domain**, not in `reporting` (D-3) |
+| **First-owner bootstrap** | `make owner` / `manage.py bootstrap_owner`, documented in `docs/runbooks/first-owner.md`. M8's device provisioning will need users with roles — use this path, not a factory shortcut |
 | **TD-29** | Nothing asserts a newly added report is wired into `REPORT_MENU`, the API router **and** the CSV path. The eighth report will be added by someone who forgets one of the three |
 | **TD-28** | `?format=csv` on an unauthorised report stringifies the problem+json body. Cosmetic, untested error path |
-| **TD-30** | **`UserFactory` bypasses `UserManager._create`.** M8 builds a client whose entire relationship with the server is authentication — and the factory every auth test uses does not exercise the path that creates real users. Fix this **before** writing M8's auth tests, not after |
 | TD-23 | `billing/selectors.py` scoping branches — **very likely closed by FR-RPT-014's tests, but per-file coverage was not captured**, so it is not recorded as closed |
-| The M7 lesson worth carrying | **A design review cannot find a framework-integration defect.** Both M7 defects lived in the seam between our code and a library's conventions, and two reviews missed both |
+| The lesson worth carrying | **A design review cannot find a defect on a path the tests do not take.** M7's two defects lived in the seam with a library; the two after it lived in the seam with the test suite's own scaffolding. Four reviews found none of them; the only thing that did was running the real thing |
 
 ## Blocking, not owned by engineering
 

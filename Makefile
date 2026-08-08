@@ -71,8 +71,20 @@ lock: ## Regenerate uv.lock inside the container (TD-1). Commit the result.
 	@echo "uv.lock regenerated — commit it. Builds are not reproducible without it (FD-03)."
 
 .PHONY: superuser
-superuser: ## Create an owner account
+superuser: ## Create a login. Does NOT grant a role — run `make owner` next
 	$(DC) exec app python manage.py createsuperuser
+	@echo ""
+	@echo "  A login is not an authorisation. createsuperuser writes app_user only;"
+	@echo "  the admin needs an OWNER role (FR-IAM-005). Grant it with:"
+	@echo ""
+	@echo "      make owner PHONE=<the number you just used>"
+	@echo ""
+
+.PHONY: owner
+owner: ## Grant OWNER (FR-IAM-014). Creates the user if absent. PHONE=... [NAME=...] [REASON=...]
+	@test -n "$(PHONE)" || { echo "PHONE is required, e.g. make owner PHONE=7903324153"; exit 1; }
+	$(DC) exec app python manage.py bootstrap_owner \
+		--phone "$(PHONE)" --full-name "$(NAME)" --reason "$(REASON)"
 
 # --- quality ----------------------------------------------------------------
 .PHONY: lint

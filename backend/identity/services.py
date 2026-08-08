@@ -26,6 +26,7 @@ from core.exceptions import (
     OtpExpired,
     OtpInvalid,
     OtpRateLimited,
+    PermissionDenied,
     ValidationFailed,
 )
 from core.models import AuditLog
@@ -247,6 +248,130 @@ def revoke_role(*, actor: User, user: User, role_code: str) -> None:
         surface=AuditLog.Surface.WEB,
         before_state={"user_id": user.pk, "role": role_code},
     )
+
+
+# ----------------------------------------------------------------------- bootstrap
+#: How the system reached the state that made a bootstrap necessary. Classified **here,
+#: from the database** — never accepted from the caller, because a security record must
+#: not assert whatever an operator typed.
+BOOTSTRAP_FIRST_BOOT = "FIRST_BOOT"
+BOOTSTRAP_RECOVERY = "RECOVERY"
+
+
+@dataclass(frozen=True)
+class BootstrapResult:
+    """What the bootstrap did, so the caller need not re-derive it.
+
+    The command surface must report the mode without reading a model (N-02) and without
+    computing it a second time — two derivations of one fact can disagree, and this one
+    ends up on a security record.
+    """
+
+    user: User
+    mode: str
+    created_user: bool
+
+
+@transaction.atomic
+def bootstrap_owner(
+    *,
+    phone: str,
+    full_name: str = "",
+    password: str | None = None,
+    reason: str = "",
+) -> BootstrapResult:
+    """Grant the first — or the recovering — OWNER. FR-IAM-014's break-glass procedure.
+
+    **Why this exists.** ``grant_role`` requires an OWNER to act, and a fresh database has
+    none, so no user can ever be granted the first role through any other supported path.
+    The only alternative today is a raw ``INSERT`` into ``user_role``: an unaudited write
+    into authorisation data, which is exactly what ADR-0003 exists to prevent.
+
+    **It is not an escalation tool.** It refuses while any *active* OWNER exists — the
+    ordinary path is then ``grant_role``, which is audited against a named actor. *Active*
+    rather than *any*: if the sole owner has been deactivated, that **is** the recovery
+    case FR-IAM-014 describes, and a stricter guard would lock the business out of its own
+    system permanently.
+
+    Someone with shell access could deactivate the owner and then run this. Shell access
+    already implies database access, so the guard prevents accident; **the audit row is the
+    control.**
+
+    ``reason`` is optional by ruling. A mandatory field on a break-glass path fails closed
+    at the worst possible moment, and is defeated within a week by a constant string in a
+    saved command — at which point the audit row looks explained and is not.
+    """
+    phone = _normalise_phone(phone)
+
+    # Serialises two concurrent bootstraps against each other: the second waits, then sees
+    # the first's UserRole and refuses. The Role row is the only row that exists to lock —
+    # the absence of a UserRole is the whole problem. Readers are unaffected, so
+    # `grant_role`'s plain lookup never blocks on this.
+    owner_role = RoleModel.objects.select_for_update().filter(code=Role.OWNER).first()
+    if owner_role is None:
+        raise ValidationFailed(
+            "The OWNER role is not seeded. Run migrations first.",
+            errors=[{"field": "role", "code": "NOT_FOUND", "message": Role.OWNER}],
+        )
+
+    owner_links = UserRole.objects.filter(role=owner_role)
+    if owner_links.filter(app_user__is_active=True).exists():
+        raise PermissionDenied(
+            "An active owner already exists. Use the ordinary role-grant path, which "
+            "records who granted it."
+        )
+
+    # Facts first, conclusion second — and both are recorded (§7.1). A reviewer who
+    # distrusts `mode` can re-derive it from the counts.
+    owner_rows_existing = owner_links.count()
+    users_existing = User.objects.count()
+    mode = BOOTSTRAP_FIRST_BOOT if owner_rows_existing == 0 else BOOTSTRAP_RECOVERY
+
+    user = User.objects.filter(phone=phone).first()
+    created_user = user is None
+    if user is None:
+        if not full_name:
+            raise ValidationFailed(
+                "A new owner needs a full name.",
+                errors=[{"field": "full_name", "code": "REQUIRED", "message": ""}],
+            )
+        user = User.objects.create_user(phone=phone, password=password, full_name=full_name)
+    elif not user.is_active:
+        # Granting a role to a deactivated account produces a user who still cannot log
+        # in — a silent no-op from the operator's point of view. Refuse loudly instead.
+        # Reactivation is a separate, deliberate act (FR-IAM-011).
+        raise PermissionDenied(
+            "That account is deactivated. Reactivate it first, then bootstrap."
+        )
+
+    link, created = UserRole.objects.get_or_create(
+        app_user=user,
+        role=owner_role,
+        # Nobody granted this. The truthful actor is an operator with shell access, who
+        # is unidentifiable — naming one would invent them.
+        defaults={"granted_by": None},
+    )
+    user.__dict__.pop("_role_codes", None)
+
+    record_audit(
+        action=AuditLog.Action.OWNER_BOOTSTRAP,
+        entity_type="user_role",
+        entity_id=link.pk,
+        actor=None,
+        surface=AuditLog.Surface.SYSTEM,
+        after_state={
+            "mode": mode,
+            "role": Role.OWNER,
+            "user_id": user.pk,
+            "phone_suffix": phone[-4:],
+            "users_existing": users_existing,
+            "owner_rows_existing": owner_rows_existing,
+            "inactive_owners": owner_rows_existing,
+            "reason": reason,
+            "granted": created,
+        },
+    )
+    return BootstrapResult(user=user, mode=mode, created_user=created_user)
 
 
 # --------------------------------------------------------------------------- helpers
