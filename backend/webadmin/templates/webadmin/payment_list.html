@@ -1,0 +1,46 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Payments{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h2 style="margin:0">Payments</h2>
+  <form method="get">
+    <select name="method" onchange="this.form.submit()">
+      <option value="">All methods</option>
+      <option value="CASH" {% if method == "CASH" %}selected{% endif %}>Cash</option>
+      <option value="UPI" {% if method == "UPI" %}selected{% endif %}>UPI</option>
+      <option value="BANK" {% if method == "BANK" %}selected{% endif %}>Bank</option>
+      <option value="CHEQUE" {% if method == "CHEQUE" %}selected{% endif %}>Cheque</option>
+    </select>
+  </form>
+</div>
+{% if flash %}<div class="error">{{ flash }}</div>{% endif %}
+<div class="card">
+  <table>
+    <tr><th>Receipt</th><th>Date</th><th>Customer</th><th>Method</th><th class="r">Amount</th><th></th></tr>
+    {% for p in payments %}
+      <tr>
+        <td>{{ p.payment_number }}</td>
+        <td>{{ p.payment_date }}</td>
+        <td><a href="{% url 'webadmin:customer-outstanding' p.customer_id %}">{{ p.customer.shop_name }}</a></td>
+        <td>{{ p.get_method_display }}</td>
+        <td class="r">{% if p.is_reversed %}<span class="off">{{ p.amount }} reversed</span>{% else %}{{ p.amount }}{% endif %}</td>
+        <td class="r">
+          {% if not p.is_reversed %}
+            <form method="post" action="{% url 'webadmin:payment-reverse' p.pk %}" style="display:inline">
+              {% csrf_token %}
+              <input type="hidden" name="reason" value="Recorded in error">
+              <button type="submit">Reverse</button>
+            </form>
+          {% else %}
+            <span class="muted">{{ p.reversed_reason }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="muted">No payments recorded yet.</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">A reversal never edits the original. It appends a compensating ledger
+     entry, so both the collection and its reversal stay on the statement.</p>
+</div>
+{% endblock %}

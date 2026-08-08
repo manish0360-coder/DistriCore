@@ -1,0 +1,69 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{{ customer.shop_name }} — outstanding{% endblock %}
+{% block content %}
+<div class="toolbar"><h2 style="margin:0">{{ customer.shop_name }}</h2></div>
+{% if flash %}<div class="error">{{ flash }}</div>{% endif %}
+
+<div class="card" style="margin-bottom:16px">
+  <table>
+    <tr><td>Outstanding</td><td class="r"><b>{{ position.total_outstanding }}</b></td></tr>
+    {% if position.credit_on_account %}
+      <tr><td>Credit on account</td><td class="r">{{ position.credit_on_account }}</td></tr>
+    {% endif %}
+    <tr><td>Balance</td><td class="r">{{ position.balance }}</td></tr>
+    <tr><td>Credit exposure (incl. unbilled orders)</td><td class="r">{{ credit_exposure }}</td></tr>
+    <tr><td>Credit limit</td><td class="r">{{ customer.credit_limit_amount }}</td></tr>
+  </table>
+  <p class="muted">Derived at {{ position.as_of }}. Nothing here is stored — the same walk
+     over the same entries gives the same answer tomorrow.</p>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <h3 style="margin-top:0">Unpaid, oldest first</h3>
+  <table>
+    <tr><th>Document</th><th>Date</th><th class="r">Original</th><th class="r">Outstanding</th><th class="r">Age</th></tr>
+    {% for item in position.outstanding %}
+      <tr>
+        <td>{{ item.document }}</td>
+        <td>{{ item.entry_date }}</td>
+        <td class="r muted">{{ item.original_amount }}</td>
+        <td class="r"><b>{{ item.outstanding_amount }}</b></td>
+        <td class="r">{{ item.age_days }} d <span class="muted">({{ item.bucket }})</span></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5" class="muted">Nothing outstanding.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <h3 style="margin-top:0">Record a collection</h3>
+  <form method="post" action="{% url 'webadmin:payment-record' customer.pk %}">
+    {% csrf_token %}
+    <label>Amount</label>
+    <input name="amount" placeholder="0.00">
+    <label>Method</label>
+    <select name="method">
+      <option value="CASH">Cash</option>
+      <option value="UPI">UPI</option>
+      <option value="BANK">Bank transfer</option>
+      <option value="CHEQUE">Cheque</option>
+    </select>
+    <label>Reference (UPI reference, cheque number)</label>
+    <input name="reference_number">
+    <button type="submit">Record payment</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Write off bad debt</h3>
+  <form method="post" action="{% url 'webadmin:write-off' customer.pk %}">
+    {% csrf_token %}
+    <label>Amount — an explicit sum, never "whatever is left"</label>
+    <input name="amount" placeholder="0.00">
+    <label>Reason — required, and audited</label>
+    <input name="reason" placeholder="Why is this being written off?">
+    <button type="submit">Write off</button>
+  </form>
+</div>
+{% endblock %}

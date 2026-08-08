@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "orders.apps.OrdersConfig",
     "fulfilment.apps.FulfilmentConfig",
     "billing.apps.BillingConfig",
+    "receivables.apps.ReceivablesConfig",
     "webadmin.apps.WebAdminConfig",
 ]
 

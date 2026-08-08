@@ -1,6 +1,6 @@
 from django.urls import path
 
-from webadmin import fulfilment_views, master_views, views
+from webadmin import fulfilment_views, master_views, receivables_views, views
 
 app_name = "webadmin"
 
@@ -51,4 +51,27 @@ urlpatterns = [
     path("orders/<int:pk>/invoice/", fulfilment_views.invoice_issue, name="invoice-issue"),
     path("receivables/", fulfilment_views.receivables, name="receivables"),
     path("customers/<int:pk>/ledger/", fulfilment_views.customer_ledger, name="customer-ledger"),
+    # --- receivables (M6) ---
+    path("payments/", receivables_views.payment_list, name="payment-list"),
+    path(
+        "payments/<int:pk>/reverse/",
+        receivables_views.payment_reverse,
+        name="payment-reverse",
+    ),
+    path(
+        "customers/<int:pk>/pay/",
+        receivables_views.payment_record,
+        name="payment-record",
+    ),
+    path("customers/<int:pk>/write-off/", receivables_views.write_off, name="write-off"),
+    path(
+        "customers/<int:pk>/outstanding/",
+        receivables_views.outstanding,
+        name="customer-outstanding",
+    ),
+    path(
+        "receivables/position/",
+        receivables_views.receivables_report,
+        name="receivables-position",
+    ),
 ]

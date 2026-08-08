@@ -4,6 +4,87 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M6 — Receivables
+
+A payment reduces what a customer owes. **It does not pay an invoice.** The distributor
+keeps a running account — udhaari — so which invoices are consequently settled is derived
+FIFO at read time and never written down.
+
+**Added**
+
+- `receivables` module — `Payment`, recorded against the customer. No allocation table and
+  no allocation column: allocation rows added later are additive, whereas allocation rows
+  *removed* later would be a migration of live financial history (C-1, `02A` §13.2).
+- **The §5A FIFO walk** — a pure function that classifies every ledger entry as *reducing*,
+  *settling* or **annulling**, then applies credits to debits oldest-first. Nothing it
+  produces is stored; it is the third derived quantity in the system after stock on hand
+  and the settled balance.
+- Reversal as a compensating ledger entry, under the **only lock in the milestone** — real
+  because it locks the row it mutates, unlike the write-off lock that was specified and
+  then removed for serialising nothing.
+- Write-off with an explicit amount, owner only, reason mandatory, audited. Explicit
+  because a balance-derived amount would carry a race no lock could fix, every other
+  ledger writer being lock-free by design since M2.
+- **Idempotent opening balances** — one `OPENING` entry per customer, enforced by a partial
+  unique index. Re-running the go-live import after a partial failure is a no-op, whatever
+  mix of loaded and unloaded customers it left behind.
+- `payment_number` from a dedicated sequence read *before* the insert, so a payment row is
+  written once and the immutability trigger is never engaged. Gaps are expected: a receipt
+  is a reference, not a statutory series.
+- Customer statement whose closing figure is the next period's opening figure by
+  construction — both are the same `SUM` over the same immutable rows.
+- 6 API endpoints, 3 owner screens, collections-by-collector selector for M7.
+- 76 tests (449 -> 525); coverage 94.33% -> 93.92%.
+- **A five-seed property test asserting `Σ outstanding - credit_on_account ≡
+  settled_balance`** across all six entry roles.
+
+**Fixed**
+
+- **The FIFO walk lost money in two independent ways, and both were the same mistake:
+  `_walk` trusted invariants enforced in other modules instead of holding its own.**
+  - *Annulment was many-to-one.* Two annullers pointing at one document both matched it, so
+    three entries left the walk where only two should and one amount vanished from the
+    total while remaining in the `SUM`. Targets are now claimed on match, and the pair must
+    offset.
+  - *Over-credit was silently discarded.* A credit note subtracted unconditionally, so two
+    notes against one invoice drove `remaining` negative — and only positive remainders are
+    kept. Excess now spills into the settling pool, which is also the correct accounting:
+    crediting more than a document is worth leaves the customer in credit on account.
+
+  Both are unreachable through the services, and neither was reachable-proof in isolation.
+  `remaining` is now provably bounded in `[0, original_amount]`, so the invariant holds for
+  any input.
+- **The §5A property test had never executed** — it built dates as `date(2026, 1, 1 + N)`,
+  asking January for its 201st day. It read as coverage in every prior estimate.
+- **The allocation-table assertion could not fail.** It queried
+  `information_schema.tables` without a schema filter, matching PostgreSQL's own
+  `pg_shmem_allocations`, and would have failed identically on an empty database.
+
+**Changed**
+
+- Layers contract extended to 13 root packages; `receivables` sits above `billing` for one
+  reason — the walk resolves a credit note to its invoice, and that is a **read**. A
+  structural test forbids importing `billing.services`.
+- `customer_ledger_entry` gains one constraint. No column changes; `PAYMENT` and
+  `WRITE_OFF` already existed in the type and sign CHECKs.
+
+**Decisions**
+
+- No ADR. M6 amends no milestone boundary.
+- C-1/C-2/C-3 — `02A` §13 supersedes `02` on allocation and aging buckets; `reversed_at`
+  and `reversed_by` added for symmetry with M5's invoice cancellation.
+- D-4 — `payment_number` is a reference, not a statutory series.
+- D-9 / §5A — the FIFO application rule, specified in full before implementation.
+- D-10 — opening balances idempotent by natural key.
+- D-7 **deferred** — `_ImmutableDocument` stays in `billing` until M10 (TD-24).
+
+**Documentation**
+
+- `docs/M6_Design_Review.md` v1.2.0 — including §5A, the FIFO specification.
+- `docs/M6_Verification_Report.md` — verified results, nine defects, technical debt.
+
+---
+
 ### M5 — Fulfilment & Billing
 
 Dispatch makes stock physical; the invoice makes money owed. M5 exists to keep those two

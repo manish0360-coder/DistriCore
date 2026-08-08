@@ -1,0 +1,24 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Receivables position{% endblock %}
+{% block content %}
+<div class="toolbar"><h2 style="margin:0">Receivables — oldest first</h2></div>
+<div class="card">
+  <table>
+    <tr><th>Customer</th><th>Oldest unpaid</th><th class="r">Age</th><th class="r">Outstanding</th></tr>
+    {% for customer, position in rows %}
+      <tr>
+        <td><a href="{% url 'webadmin:customer-outstanding' position.customer_id %}">
+          {{ customer.shop_name|default:"(unknown)" }}</a></td>
+        <td class="muted">{% if position.oldest %}{{ position.oldest.document }}{% else %}—{% endif %}</td>
+        <td class="r">{% if position.oldest %}{{ position.oldest.age_days }} d
+          <span class="muted">({{ position.oldest.bucket }})</span>{% else %}—{% endif %}</td>
+        <td class="r"><b>{{ position.total_outstanding }}</b></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4" class="muted">Nobody owes anything.</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">A sorted list answers "who is oldest and how much?" without a bucketing
+     engine — which is why configurable buckets are Edition 2 (02A §13.2).</p>
+</div>
+{% endblock %}

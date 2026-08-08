@@ -6,7 +6,14 @@ last installed, and the version must be visible to both sides (AD-01, E-07).
 
 from django.urls import path
 
-from api.v1 import auth_views, billing_views, master_views, order_views, stock_views
+from api.v1 import (
+    auth_views,
+    billing_views,
+    master_views,
+    order_views,
+    receivables_views,
+    stock_views,
+)
 
 app_name = "v1"
 
@@ -77,5 +84,24 @@ urlpatterns = [
         "customers/<int:pk>/balance",
         billing_views.CustomerBalanceView.as_view(),
         name="customer-balance",
+    ),
+    # --- receivables (M6) ---
+    path("payments", receivables_views.PaymentListView.as_view(), name="payment-list"),
+    path("payments/<int:pk>", receivables_views.PaymentDetailView.as_view(), name="payment-detail"),
+    path(
+        "payments/<int:pk>/reverse",
+        receivables_views.PaymentReverseView.as_view(),
+        name="payment-reverse",
+    ),
+    path("write-offs", receivables_views.WriteOffView.as_view(), name="write-off"),
+    path(
+        "customers/<int:pk>/statement",
+        receivables_views.CustomerStatementView.as_view(),
+        name="customer-statement",
+    ),
+    path(
+        "customers/<int:pk>/outstanding",
+        receivables_views.CustomerOutstandingView.as_view(),
+        name="customer-outstanding",
     ),
 ]

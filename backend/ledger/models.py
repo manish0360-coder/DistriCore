@@ -139,6 +139,23 @@ class CustomerLedgerEntry(models.Model):
                 ),
                 name="ck_cle_source_pair",
             ),
+            # M6-11 / D-10: **a customer has exactly one opening balance.** It is the
+            # balance at go-live, so two of them is not a duplicate record but a
+            # meaningless one — which is why the natural key is the customer itself and
+            # no `client_uuid` is needed.
+            #
+            # This makes the ACT-E bulk load idempotent: re-running the whole import
+            # after a partial failure is a no-op, whatever mix of loaded and unloaded
+            # customers it left behind. That import is the most financially sensitive
+            # write the system performs, and "be careful" is not a control.
+            #
+            # Added at M6. No OPENING row exists — M5's only callers write INVOICE,
+            # CREDIT_NOTE and ADJUSTMENT — so nothing can violate it.
+            models.UniqueConstraint(
+                fields=["customer"],
+                condition=models.Q(entry_type="OPENING"),
+                name="uq_cle_one_opening_per_customer",
+            ),
             # The accounting direction, encoded in the database. A service-layer sign
             # error is then rejected outright rather than silently halving a balance.
             models.CheckConstraint(

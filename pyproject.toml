@@ -159,7 +159,7 @@ show_missing = true
 [tool.importlinter]
 root_packages = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "billing", "api", "webadmin",
+    "pricing", "orders", "fulfilment", "billing", "receivables", "api", "webadmin",
 ]
 include_external_packages = false
 
@@ -171,7 +171,7 @@ forbidden_modules = [
     "core.models", "identity.models",
     "catalogue.models", "customers.models", "inventory.models",
     "ledger.models", "pricing.models", "orders.models",
-    "fulfilment.models", "billing.models",
+    "fulfilment.models", "billing.models", "receivables.models",
 ]
 # Direct imports only: reaching models THROUGH a service is the required path.
 allow_indirect_imports = true
@@ -181,7 +181,7 @@ name = "N-01: domain modules must not import a delivery layer"
 type = "forbidden"
 source_modules = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "billing",
+    "pricing", "orders", "fulfilment", "billing", "receivables",
 ]
 forbidden_modules = ["api", "webadmin"]
 allow_indirect_imports = true
@@ -200,9 +200,15 @@ type = "layers"
 #     customers -> Customer  is to   ledger    -> CustomerLedgerEntry
 #
 # `billing` sits above `fulfilment` because an invoice is issued for a dispatch; both
-# sit above `orders`. `receivables` (M6) will be inserted above `billing`.
+# sit above `orders`.
+#
+# M6: `receivables` sits above `billing` for exactly one reason — the FIFO outstanding
+# walk resolves a credit note to its invoice through `billing` (M6 §5A.10). It is a
+# READ. A structural test asserts `receivables` never imports `billing.services`, the
+# same read/write distinction the M5 boundary suite drew for `orders -> ledger`.
 layers = [
     "api | webadmin",
+    "receivables",
     "billing",
     "fulfilment",
     "orders",
