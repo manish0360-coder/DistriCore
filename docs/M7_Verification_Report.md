@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M7_Verification_Report` |
-| Version | 1.0.0 |
+| Version | **1.1.0** |
 | Status | **VERIFIED** — `make verify` 8/8 |
-| Date | 2026-08-08 |
+| Date | 2026-08-08 · **addendum §10 added 2026-08-08** |
 | Milestone | M7 — Reporting |
 | Design authority | `docs/M7_Design_Review.md` v1.2.0 (signed, independently reviewed) |
 | Verify cycles to green | **2** |
@@ -78,8 +78,16 @@ worth reading carefully rather than as progress: M7 wrote no migration, took no 
 enforced no new business rule and touched no financial document. **A read-only milestone
 being the cheapest to verify is the design working, not the engineering improving.**
 
-The layer graph now carries **14 root packages**. `lint-imports` analysed 141 files and 276
-dependencies.
+The layer graph now carries **14 root packages**.
+
+> **Correction, 2026-08-08.** v1.0.0 of this report stated that `lint-imports` analysed
+> "141 files and 276 dependencies". **Those numbers were not observed in the M7 verify
+> run** — they came from a local sandbox execution and were written here as though they had
+> been. The M7 run reported only *3 kept, 0 broken*, which is all this document can claim.
+> The next verified run (§10) measured **139 files, 268 dependencies**.
+>
+> Recorded rather than quietly overwritten, because §1 of this report promises that every
+> figure in it comes from the passing run, and for one line that was not true.
 
 ---
 
@@ -343,3 +351,63 @@ remembering when the pressure to materialise an aggregate arrives.
 rows. **They say nothing about ten seconds at five years**, and the design said so before
 the code was written. Recording that here, rather than letting a green run imply it, is the
 whole point of §6.1.
+
+---
+
+## 10. Addendum — the identity phone defect, verified 2026-08-08
+
+Found after M7 was committed, while preparing to run the FR-RPT-015 harness: a freshly
+created superuser could not log in.
+
+**Root cause: the write path did not normalise, the read path did.** `UserManager._create`
+stored the phone verbatim; `authenticate_password` normalised before looking it up. A user
+created as `7903324153` was stored as `7903324153` and searched for as `+917903324153`. The
+`user is None or not user.check_password(...)` test short-circuits, so `check_password` was
+never reached — which is why the password verified in a shell and failed in a browser, and
+why the message said "Incorrect phone number or password" while both were correct.
+
+This is the same class as the canonical-decimal defect M1 fixed: **a canonical
+representation enforced on read and not on write.** `core.fields.to_money` exists for
+exactly that reason on the money side; `identity/phone.py` now does the same for the login
+identity, below both the reader and the writer so neither has to reach across the layering.
+
+### 10.1 Verified run
+
+| Metric | M7 | **With the fix** |
+| --- | --: | --: |
+| Stages | 8/8 | **8/8** |
+| Tests | 665 | **685** (+20) |
+| Coverage | 94.47% | **94.78%** |
+| Import contracts | 3 kept | **3 kept, 0 broken** — 139 files, 268 dependencies |
+| Missing migrations | none | **none** — `0004` is hand-written and alters no model |
+
+### 10.2 Why 665 green tests did not catch it
+
+**`UserFactory` never calls `UserManager._create`.** `factory.django.DjangoModelFactory`
+goes through `Manager.create()`, so no factory-built user has ever exercised the write-path
+rules. The factory's own numbers happen to be canonical (`+9198765…`), so nothing failed
+and nothing warned.
+
+Every prior milestone's authentication tests were therefore testing a code path that
+production does not use for user creation. Recorded as **TD-30**; the new regression tests
+build their users through `create_user` deliberately.
+
+### 10.3 What the migration does, and what it refuses to do
+
+`0004_normalise_user_phone` normalises existing rows. It **copies** the rule rather than
+importing it, so a later change to the canonical form cannot silently rewrite history — the
+same reason `0002_seed_roles` inlines its data.
+
+**It refuses rather than merges.** If two rows would collide on one canonical number it
+raises with both user IDs and both raw values and stops. `phone` is `UNIQUE` and is the
+login identity (`04` T-01), so choosing a winner would orphan a real account and its audit
+trail. That is a business decision, not a migration's.
+
+### 10.4 Advisory `mypy` grew
+
+24 errors in 7 files, of which **6 are new in `backend/reporting/selectors.py`** —
+annotation gaps around Django's `values()`/`annotate()` return types. Advisory only
+(stage 6 runs under `|| true`), and folded into TD-25.
+
+**This is the fourth consecutive milestone in which the `mypy` gate was not made blocking**
+and the second in which the untyped surface grew while it stayed advisory.

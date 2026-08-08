@@ -11,6 +11,8 @@ from typing import Any
 
 from django.contrib.auth.base_user import BaseUserManager
 
+from identity.phone import normalise_phone
+
 
 class UserManager(BaseUserManager["Any"]):
     use_in_migrations = True
@@ -18,6 +20,14 @@ class UserManager(BaseUserManager["Any"]):
     def _create(self, phone: str, password: str | None, **extra: Any) -> Any:
         if not phone:
             raise ValueError("A phone number is required.")
+        # **The write path must store what the read path will look for.** Every lookup —
+        # `authenticate_password`, `request_otp`, `verify_otp` — normalises first, so a
+        # row written verbatim is a row that can never be found. A superuser created as
+        # "7903324153" could not log in with any spelling of their own number.
+        #
+        # The empty check stays above this line: it is the contract `createsuperuser`
+        # already relies on, and `normalise_phone` raises a different exception type.
+        phone = normalise_phone(phone)
         user = self.model(phone=phone, **extra)
         if password:
             user.set_password(password)

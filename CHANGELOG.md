@@ -4,6 +4,45 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### Fix — one canonical phone number
+
+**Fixed**
+
+- **A freshly created superuser could not log in.** `UserManager._create` stored the phone
+  number verbatim while every lookup — `authenticate_password`, `request_otp`, `verify_otp`
+  — normalised first. A user created as `7903324153` was stored as `7903324153` and
+  searched for as `+917903324153`, so the row was never found. `check_password` was never
+  reached: `if user is None or not user.check_password(...)` short-circuits, which is why
+  the password verified in a shell and failed in a browser, and why the screen said
+  "Incorrect phone number or password" while both were correct.
+
+  The same class as the canonical-decimal defect M1 fixed — **a canonical representation
+  enforced on read and not on write.**
+
+**Added**
+
+- `identity/phone.py` — `normalise_phone`, the canonical form of the login identity,
+  defined once and placed below both the reader and the writer so a manager never has to
+  reach up into the service layer. `identity.services._normalise_phone` re-exports it, so
+  no existing call site changed.
+- `identity/0004_normalise_user_phone` — data migration correcting rows already stored
+  verbatim. It **copies** the rule rather than importing it, so a later change to the
+  canonical form cannot rewrite history. **It refuses rather than merges:** two rows
+  colliding on one canonical number raises with both user IDs and both raw values, because
+  `phone` is `UNIQUE` and is the login identity (`04` T-01) — picking a winner would orphan
+  a real account and its audit trail.
+- 20 regression tests (665 -> 685): the manager and the `createsuperuser` command store the
+  canonical form; login succeeds through the browser for `7903324153`, `917903324153` and
+  `+917903324153`; a wrong password still fails for all three; and the three spellings can
+  no longer become three users.
+
+**Known limitation**
+
+- **`UserFactory` bypasses `UserManager._create`** — `DjangoModelFactory` calls
+  `Manager.create()`. No factory-built user has ever exercised the write path, which is why
+  665 green tests missed this. The new tests build users through `create_user` on purpose.
+  Recorded as TD-30; the factory itself is unchanged.
+
 ### M7 — Reporting
 
 A report computes nothing. **It arranges, filters and totals figures the domain already

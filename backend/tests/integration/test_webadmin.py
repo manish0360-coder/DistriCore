@@ -34,6 +34,32 @@ def test_owner_can_sign_in_and_sees_their_roles(client, owner):
     assert b"OWNER" in response.content
 
 
+@pytest.mark.parametrize("spelling", ["7903324153", "917903324153", "+917903324153"])
+def test_sign_in_works_for_every_spelling_of_one_number(client, seeded_roles, spelling):
+    """The reported defect, on the surface it was reported from.
+
+    A superuser created as `7903324153` was stored verbatim while every lookup asked for
+    `+917903324153`, so the browser reported "Incorrect phone number or password" for a
+    correct password. `check_password` was never reached — the `user is None` branch
+    short-circuits before it.
+    """
+    # Created through `create_user`, not `UserFactory`. The factory calls
+    # `Manager.create()` and therefore **bypasses `UserManager._create` entirely** — which
+    # is precisely why 665 green tests never caught this defect.
+    from identity.models import Role as RoleModel
+    from identity.models import User, UserRole
+
+    user = User.objects.create_user(
+        phone="7903324153", password="Manish.0360", full_name="Mack"
+    )
+    assert user.phone == "+917903324153", "the manager did not normalise on write"
+    UserRole.objects.create(app_user=user, role=RoleModel.objects.get(code="OWNER"))
+
+    response = client.post(LOGIN, {"phone": spelling, "password": "Manish.0360"}, follow=True)
+    assert response.status_code == 200
+    assert user.full_name.encode() in response.content
+
+
 def test_bad_password_shows_an_error_and_does_not_sign_in(client, owner):
     response = client.post(LOGIN, {"phone": owner.phone, "password": "wrong"})
     assert response.status_code == 200

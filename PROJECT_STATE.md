@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M7 — Reporting** — verified 8/8, 665/665 tests, 94.47% coverage |
+| Current milestone | **M7 — Reporting** — verified 8/8. Latest run **685/685 tests, 94.78%** (M7 plus the identity phone fix) |
 | Next milestone | **M8 — Mobile app** (not started) |
 | Edition | 1a — **back end feature-complete** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -41,7 +41,8 @@
 | M3 | 8/8 | 312 | 93.38% | 3 kept | 2 |
 | M5 | 8/8 | 449 | 94.33% | 3 kept | 4 |
 | M6 | 8/8 | 525 | 93.92% | 3 kept | 5 |
-| M7 | 8/8 | **665** | **94.47%** | 3 kept | **2** |
+| M7 | 8/8 | 665 | 94.47% | 3 kept | **2** |
+| M7 + identity fix | 8/8 | **685** | **94.78%** | 3 kept | **1** |
 
 > Coverage fell 0.18 points in M3 and 0.41 in M6. Both recorded rather than rounded away.
 > The gate is 80% and has never been moved.
@@ -70,8 +71,9 @@ Introduced at M5 after a toolchain change broke the gate under unchanged source.
 | Gate | State |
 | --- | --- |
 | `ops/check_structural_columns.py` | Satisfied since M2 — `location_id` and `lot_id` on every movement (ADR-0004, E-06) |
-| `lint-imports` — 3 contracts | Kept. **141 files, 276 dependencies**, 14 root packages. Has caught 4 violations across 7 milestones, all by the rule's author |
+| `lint-imports` — 3 contracts | Kept. **139 files, 268 dependencies**, 14 root packages. Has caught 4 violations across 7 milestones, all by the rule's author |
 | **`reporting` owns nothing** | No `models.py`, no `services.py`, no migration, absent from `INSTALLED_APPS`. Four AST tests assert it, including that it imports no `*.services` and no first-party `*.models` (M7-4, M7-5) |
+| **One canonical phone number** | `identity/phone.py` defines it once; `UserManager._create` writes it and every lookup reads it. Migration `identity/0004` normalised existing rows and **refuses to merge collisions** (`04` T-01) |
 | Order/inventory/ledger boundary | Orders write no stock movement and no ledger entry, and cannot import the ledger's writer (M3-6) |
 | Financial immutability | Raw SQL refused on `invoice`, `invoice_line`, `credit_note`, `credit_note_line`, `customer_ledger_entry` and now `payment` |
 | Double-restock (Scenario F) | Impossible by construction — a credit note writes no stock (ADR-0009) |
@@ -83,7 +85,7 @@ Introduced at M5 after a toolchain change broke the gate under unchanged source.
 
 | # | Item | Owner |
 | --- | --- | --- |
-| 1 | M7 committed, tagged `m7-reporting`, pushed | Engineering |
+| 1 | M7 **and the identity phone fix** committed, tagged `m7-reporting`, pushed. The tag goes on the fix, not on `27c6a07`: that commit cannot be logged into with a freshly created superuser | Engineering |
 | 2 | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured. Do it **before** M8 adds a second toolchain, or the measurement conflates two variables | Engineering |
 | 3 | **TD-21 — make the build reproducible.** Still the highest-value debt. M8 adds a Dart build; an unpinned Python build plus a new one is two unpinned builds | Engineering |
 | 4 | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7**. It needs its own change and a scheduled slot, not another good reason to defer | Engineering |
@@ -105,8 +107,9 @@ it can prove.**
 | TD-23 | `billing/selectors.py` scoping branches. FR-RPT-014's tests exercise exactly that surface, so it is **very likely closed — but per-file coverage was not captured**, and this table does not record what was not observed | M8 |
 | TD-26 | `_walk`'s three robustness guards are exercised only by the randomised property test | M8 |
 | TD-14 | `Product._has_history()` still inert. **Overdue** since M3 | M8 |
-| TD-22 / TD-25 | Advisory `mypy` diagnostics | M8 |
+| TD-22 / TD-25 | Advisory `mypy` diagnostics — **24 errors in 7 files, six of them new in `reporting/selectors.py`**. Fourth consecutive milestone with the gate advisory, second in which the untyped surface grew while it stayed that way | M8 |
 | **TD-29** | **New.** Nothing asserts a *newly added* report is wired into `REPORT_MENU`, the API router and the CSV path. The eighth report will be added by someone who forgets one of the three | M8 |
+| **TD-30** | **New. `UserFactory` bypasses `UserManager._create`** — `factory.django.DjangoModelFactory` calls `Manager.create()`, so no factory-built user has ever exercised the write-path rules. **This is why 665 green tests missed the phone defect.** Every authentication test in every prior milestone ran against a creation path production does not use | M8 |
 | **TD-28** | **New.** `?format=csv` on an unauthorised report stringifies the problem+json body through `CsvRenderer`. Cosmetic, untested error path | M10 |
 | TD-24 | Move `_ImmutableDocument` to `core` (D-7, deferred by ruling) | M10 |
 | TD-15 | `offer` has no milestone | Open |

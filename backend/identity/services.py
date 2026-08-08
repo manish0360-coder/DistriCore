@@ -33,9 +33,15 @@ from core.permissions import Role, require_roles
 from core.services import get_business_profile, record_audit
 from identity.models import OtpRequest, User, UserRole
 from identity.models import Role as RoleModel
+from identity.phone import normalise_phone as _normalise_phone
 from identity.sms import get_sms_provider
 
 logger = logging.getLogger("districore.identity")
+
+# `_normalise_phone` is re-exported under its historical private name so every call site
+# here — and `tests/unit/test_otp_services.py` — keeps importing the same function it
+# always did. The definition moved to `identity.phone` so `UserManager` can WRITE the
+# canonical form this module READS, without a manager importing a service (see 0004).
 
 _MAX_OTP_PER_WINDOW = 3
 _OTP_WINDOW = timedelta(minutes=15)
@@ -260,24 +266,6 @@ def _otp_expiry_minutes() -> int:
 def _generate_code(length: int) -> str:
     """Cryptographically random numeric code. ``secrets``, never ``random``."""
     return "".join(secrets.choice("0123456789") for _ in range(length))
-
-
-def _normalise_phone(phone: str) -> str:
-    """Collapse the ways a person types an Indian mobile number into one form.
-
-    Without this, '+919876543210', '919876543210' and '9876543210' are three different
-    users. Validation of the result belongs to the serialiser.
-    """
-    cleaned = "".join(ch for ch in (phone or "") if ch.isdigit() or ch == "+").strip()
-    if not cleaned:
-        raise ValidationFailed(
-            "A phone number is required.",
-            errors=[{"field": "phone", "code": "REQUIRED", "message": "Phone number is required."}],
-        )
-    digits = cleaned.lstrip("+")
-    if len(digits) == 10:
-        digits = f"91{digits}"
-    return f"+{digits}"
 
 
 def user_payload(user: User) -> dict[str, Any]:

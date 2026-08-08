@@ -96,6 +96,7 @@ self-registration — **a recorded deviation, not a silent scope change.**
 | `reporting` owns nothing | Four AST tests enforce it. If M8 wants a figure on the device, the selector goes in the **domain**, not in `reporting` (D-3) |
 | **TD-29** | Nothing asserts a newly added report is wired into `REPORT_MENU`, the API router **and** the CSV path. The eighth report will be added by someone who forgets one of the three |
 | **TD-28** | `?format=csv` on an unauthorised report stringifies the problem+json body. Cosmetic, untested error path |
+| **TD-30** | **`UserFactory` bypasses `UserManager._create`.** M8 builds a client whose entire relationship with the server is authentication — and the factory every auth test uses does not exercise the path that creates real users. Fix this **before** writing M8's auth tests, not after |
 | TD-23 | `billing/selectors.py` scoping branches — **very likely closed by FR-RPT-014's tests, but per-file coverage was not captured**, so it is not recorded as closed |
 | The M7 lesson worth carrying | **A design review cannot find a framework-integration defect.** Both M7 defects lived in the seam between our code and a library's conventions, and two reviews missed both |
 
