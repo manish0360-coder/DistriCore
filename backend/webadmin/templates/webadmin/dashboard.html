@@ -1,13 +1,52 @@
 {% extends "webadmin/base.html" %}
+{% comment %}
+Four plain numbers, no charts (02A §13.2, M7 D-4).
+
+Four questions, and no number is a slice of another: did we sell, did the money arrive, how
+much is out there, what is stuck. Stock value is absent because there is no cost basis
+(C-7); overdue receivables is absent because it is part of the third number, and showing a
+total beside one of its parts invites the reader to add them.
+
+There is no CSV here on purpose. The first two figures describe *today* and are not
+reproducible — I-6 does not apply to them — and an exportable figure acquires the authority
+of a document.
+{% endcomment %}
 {% block title %}Dashboard — DistriCore{% endblock %}
 {% block content %}
+
+{% if dashboard %}
+  <div class="metrics">
+    {% for metric in dashboard.metrics %}
+      <div class="metric">
+        <span class="k">{{ metric.label }}</span>
+        <span class="v">{% if metric.is_money %}&#8377;{% endif %}{{ metric.value }}</span>
+        <span class="c">{{ metric.caption }}{% if metric.is_live %} &middot; today, live{% endif %}</span>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="muted" style="margin:0 0 24px">
+    As at {{ dashboard.as_of }}. The first two figures describe today and will change as the
+    day goes on; they are not a record.
+  </p>
+{% endif %}
+
 <div class="card">
   <h2 style="margin-top:0">Signed in as {{ user.full_name }}</h2>
   <p class="muted">Roles: {{ roles|join:", " }}</p>
-  <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
-  <p><strong>M0 — Foundation.</strong> Identity, roles, OTP login, audit, health and logging
-     are in place. Business screens arrive from M1 (products and customers).</p>
-  <p class="muted">No products, customers, orders, invoices or stock exist yet, by design
-     (00 §20.2).</p>
+  {% if reports %}
+    <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+    <p><strong>Reports.</strong></p>
+    <p>{% for name, label in reports %}<a href="{% url name %}">{{ label }}</a>{% if not forloop.last %} &middot; {% endif %}{% endfor %}</p>
+  {% endif %}
 </div>
+
+<style>
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+             gap:16px; margin-bottom:16px; }
+  .metric { background:#fff; border:1px solid var(--line); border-radius:4px; padding:18px; }
+  .metric .k { display:block; font-size:13px; color:var(--muted); }
+  .metric .v { display:block; font-size:26px; font-weight:600; color:var(--navy);
+               margin:6px 0 4px; }
+  .metric .c { display:block; font-size:12px; color:var(--muted); }
+</style>
 {% endblock %}

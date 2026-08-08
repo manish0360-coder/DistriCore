@@ -50,6 +50,17 @@ def search_invoices(
     return queryset
 
 
+def issued_invoices(actor: Any) -> QuerySet[Invoice]:
+    """Visible invoices that still record a sale (M7 D-1).
+
+    A cancelled invoice records a sale that did not happen — it is not a negative in the
+    month of cancellation, it is absent from both months. That is a *billing* fact about
+    what `CANCELLED` means, so it lives here rather than as a status literal in a report
+    (M7 D-3): getting it wrong would be a business-rule defect, not a display defect.
+    """
+    return visible_invoices(actor).exclude(status=Invoice.Status.CANCELLED)
+
+
 def get_invoice_for(actor: Any, invoice_id: int) -> Invoice | None:
     return visible_invoices(actor).filter(pk=invoice_id).first()
 

@@ -560,15 +560,38 @@ Enforced in `services.py` on every request (N-01, N-06). ● full · ◐ own rec
 
 ### 9.11 Reports — owner
 
+> **Amended 2026-08-08** by `M7_Design_Review.md` v1.2.0 §2 (C-6, C-7) and §4.2 (D-2). Two
+> endpoints added, marked below. **Purely additive** — no existing path, parameter,
+> response field or role changed, so every client written against the previous table
+> continues to work.
+>
+> `/reports/stock` previously read *"On-hand valuation"*. **Corrected to quantity (C-7):
+> Edition 1 has no cost basis** — `Product.selling_price` is the only money field on a
+> product, and a cost price arrives with M-11 Purchasing in Edition 2. This corrects a
+> description the schema never supported; no field is removed, because none was ever built.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/reports/sales` | `?date_from=&date_to=&group_by=day|product|customer` |
-| GET | `/reports/stock` | On-hand valuation |
-| GET | `/reports/receivables` | Balance and oldest unpaid per customer |
+| GET | `/reports/sales` | `?date_from=&date_to=&group_by=day\|product\|customer` |
+| GET | `/reports/stock` | On-hand **quantity** by product. On hand only — allocation is Edition 2; **no valuation** — no cost basis (C-7) |
+| GET | `/reports/stock-variance` | **Added.** `?date_from=&date_to=&reason_code=` — reason-coded movements **in units**, the **physical** trace of a return |
+| GET | `/reports/returns` | **Added.** `?date_from=&date_to=&group_by=reason\|customer` — credit notes by reason, the **financial** trace |
+| GET | `/reports/receivables` | Balance, ageing bucket and oldest unpaid per customer |
 | GET | `/reports/top-customers` | `?limit=10&date_from=` — the Top 10 ranking |
 | GET | `/reports/order-status` | Pipeline counts by status |
 
 All reports accept `?format=csv` (FR-RPT-012).
+
+**`stock-variance` and `returns` are separate endpoints, not one endpoint with a filter.** A
+credit note writes no stock movement (ADR-0009), so the two report different facts with
+different row shapes and their totals legitimately differ. Merging them would imply a join
+the domain does not have.
+
+Every report requires an explicit period or `as_of`; none resolves "now" server-side, so a
+report over a closed period returns the same answer on any later day.
+
+**The owner dashboard is not an endpoint.** It is four scalars rendered by webadmin (`M7`
+§4.4), two of which describe *today* and are therefore not reproducible. It offers no CSV.
 
 ### 9.12 System
 

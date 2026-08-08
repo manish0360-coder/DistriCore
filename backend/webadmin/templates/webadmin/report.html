@@ -1,0 +1,94 @@
+{% extends "webadmin/base.html" %}
+{% comment %}
+One template, seven reports (M7 task 2, I-5).
+
+The rows come from the same ReportTable the CSV renderer writes, and the header block is
+literally `reporting.csv.header_lines` — so the definition on screen and the definition in
+the file cannot drift apart. A per-report template is how that drift starts.
+{% endcomment %}
+{% block title %}{{ table.title }} — DistriCore{% endblock %}
+
+{% block content %}
+<div class="card">
+
+  <nav class="reports">
+    {% for name, label in menu %}
+      <a href="{% url name %}"{% if table.title == label %} class="on"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+
+  <div class="toolbar">
+    <h2 style="margin:0;font-size:19px">{{ table.title }}</h2>
+    <a class="btn" href="?{{ export_query }}">Export CSV</a>
+  </div>
+
+  <form method="get" class="filters">
+    {% if table.is_point_in_time %}
+      <label for="as_of">As at</label>
+      <input type="date" id="as_of" name="as_of" value="{{ as_of }}">
+    {% else %}
+      <label for="date_from">From</label>
+      <input type="date" id="date_from" name="date_from" value="{{ date_from }}">
+      <label for="date_to">To</label>
+      <input type="date" id="date_to" name="date_to" value="{{ date_to }}">
+    {% endif %}
+    {% if groupings %}
+      <label for="group_by">Group by</label>
+      <select id="group_by" name="group_by">
+        {% for option in groupings %}
+          <option value="{{ option }}"{% if option == group_by %} selected{% endif %}>
+            {{ option }}
+          </option>
+        {% endfor %}
+      </select>
+    {% endif %}
+    <button type="submit">Apply</button>
+  </form>
+
+  <div class="meta">
+    {% for line in header_lines %}<p>{{ line }}</p>{% endfor %}
+  </div>
+
+  <table>
+    <thead>
+      <tr>{% for column in table.columns %}
+        <th{% if column.numeric %} class="r"{% endif %}>{{ column.label }}</th>
+      {% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for row in table.cells %}
+        <tr>{% for column, value in row %}
+          <td{% if column.numeric %} class="r"{% endif %}>{{ value }}</td>
+        {% endfor %}</tr>
+      {% empty %}
+        <tr>
+          <td colspan="{{ table.columns|length }}" class="muted">
+            Nothing to report for this period.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+    {% if table.total %}
+      <tfoot>
+        <tr>{% for column, value in table.total_cells %}
+          <th{% if column.numeric %} class="r"{% endif %}>{{ value }}</th>
+        {% endfor %}</tr>
+      </tfoot>
+    {% endif %}
+  </table>
+
+</div>
+
+<style>
+  nav.reports { margin:-8px 0 20px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  nav.reports a { color:var(--navy); text-decoration:none; margin-right:14px; font-size:14px; }
+  nav.reports a.on { font-weight:600; text-decoration:underline; }
+  form.filters { display:flex; gap:10px; align-items:flex-end; margin-bottom:16px;
+                 flex-wrap:wrap; }
+  form.filters label { margin:0 0 2px; }
+  form.filters input, form.filters select { width:auto; margin:0; }
+  .meta { font-size:12.5px; color:var(--muted); margin-bottom:16px; }
+  .meta p { margin:0 0 4px; }
+  tfoot th { background:#eef2f7; border-top:2px solid var(--line); }
+</style>
+{% endblock %}

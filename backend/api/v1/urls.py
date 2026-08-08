@@ -12,6 +12,7 @@ from api.v1 import (
     master_views,
     order_views,
     receivables_views,
+    report_views,
     stock_views,
 )
 
@@ -103,5 +104,29 @@ urlpatterns = [
         "customers/<int:pk>/outstanding",
         receivables_views.CustomerOutstandingView.as_view(),
         name="customer-outstanding",
+    ),
+    # --- reports (M7) — 05 §9.11. All accept ?format=csv (FR-RPT-012).
+    path("reports/sales", report_views.SalesReportView.as_view(), name="report-sales"),
+    path("reports/stock", report_views.StockReportView.as_view(), name="report-stock"),
+    path(
+        "reports/stock-variance",
+        report_views.StockVarianceReportView.as_view(),
+        name="report-stock-variance",
+    ),
+    path("reports/returns", report_views.ReturnsReportView.as_view(), name="report-returns"),
+    path(
+        "reports/receivables",
+        report_views.ReceivablesReportView.as_view(),
+        name="report-receivables",
+    ),
+    path(
+        "reports/top-customers",
+        report_views.TopCustomersReportView.as_view(),
+        name="report-top-customers",
+    ),
+    path(
+        "reports/order-status",
+        report_views.OrderStatusReportView.as_view(),
+        name="report-order-status",
     ),
 ]

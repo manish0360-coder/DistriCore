@@ -123,3 +123,13 @@ def search_orders(
 def get_order_for(actor: Any, order_id: int) -> SalesOrder | None:
     """Scope violations look like absence, never like refusal (05 §4.1)."""
     return visible_orders(actor).filter(pk=order_id).first()
+
+
+def awaiting_dispatch(actor: Any) -> QuerySet[SalesOrder]:
+    """Orders agreed but not yet gone — the fourth dashboard number (M7 D-4).
+
+    ``CONFIRMED`` and no further: ``PLACED`` is not yet agreed, and ``DISPATCHED`` has
+    already left. Which status means "waiting on the warehouse" is an *orders* fact, so it
+    is named here rather than as a literal in a report (M7 D-3).
+    """
+    return visible_orders(actor).filter(status=SalesOrder.Status.CONFIRMED)

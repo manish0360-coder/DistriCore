@@ -4,12 +4,22 @@
 | --- | --- |
 | Document ID | `02_Requirements_Specification` |
 | Product | DistriCore (working title) |
-| Version | 0.1.0 |
+| Version | **0.2.0** |
 | Status | **Draft — pending stakeholder sign-off** |
-| Date | 2026-08-04 |
+| Date | 2026-08-04 · **amended 2026-08-08** |
 | Owner | Product Architecture |
 | Depends on | `01_Project_Vision.md` v0.2.0 |
 | Audience | Engineering, QA, business owner |
+
+> **Amendments in v0.2.0.** Implementation through M6 established behaviour that eight
+> requirement lines in this document no longer described. They are corrected in place, with
+> the reasoning recorded beside the block it affects: **§14.1** (receivables — FR-REC-004,
+> 006, 008) and **§20.1** (reporting — FR-RPT-001, 002, 006, 007, 009, 010). §26 OI-4 is
+> closed and OI-6 re-dated.
+>
+> **No requirement was deleted.** Deferred lines carry `Rel = v2.0` and remain readable, so
+> that scope which was considered and postponed cannot be mistaken for scope that was
+> overlooked.
 
 > **Authority.** This document specifies *what* DistriCore must do. It does not specify *how*. Component structure, technology choices, database schema and the synchronisation wire protocol belong to `03_System_Architecture.md`.
 >
@@ -549,11 +559,11 @@ Nothing fails silently (Vision §12.4). Sync state MUST be visible to the device
 | FR-REC-001 | The system MUST maintain a customer ledger in which every invoice, credit note, payment and adjustment is an immutable entry. | M | v1.0 | CORE | BR-005, BR-006 |
 | FR-REC-002 | Customer outstanding balance MUST be derived from ledger entries only. | M | v1.0 | CORE | BR-005 |
 | FR-REC-003 | The system MUST record payments with amount, date, method, and receiving user. | M | v1.0 | S1 | D6 |
-| FR-REC-004 | Payments MUST be allocatable against one or more specific invoices. | M | v1.0 | S1 | D6 |
+| FR-REC-004 | Payments MUST be allocatable against one or more specific invoices. **[B-1 — superseded in v1.0 by FR-REC-016]** | M | **v2.0** | S1 | D6 |
 | FR-REC-005 | The system MUST support unallocated (on-account) payments and MUST report them distinctly. | M | v1.0 | S1 | D6 |
-| FR-REC-006 | Allocated payment MUST NOT exceed the outstanding value of the target invoice. | M | v1.0 | CORE | NFR-1 |
+| FR-REC-006 | Allocated payment MUST NOT exceed the outstanding value of the target invoice. **[B-1]** | M | **v2.0** | CORE | NFR-1 |
 | FR-REC-007 | Reversing a payment MUST create a compensating ledger entry; the original entry MUST NOT be edited or deleted. | M | v1.0 | CORE | BR-006 |
-| FR-REC-008 | The system MUST produce an aging analysis over configurable buckets, by customer and in total. | M | v1.0 | S1 | PO-4, §10.4 |
+| FR-REC-008 | The system MUST produce an aging analysis over fixed buckets of 0–30 / 31–60 / 61–90 / 90+ days, by customer and in total. **[B-2]** | M | v1.0 | S1 | PO-4, §10.4 |
 | FR-REC-009 | Current receivables position MUST be produced on demand in under 10 seconds at the DR-8 envelope. | M | v1.0 | CORE | §10.4, NFR-3 |
 | FR-REC-010 | `S3` MUST support recording payment collected at delivery, offline, following §5 semantics. | M | v1.1 | S3 | A-7 |
 | FR-REC-011 | `S2` MUST display the customer's outstanding balance and aging summary at the point of order capture. | M | v1.0 | S2 | PO-2, PO-4 |
@@ -561,6 +571,22 @@ Nothing fails silently (Vision §12.4). Sync state MUST be visible to the device
 | FR-REC-013 | Cash collected and not yet deposited MUST be trackable per collecting user, so that accountability for physical cash is not lost between collection and banking. | S | v1.1 | S1 | A-7 |
 | FR-REC-014 | `RETAILER` MUST be able to view their own outstanding balance and aging. | M | v1.2 | S4 | U8 |
 | FR-REC-015 | Write-off of a receivable MUST require `OWNER` authority, MUST require a reason, and MUST be audited. | S | v1.0 | CORE | BR-002 |
+| FR-REC-016 | A payment MUST reduce the customer's outstanding balance by settling the oldest unsettled debits first. Settlement MUST be derived on read and MUST NOT be stored. **[B-1]** | M | v1.0 | CORE | BR-005 |
+
+### 14.1 Amendment log — 2026-08-08
+
+Recorded when M7's design review found these lines still describing behaviour M6 had
+already decided against and verified (`M6_Design_Review.md` v1.2.0; `M6_Verification_Report.md`).
+
+| Ref | Change | Authority |
+| --- | --- | --- |
+| **B-1** | **Edition 1 does not allocate a payment to an invoice.** A payment reduces what the customer *owes*; it does not pay a document. Settlement is derived FIFO across the whole ledger and is stored nowhere. FR-REC-004 and FR-REC-006 move to **v2.0**; the Edition-1 behaviour they were standing in for is now stated positively as **FR-REC-016**, a new number rather than an edit, because §2.1 makes identifiers permanent | M6 §5A (D-9) |
+| **B-2** | Ageing buckets are **fixed constants**, not configuration. `AGING_BUCKET_DAYS` = 30 / 60 / 90, matching OI-4's stated values. Configuration was removed because a bucket boundary that can change makes two ageing reports run a month apart incomparable, with nothing on either report to say why | M6 §2 C-2 |
+
+> **B-1 is a definition change, not a deferral.** A cold reader of the unamended lines
+> would have concluded Edition 1 allocates payments to invoices, built a mental model on
+> it, and been wrong about the single most important behaviour in the receivables module.
+> FR-REC-016 exists so that reading only the v1.0 lines still yields the truth.
 
 ---
 
@@ -673,23 +699,55 @@ Operational reporting only. A dimensional analytics platform is out of scope (O1
 
 | ID | Requirement | Pri | Rel | Surface | Traces |
 | --- | --- | :-: | :-: | --- | --- |
-| FR-RPT-001 | Sales report by period, customer, product, category and salesman. | M | v1.0 | S1 | PO-7 |
-| FR-RPT-002 | Stock position report: on hand, allocated, available, by product. | M | v1.0 | S1 | PO-5 |
-| FR-RPT-003 | Stock variance report by reason code and value (FR-STK-025). | M | v1.0 | S1 | §10.2 |
+| FR-RPT-001 | Sales report by period, customer, product and salesman. **[A-1 — category carried to FR-RPT-016]** | M | v1.0 | S1 | PO-7 |
+| FR-RPT-002 | Stock position report: on hand, by product. **[A-2 — allocated/available carried to FR-RPT-017]** | M | v1.0 | S1 | PO-5 |
+| FR-RPT-003 | Stock variance report by reason code, in quantity (FR-STK-025). **Reports the physical trace only. [A-6] [A-7 — value carried to FR-RPT-018]** | M | v1.0 | S1 | §10.2 |
 | FR-RPT-004 | Receivables aging report (FR-REC-008). | M | v1.0 | S1 | §10.4 |
 | FR-RPT-005 | Customer statement of account (FR-CUS-011). | M | v1.0 | S1 | D6 |
-| FR-RPT-006 | Purchase report: orders, receipts, variance, supplier balances. | M | v1.0 | S1 | D5 |
-| FR-RPT-007 | Scheme and discount cost report (FR-PRC-021). | S | v1.0 | S1 | §10.4 |
+| FR-RPT-006 | Purchase report: orders, receipts, variance, supplier balances. **[A-3]** | M | **v2.0** | S1 | D5 |
+| FR-RPT-007 | Scheme and discount cost report (FR-PRC-021). **[A-4]** | S | **v2.0** | S1 | §10.4 |
 | FR-RPT-008 | Order pipeline report by state, including orders held in exception states. | M | v1.0 | S1 | U2 |
-| FR-RPT-009 | Sync health report (FR-SYN-015). | M | v1.0 | S1 | §10.3 |
-| FR-RPT-010 | Returns report by reason code (FR-RET-009). | M | v1.0 | S1 | D12 |
+| FR-RPT-009 | Sync health report (FR-SYN-015). **Delivered at M9 with the mechanism it reports on. [A-5]** | M | v1.0 | S1 | §10.3 |
+| FR-RPT-010 | Returns report by reason code (FR-RET-009). **Reports the financial trace only. [A-6]** | M | v1.0 | S1 | D12 |
 | FR-RPT-011 | Salesman performance report against targets. | M | v1.1 | S1 | D8 |
 | FR-RPT-012 | Every report MUST be exportable to CSV. | M | v1.0 | S1 | U1 |
 | FR-RPT-013 | Reports MUST reflect committed data only; uncommitted or unsynchronised transactions MUST NOT appear. | M | v1.0 | CORE | NFR-1 |
 | FR-RPT-014 | Reports MUST respect the requesting user's authorisation; `SALESMAN` reporting MUST be scoped to their own customers and orders. | M | v1.0 | CORE | BR-003 |
 | FR-RPT-015 | Reports MUST return within 10 seconds at the DR-8 envelope over five years of retained history. | M | v1.0 | CORE | NFR-3, DR-8 |
+| FR-RPT-016 | Sales report MUST additionally break down by product category. **[A-1]** | M | **v2.0** | S1 | PO-7 |
+| FR-RPT-017 | Stock position report MUST additionally show allocated and available quantity. **[A-2]** | M | **v2.0** | S1 | PO-5 |
+| FR-RPT-018 | Stock position and stock variance reports MUST value stock at cost. **[A-7]** | M | **v2.0** | S1 | PO-5 |
 
----
+### 20.1 Amendment log — 2026-08-08
+
+This block was written against the frozen baseline, **before `02A` §13 re-validated Edition
+1 and demoted whole modules**, and was never back-updated. `02A` §13 is later, was
+explicitly approved, and `04` was designed from its outcome, so it governs (C-1, §2 of
+`M7_Design_Review.md` v1.1.0).
+
+**Nothing here was deleted.** A requirement moved to v2.0 is still a requirement; a reader
+must be able to see it was considered and deferred rather than forgotten.
+
+| Ref | Change | Authority |
+| --- | --- | --- |
+| **A-1** | `category` removed from FR-RPT-001 and carried to **FR-RPT-016, v2.0**. No category field exists (`04` T-10) | `02A` §13.2 · M7 §2 C-3 |
+| **A-2** | `allocated` and `available` removed from FR-RPT-002 and carried to **FR-RPT-017, v2.0**. No reservation mechanism exists; both columns would read zero and available would equal on hand | `02A` §7.4 · M7 §2 C-2 |
+| **A-3** | FR-RPT-006 → **v2.0**. No `supplier`, `purchase_order` or supplier-ledger table exists in Edition 1 | `02A` §6.1 · M7 §2 C-1 |
+| **A-4** | FR-RPT-007 → **v2.0**. Priority was already `S`; schemes are Edition 2, so the report has no subject | M7 §3 |
+| **A-5** | FR-RPT-009 stays v1.0 but is **delivered at M9**, beside the sync mechanism. Not a scope change — a roadmap-order correction | M7 §2 C-4 |
+| **A-6** | **FR-RPT-003 and FR-RPT-010 report two different traces of a return and are two separate reports.** A credit note writes no stock movement (ADR-0009), so the physical and financial traces have no join and must not be presented as one | M7 §4.2 (D-2), M7-7 |
+
+| **A-7** | **Stock cannot be valued in Edition 1.** `Product.selling_price` is the only money field on a product; no `cost_price` exists, because a cost basis is a *purchasing* artefact and purchasing is Edition 2 (A-3). FR-RPT-003's `and value` clause is carried to **FR-RPT-018, v2.0**, and both stock reports show quantity. **Valuing at selling price was considered and rejected**: it is not what "valuation" means to a bank or an accountant, and it overstates working capital by the entire margin | M7 §2 C-7 |
+
+> **A-6 is the one to read twice.** It is not a scope reduction — it is a statement that
+> two requirements which look like near-duplicates are answering different questions, and
+> that their totals will legitimately differ.
+>
+> **A-7 was found by independent architecture review, not by reading this document.** Three
+> documents — `02` FR-RPT-003, `05` §9.11 and `02A` §7.12 — all described a stock valuation,
+> agreed with each other, and all of them disagreed with the schema. **A corpus can be
+> internally consistent and still wrong**, which is the argument for checking requirements
+> against the database rather than only against each other.
 
 ## 21. Non-Functional Requirements
 
@@ -937,9 +995,9 @@ Ordinary testing is insufficient for these. Each carries a non-negotiable metric
 | OI-1 | Statutory transmission obligation (CF-1, ACT-C) | M5 | Proceed per A-15: no obligation. **The one item that could add v1.0 scope** |
 | OI-2 | Scheme conflict strategy for FR-PRC-014: best-for-customer or explicit priority | M3 | Best-for-customer, configurable — the safer commercial default |
 | OI-3 | Achievement basis for FR-TGT-003: ordered, invoiced or collected value | v1.1 | Invoiced value |
-| OI-4 | Aging bucket definition for FR-REC-008 | M6 | 0–30 / 31–60 / 61–90 / 90+ days, configurable |
+| OI-4 | ~~Aging bucket definition for FR-REC-008~~ | ~~M6~~ | **CLOSED at M6.** 0–30 / 31–60 / 61–90 / 90+ days, **fixed** — see §14.1 B-2 |
 | OI-5 | Maximum offline period for FR-IAM-016 | M8 | 7 days, configurable |
-| OI-6 | Non-restockable reason codes for FR-RET-003 | M7 | Seeded set, maintainable by `OWNER` |
+| OI-6 | Non-restockable reason codes for FR-RET-003 | ~~M7~~ **Edition 2 (M-12)** | Seeded set, maintainable by `OWNER`. **Re-dated 2026-08-08:** restockability is a property of *structured* returns, and ADR-0009 removed the only Edition-1 path that would have consumed it — a credit note writes no stock movement. M7 reports on returns and writes nothing, so it neither needs nor can answer this |
 | OI-7 | Rounding convention for NFR-INT-006 | M3 | Half-up at 2 decimal places, applied at line level |
 
 ---

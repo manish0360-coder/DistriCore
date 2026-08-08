@@ -1,97 +1,108 @@
 # Next Task
 
-> Design reasoning: `docs/M6_Design_Review.md` **v1.2.0**. No ADR — M6 amends no roadmap.
-> M5 is verified and closed: `docs/M5_Verification_Report.md`.
+> M7 is verified and closed: `docs/M7_Verification_Report.md` — 8/8, 665/665, 94.47%,
+> 3 contracts kept, 2 verify cycles. Design authority `docs/M7_Design_Review.md` v1.2.0.
 
-**Milestone:** M6 — Receivables (1.5 units, `00` §19.1)
-**State:** **design frozen — implementation authorised**
+**Milestone:** M8 — Mobile app (Flutter, `S2`/`S3`)
+**State:** **not started. Two engineering items should close first — see below.**
 
 ---
 
-## Settled
+## Do these before M8 opens
 
-C-1, C-2, C-3, D-4, D-5, D-6, D-8 approved · **D-7 deferred** (TD-24, M10 — verified M5
-code is not modified) · **AR-2 resolved** by §5A / D-9.
+Both are cheap now and become entangled the moment a second toolchain enters the repository.
 
-**Independent review, three concerns — all three upheld (v1.2.0):**
-
-| # | Concern | Outcome |
+| # | Item | Why now, not later |
 | --: | --- | --- |
-| 1 | PK-derived `payment_number` needs an `UPDATE` the trigger forbids | **Correct.** Mechanism → `nextval` before a single INSERT (D-4) |
-| 2 | The write-off lock serialises nothing | **Correct.** Removed. §6.2 states why reversal's lock is real and this was not |
-| 3 | `load_opening_balance` must be idempotent | **Adopted.** Partial unique index — one `OPENING` per customer (D-10, M6-11) |
+| **1** | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured | M8 adds a Dart build and a second runtime. Measuring after that switch conflates two variables, and the harness already exists |
+| **2** | **TD-21 — make the build reproducible.** `uv.lock` absent, `make lock` non-functional | An unpinned Python build plus a brand-new Dart build is **two** unpinned builds. The M5 toolchain drift that broke a green gate under unchanged source is the precedent |
+| **3** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead** |
 
-Two mechanism corrections and one added constraint. **The architecture is unchanged.**
+### On TD-27 specifically
 
----
+`make verify` green does **not** mean the reports are fast enough. The suite exercises tens
+of rows; FR-RPT-015 requires under 10 seconds over five years — roughly 73,000 invoices and
+292,000 lines at the DR-8 envelope.
 
-## The one thing to hold in mind
+Two suspects were named in the design and remain unmeasured:
 
-> **A payment reduces what a customer owes. It does not pay an invoice.**
+- **receivables** — the only report whose figures come from a row-by-row Python walk (§5A)
+  rather than a database aggregate. It walks every ledger entry for every visible customer.
+- **top customers** — `ix_invoice_customer_date` and `ix_credit_note_cust_date` **both lead
+  on `customer`**, so neither serves a date-range scan that then groups.
 
-Which invoices are consequently settled is a **derived view** (§5A), walked oldest-first at
-read time and never stored. Storing an allocation is the one thing in M6 that cannot be
-undone without migrating live financial history.
-
----
-
-## Tasks
-
-Seven, each independently verifiable and committable. Task 0 was removed with D-7.
-
-| # | Task | Gated by |
-| --: | --- | --- |
-| 1 | `receivables` module — `Payment` reusing `billing._ImmutableDocument`, migration incl. **`payment_number_seq`**, column-aware trigger, layers contract, register in `SOURCE_DOCUMENT_REGISTRY` | C-3, M6-2, M6-4 |
-| 1b | `ledger` migration — **partial unique index**, one `OPENING` per customer | **M6-11** |
-| 2 | `record_payment` — **`nextval` then ONE INSERT** (never an UPDATE), `client_uuid` savepoint, ledger entry in the same transaction, return `balance_after_amount` | M6-1, M6-2, M6-5 |
-| 3 | `reverse_payment` — `SELECT … FOR UPDATE`, compensating `ADJUSTMENT`, audited | M6-3, AR-3 |
-| 4 | `write_off` — **explicit amount, no lock**, owner only, reason mandatory, audited | M6-10, §6.2 |
-| 5 | `load_opening_balance` through `record_entry`, **idempotent on conflict** | D-8, D-10 |
-| 6 | **The §5A walk** — classify → annul → reduce → settle — plus statement and the §5A.7 invariant as a property test | **D-9**, M6-6/7/8 |
-| 7 | API (6 endpoints, `05` §9.6), owner screens, boundary and adversarial suites | §9 |
-
-### Task 6 is the hard one
-
-Classification (§5A.3) reads `entry_type`, sign and `source_document_type`. **Three roles,
-not two** — the third is *annulling*, and it is why a reversed payment must not create a
-fresh zero-day debt.
-
-Test obligations are enumerated in §13.1. The non-negotiable one:
-
-> **Σ outstanding.remaining − credit_on_account ≡ `settled_balance(customer, as_of)`**
-> asserted over a randomised sequence of all six entry types.
+If a report breaches, the fix is an index or a domain optimisation **recorded with the
+measurement that justified it** (M7 §7) — never a reporting shortcut, and never a stored
+aggregate (M7-4).
 
 ---
 
-## Standing rules for this milestone
+## M8 — what it is
 
-- **`reverse_payment` holds the only lock in M6** (§6). Payments append, and appends do not
-  contend. A lock serialises only the writers that take it — locking anything else would be
-  theatre, because every other ledger writer is lock-free by design.
-- **A payment row is written once.** `nextval` first, then a single INSERT. Any `UPDATE`
-  outside the four reversal columns is refused by the trigger.
-- **Gate on the locked re-read, never the caller's instance.** M5 §4.1 cost 40 failures
-  and opened a path to invoicing a cancelled order.
-- Do not modify verified M5 code (Product Architect ruling).
-- `make verify` 8/8 is the only authority (N-12).
-- No weakened tests, no lowered coverage, no bypassed contracts.
+The first milestone that changes language and platform. One Flutter binary serving
+`SALESMAN`, `DELIVERY` and later `RETAILER` (DV-4), against the API M0–M7 has already
+built.
+
+**The Edition 1a back end is feature-complete.** M8 adds no server-side capability; it adds
+a client. That is worth stating because it sets the shape of the design review: the
+questions are about the device, not about the domain.
+
+### The condition DV-4 is accepted on, and it is absolute
+
+> **The binary is publicly downloadable and must be assumed fully decompiled** (`02A` §9.3,
+> DV-4). It may contain no internal-only logic, endpoint or secret that server-side
+> authorisation does not independently enforce.
+
+Every milestone so far has kept authorisation in `core` and out of the delivery layers
+(N-06, BR-003). M8 is where that discipline is tested by someone holding the client.
+
+### K-1 — the one irreversible thing in M8
+
+> **If the Android release keystore is lost, the application on Google Play can never be
+> updated again.** Not by you, not by Google (`00` §2.3).
+
+Generated once, stored in the password manager, backed up to **two locations that are not
+the development machine**, never in Git (S-06, N-11). Done at M8, verified at M11.
+
+### Known external dependency
+
+**TD-11 — SMS/DLT registration.** `00` §2.4 says to start it at Phase 0 and it has not
+started. `00` §2.5 records the contingency: if DLT approval is not complete by M8, the
+fallback is owner-provisioned passwords for internal users and deferred retailer
+self-registration — **a recorded deviation, not a silent scope change.**
 
 ---
 
-## Also due in M6, carried from M5
+## Workflow, unchanged
 
-| # | Item | Note |
-| --- | --- | --- |
-| **TD-21** | Reproducible build — `uv.lock` absent, `make lock` non-functional | **Highest-value debt.** Cost M5 a full verify cycle |
-| **TD-2 / TD-18** | `mypy` blocking — **set for M5 and missed** | Do not re-date a third time |
-| TD-14 | `Product._has_history()` inert — overdue since M3 | |
-| TD-23 | `billing/selectors.py` 78% — the uncovered lines are **authorisation** branches | |
-| TD-24 | **New.** Move `_ImmutableDocument` to `core` (D-7 deferred) | M10 |
+1. Review the frozen corpus first — `00`, `01`, `02` v0.2.0, `02A`, `03`, `04`, `05`.
+2. Identify specification conflicts **before** proposing a design.
+3. Write `docs/M8_Design_Review.md`: governing principle, worked scenarios, irreversible
+   decisions with reversal cost, concurrency, boundaries, task decomposition, self-critique,
+   sign-off.
+4. Independent architecture review before implementation.
+5. Implement one logically complete milestone.
+6. `make verify` 8/8 — the only authority (N-12).
+7. Verification report, then documentation, then commit.
+
+**No weakened tests. No lowered coverage. No bypassed contracts.**
+
+---
+
+## What M7 leaves behind, for the M8 designer
+
+| Item | Note |
+| --- | --- |
+| `reporting` owns nothing | Four AST tests enforce it. If M8 wants a figure on the device, the selector goes in the **domain**, not in `reporting` (D-3) |
+| **TD-29** | Nothing asserts a newly added report is wired into `REPORT_MENU`, the API router **and** the CSV path. The eighth report will be added by someone who forgets one of the three |
+| **TD-28** | `?format=csv` on an unauthorised report stringifies the problem+json body. Cosmetic, untested error path |
+| TD-23 | `billing/selectors.py` scoping branches — **very likely closed by FR-RPT-014's tests, but per-file coverage was not captured**, so it is not recorded as closed |
+| The M7 lesson worth carrying | **A design review cannot find a framework-integration defect.** Both M7 defects lived in the seam between our code and a library's conventions, and two reviews missed both |
 
 ## Blocking, not owned by engineering
 
 | Item | Owner |
 | --- | --- |
-| **CF-1 — is statutory e-invoicing mandatory?** Invoices now exist, so a late *yes* means re-transmitting history | Business owner |
-| **TD-11 — SMS/DLT registration.** Blocks go-live, unbounded external lead time | Business owner |
-| `02` FR-REC-004/006/008 → v2.0, and `02A` §13.2's audit list, corrected once | Product Architect |
+| **CF-1 — is statutory e-invoicing mandatory?** (`02` OI-1). More expensive with every invoice issued | Business owner |
+| **TD-11 — SMS/DLT registration.** Now inside M8's critical path | Business owner |
+| **TD-15 — `offer` has no milestone** | Product Architect |

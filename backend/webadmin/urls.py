@@ -1,6 +1,6 @@
 from django.urls import path
 
-from webadmin import fulfilment_views, master_views, receivables_views, views
+from webadmin import fulfilment_views, master_views, receivables_views, report_views, views
 
 app_name = "webadmin"
 
@@ -73,5 +73,18 @@ urlpatterns = [
         "receivables/position/",
         receivables_views.receivables_report,
         name="receivables-position",
+    ),
+    # --- reports (M7). All accept ?format=csv (FR-RPT-012).
+    path("reports/sales/", report_views.sales, name="report-sales"),
+    path("reports/stock/", report_views.stock, name="report-stock"),
+    path("reports/stock-variance/", report_views.stock_variance, name="report-stock-variance"),
+    path("reports/returns/", report_views.returns, name="report-returns"),
+    path("reports/receivables/", report_views.receivables, name="report-receivables"),
+    path("reports/top-customers/", report_views.top_customers, name="report-top-customers"),
+    path("reports/order-status/", report_views.order_status, name="report-order-status"),
+    path(
+        "customers/<int:pk>/statement.csv",
+        report_views.customer_statement_csv,
+        name="customer-statement-csv",
     ),
 ]

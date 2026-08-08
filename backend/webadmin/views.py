@@ -17,6 +17,8 @@ from core.exceptions import DomainError
 from core.permissions import Role, has_role, role_codes
 from core.services import client_ip
 from identity.services import authenticate_password
+from reporting import selectors as report_selectors
+from webadmin import report_views
 
 
 @csrf_protect
@@ -56,8 +58,19 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 def dashboard_view(request: HttpRequest) -> HttpResponse:
     # request.user is User | AnonymousUser at the type level. core.permissions does the
     # narrowing once, so the view neither casts nor imports the model (N-02).
+    #
+    # M7 D-4: four numbers for an internal user. A retailer reaching this page sees the
+    # shell without them rather than an error — the metrics are simply absent, which is
+    # the same "looks like absence" posture `05` §4.1 takes everywhere else.
+    dashboard = None
+    if has_role(request.user, *Role.INTERNAL):
+        dashboard = report_selectors.dashboard(request.user)
     return render(
         request,
         "webadmin/dashboard.html",
-        {"roles": role_codes(request.user)},
+        {
+            "roles": role_codes(request.user),
+            "dashboard": dashboard,
+            "reports": report_views.REPORT_MENU if dashboard else (),
+        },
     )

@@ -20,6 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.v1 import report_views
 from api.v1.pagination import StandardPagination
 from api.v1.receivables_serializers import (
     OutstandingItemSerializer,
@@ -35,6 +36,7 @@ from customers import services as customer_services
 from orders import selectors as order_selectors
 from receivables import selectors as receivable_selectors
 from receivables import services as receivable_services
+from reporting import selectors as report_selectors
 
 
 def _parse_date(request: Request, name: str) -> date | None:
@@ -144,12 +146,28 @@ class WriteOffView(APIView):
 
 
 class CustomerStatementView(APIView):
-    """Opening, entries, closing (05 §9.6)."""
+    """Opening, entries, closing (05 §9.6), and CSV since M7 (C-6, FR-RPT-012).
+
+    The statement is the sixth report. It was built at M6 because it is per-customer rather
+    than cross-cutting; M7 adds the export through the same single CSV mechanism every
+    other report uses, so its file looks like theirs.
+    """
 
     permission_classes = [IsAuthenticated]
+    # Without CsvRenderer here, DRF filters the renderer list to nothing on `?format=csv`
+    # and raises Http404 before this view runs. See ``api.v1.renderers``.
+    renderer_classes = report_views.REPORT_RENDERERS
 
     def get(self, request: Request, pk: int) -> Response:
         customer = customer_services.get_customer_for(request.user, pk)
+        if report_views.wants_csv(request):
+            return report_views.csv_response(
+                report_selectors.statement_table(
+                    customer,
+                    date_from=_parse_date(request, "date_from"),
+                    date_to=_parse_date(request, "date_to"),
+                )
+            )
         statement = receivable_selectors.customer_statement(
             customer,
             date_from=_parse_date(request, "date_from"),

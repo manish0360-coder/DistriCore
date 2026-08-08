@@ -4,6 +4,92 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M7 — Reporting
+
+A report computes nothing. **It arranges, filters and totals figures the domain already
+derives.** `reporting` is the only module in DistriCore that could be deleted without
+changing a single stored fact or a single business rule.
+
+**Added**
+
+- `reporting` module — `selectors.py`, `csv.py`, `tables.py`. **No models, no services, no
+  migrations, and absent from `INSTALLED_APPS`**, because it has nothing to install. Four
+  AST tests assert that, including that it imports no `*.services` and no first-party
+  `*.models`: `lint-imports` proves the layering but cannot forbid one submodule while
+  allowing its sibling.
+- **Seven reports** — sales (grouped by day, customer, product or salesman), stock position,
+  stock variance, returns, receivables ageing, top customers, order pipeline. Plus CSV on
+  the customer statement M6 already delivered.
+- **The definition of "sales", stated on every screen and in every export** — invoice
+  taxable value excluding cancelled invoices, less credit note taxable value. GST is not
+  revenue; a credit note reduces the period it was *issued* in, not the period of the
+  invoice it credits, because restating a closed period destroys every reconciliation the
+  owner has already done by hand.
+- **Returns and stock variance as two reports of two traces.** A credit note writes no stock
+  movement (ADR-0009), so the financial and physical traces have no join and their totals
+  legitimately differ. One report answers *what did we credit back*, the other *what came
+  back* — and a test asserts they are **not** required to agree, so nobody later writes its
+  opposite and then "fixes" the reports to satisfy it.
+- **One CSV mechanism for all eight exports**, over one row shape. The screen and the file
+  render the same object, so they cannot disagree. Each file carries its own definition in
+  a comment header — a figure whose meaning lives only on a screen becomes folklore the
+  first time it is emailed.
+- **A four-number dashboard** — sales today, collected today, total outstanding, orders
+  awaiting dispatch. Four questions, no number a slice of another, and **no export**: two of
+  them describe today and are not reproducible, and an exportable figure acquires the
+  authority of a document.
+- `billing.selectors.issued_invoices` and `orders.selectors.awaiting_dispatch` — two
+  predicates that turned out to have no owner. They went into the domain modules that own
+  the meaning, not into `reporting`.
+- Report scoping asserted per endpoint **and per export** for owner, salesman and retailer.
+  A report is where a scoping bug becomes an information leak with a CSV attached.
+- CSV formula-injection guard on text columns, and deliberately not on numeric ones — a
+  leading `-` there is arithmetic, and quoting it would corrupt the figure the guard exists
+  to protect.
+- `ops/report_performance.py` — the DR-8 five-year harness for FR-RPT-015. **Written, not
+  yet run.**
+- 140 tests (525 -> 665); coverage 93.92% -> 94.47%.
+
+**Changed**
+
+- `02` -> v0.2.0. Ten requirement lines corrected in place with the reasoning recorded
+  beside them (§14.1, §20.1); nothing deleted, deferred lines carry `Rel = v2.0`.
+- `05` §9.11 — two endpoints added, and `/reports/stock` corrected from "valuation" to
+  quantity. Purely additive; no existing path, parameter or field changed.
+
+**Removed**
+
+- **Stock valuation, from both stock reports.** `02`, `05` and `02A` all described one and
+  the schema never supported it: `Product.selling_price` is the only money field on a
+  product, and a cost basis is a purchasing artefact that arrives in Edition 2. Valuing at
+  selling price would overstate working capital by the entire margin, on the one screen
+  justified as "working capital visibility". Deferring a number is cheap; un-teaching one
+  is not.
+
+**Fixed**
+
+- **Every CSV endpoint returned 404, and it was not a routing fault.** `format` is DRF's
+  `URL_FORMAT_OVERRIDE`: `select_renderer` filters the view's renderers to those whose
+  `format` matches and `filter_renderers` raises `Http404` when none do. With `JSONRenderer`
+  configured alone, `?format=csv` filtered the list to nothing **inside `APIView.initial()`**
+  — so the view never ran and eight endpoints looked missing rather than unacceptable.
+  Fixed by registering a CSV renderer that passes through text the one CSV mechanism
+  already produced.
+- **The CSV writer quoted the header block.** `csv.writer` quotes any field containing a
+  comma and the sales definition contains three, so those lines began with `"` instead of
+  `#` and stopped being recognisable as comments. Header lines are prose, not a one-column
+  row, and are now written verbatim behind a shared `COMMENT_PREFIX` the tests read rather
+  than restate.
+- **A scoping test that could not fail.** The out-of-zone customer had no transactions, so
+  it was absent from every report whether the scoping worked or not. Every scoping test now
+  asserts the owner *can* see the data before asserting the salesman cannot.
+
+**Known limitation**
+
+- **FR-RPT-015 is unverified.** 665 green tests say the reports are correct at ten rows;
+  they say nothing about ten seconds at five years. The harness exists and has not been run
+  (TD-27).
+
 ### M6 — Receivables
 
 A payment reduces what a customer owes. **It does not pay an invoice.** The distributor

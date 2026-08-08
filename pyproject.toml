@@ -159,7 +159,8 @@ show_missing = true
 [tool.importlinter]
 root_packages = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "billing", "receivables", "api", "webadmin",
+    "pricing", "orders", "fulfilment", "billing", "receivables", "reporting",
+    "api", "webadmin",
 ]
 include_external_packages = false
 
@@ -181,7 +182,7 @@ name = "N-01: domain modules must not import a delivery layer"
 type = "forbidden"
 source_modules = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "billing", "receivables",
+    "pricing", "orders", "fulfilment", "billing", "receivables", "reporting",
 ]
 forbidden_modules = ["api", "webadmin"]
 allow_indirect_imports = true
@@ -206,8 +207,15 @@ type = "layers"
 # walk resolves a credit note to its invoice through `billing` (M6 §5A.10). It is a
 # READ. A structural test asserts `receivables` never imports `billing.services`, the
 # same read/write distinction the M5 boundary suite drew for `orders -> ledger`.
+#
+# M7: `reporting` sits at the top of the domain and below the delivery layers. It owns
+# nothing — no models, no services, no migrations — and reads from every layer beneath
+# it. Being highest is what makes that safe: nothing can depend on a report, so a report
+# cannot become an input to a business rule. The same structural test asserts it imports
+# no `*.services` and no `*.models` at all (M7 §8.1, M7-5).
 layers = [
     "api | webadmin",
+    "reporting",
     "receivables",
     "billing",
     "fulfilment",
