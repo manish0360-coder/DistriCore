@@ -303,7 +303,7 @@ reports the number.
 
 | # | Item | Note |
 | --- | --- | --- |
-| TD-21 | `uv.lock` absent, `make lock` non-functional | **Still the highest-value debt.** Deferred through M5, M6 and now M7 |
+| ~~TD-21~~ | ~~`uv.lock` absent, `make lock` non-functional~~ | **CLOSED post-M7** — `docs/TD-21_Reproducible_Build_Note.md` §7 |
 | TD-11 | SMS / DLT registration not started | Blocks go-live, unbounded external lead time |
 | TD-2 / TD-18 | `mypy` advisory rather than blocking | **Missed at M5, M6 and now M7 — a third miss.** §11 predicted exactly this and kept it out anyway, which was the right call and did not help |
 | TD-23 | `billing/selectors.py` scoping branches | Unconfirmed, see above |
@@ -327,11 +327,16 @@ reports the number.
 | Edition 1a back end | **Feature-complete.** M0–M7 deliver every server-side capability Edition 1a requires |
 | API surface | 8 report endpoints added; `05` §9.11 amended, additively |
 | ~~TD-27 — FR-RPT-015~~ | **Closed before M8 opened**, which was the point of doing it first. §13 |
-| TD-21 — reproducible build | **Should be closed before M8.** M8 adds a second toolchain; an unpinned Python build plus a new Dart build is two unpinned builds |
+| ~~TD-21 — reproducible build~~ | **Closed before M8**, as recommended. `uv.lock` pins 91 packages and the build fails closed without it |
 | CF-1 — statutory e-invoicing | Still unanswered, and more expensive with every invoice issued |
 
 **Recommendation: run the performance harness and close TD-21 before M8 begins.** Both are
 cheap now and become entangled the moment a second platform enters the repository.
+
+> **Both done, 2026-08-09.** The harness found an 11.7 s breach and a quadratic behind it
+> (§13); TD-21 closed with a 91-package lock consumed by all three install sites
+> (`docs/TD-21_Reproducible_Build_Note.md` §7). The recommendation was worth making: **each
+> found a defect that a second toolchain would have made harder to attribute.**
 
 ---
 

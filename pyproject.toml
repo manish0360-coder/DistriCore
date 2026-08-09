@@ -61,6 +61,35 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 # ---------------------------------------------------------------------------
+# uv — resolution and the lockfile (FD-04, TD-21)
+# ---------------------------------------------------------------------------
+[tool.uv]
+# **DistriCore's repository root is an application, not a distribution.**
+#
+# Nothing has ever built, installed or imported a `districore` package — every
+# `districore.*` name in the codebase is a logger. The application is deployed by copying
+# `backend/` into the image and running it with a WORKDIR. This line records what has been
+# true since M0 rather than changing anything.
+#
+# It is also what lets the dependency layer work at all. `docker/Dockerfile` installs
+# dependencies BEFORE copying code (D-3: "code changes hourly, dependencies monthly"), so a
+# packaged root would have to be built in a context with no source in it. Measured, with
+# `uv sync` in that context:
+#
+#   flat layout, as before          -> succeeds, installing an EMPTY `districore` wheel
+#   packages.find where=["backend"] -> fails: egg_base option: 'backend' does not exist
+#   package = false                 -> installs dependencies, and nothing else
+#
+# It does not block future internal packages. A non-package root with
+# `[tool.uv.workspace] members = [...]` is the recommended uv workspace layout, and each
+# member carries its own manifest and its own name instead of the root claiming `core` and
+# `orders` for itself. Reversing this is one deleted line.
+#
+# Full reasoning, including the hypothesis this replaced:
+# docs/TD-21_Reproducible_Build_Note.md §1.7-§1.8.
+package = false
+
+# ---------------------------------------------------------------------------
 # ruff — linter and formatter in one (00 §6.3)
 # ---------------------------------------------------------------------------
 [tool.ruff]

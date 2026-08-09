@@ -7,25 +7,39 @@ FROM python:3.12-slim-bookworm AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential libpq-dev curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# uv: fast, lockfile-driven dependency resolution (FD-04)
+# uv: fast, lockfile-driven dependency resolution (FD-04).
+# **This version must match `UV_VERSION` in the Makefile** — the resolver that writes
+# uv.lock and the resolver that reads it have to agree.
 COPY --from=ghcr.io/astral-sh/uv:0.4.27 /uv /usr/local/bin/uv
 
 WORKDIR /build
 # Dependency layer BEFORE code layer (D-3): code changes hourly, dependencies monthly.
-COPY pyproject.toml uv.lock* ./
-RUN uv venv /opt/venv && \
-    VIRTUAL_ENV=/opt/venv uv pip install --no-cache -r pyproject.toml
+#
+# **No glob on uv.lock.** It was `uv.lock*`, which made a missing lockfile a silent
+# success — the build looked reproducible and was not. A missing lock must now fail here,
+# loudly, before anything is installed (TD-21).
+COPY pyproject.toml uv.lock ./
+# `uv sync --frozen` installs exactly what the lock records and **refuses to re-resolve**.
+# If the lock and the manifest disagree, this fails rather than quietly resolving something
+# else — so dependency drift becomes a stage-1 failure of `make verify` and needs no test
+# of its own. The previous command, `uv pip install -r pyproject.toml`, read the specifiers
+# and never opened the lock at all; that is what kept TD-21 open.
+#
+# No `--no-install-project` is needed: `[tool.uv] package = false` means there is no project
+# to install, which is also why this works in a layer that has no source in it.
+RUN uv sync --frozen --no-cache
 
 # --------------------------------------------------------------------------- dev deps
 # Separate layer so the production image never carries test or lint tooling.
 FROM builder AS builder-dev
-RUN VIRTUAL_ENV=/opt/venv uv pip install --no-cache -r pyproject.toml --extra dev
+RUN uv sync --frozen --no-cache --extra dev
 
 # --------------------------------------------------------------------------- runtime
 FROM python:3.12-slim-bookworm AS runtime

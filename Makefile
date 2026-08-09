@@ -8,6 +8,15 @@ RUN    := $(DC) exec -T app
 # Quality tools must run from the PROJECT ROOT so that the command is byte-identical
 # to the one CI runs (FD-07). PYTHONPATH lets import-linter resolve the app packages.
 TOOLS  := $(DC) exec -T -w /app -e PYTHONPATH=/app/backend app
+# Locking is not a runtime activity: it needs the manifest and a network, not the
+# application, its database or its virtualenv. So it runs in a throwaway uv container
+# against the working tree — which is why `uv` is absent from the app image and `/app`
+# does not need to be bind-mounted (TD-21 §1.4).
+#
+# **UV_VERSION must match the `COPY --from=ghcr.io/astral-sh/uv:...` in docker/Dockerfile.**
+# The resolver that writes the lock and the one that reads it have to agree.
+UV_VERSION    := 0.4.27
+UV_LOCK_IMAGE := ghcr.io/astral-sh/uv:$(UV_VERSION)-python3.12-bookworm
 
 .PHONY: help
 help: ## Show this help
@@ -66,9 +75,15 @@ makemigrations: ## Generate migrations
 	$(DC) exec app python manage.py makemigrations
 
 .PHONY: lock
-lock: ## Regenerate uv.lock inside the container (TD-1). Commit the result.
-	$(DC) exec -T -w /app app uv lock
-	@echo "uv.lock regenerated — commit it. Builds are not reproducible without it (FD-03)."
+lock: ## Regenerate uv.lock. Commit the result — the build now requires it (TD-21)
+	docker run --rm \
+		--user "$$(id -u):$$(id -g)" \
+		-e UV_CACHE_DIR=/tmp/uv-cache \
+		-e UV_PYTHON_DOWNLOADS=never \
+		-v "$(CURDIR)":/w -w /w \
+		$(UV_LOCK_IMAGE) uv lock
+	@echo ""
+	@echo "  uv.lock regenerated — COMMIT IT. Stage 1 of \`make verify\` now fails without it."
 
 .PHONY: superuser
 superuser: ## Create a login. Does NOT grant a role — run `make owner` next

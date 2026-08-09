@@ -4,6 +4,56 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### Build — the build is reproducible for the first time (TD-21)
+
+**Fixed**
+
+- **The pipeline had the shape of a lockfile build and none of its substance.** The
+  Dockerfile copied `uv.lock*` — a glob, so a missing lock was a **silent success** — and
+  then ran `uv pip install -r pyproject.toml`, which resolves from PyPI against the
+  specifiers and **never opens the lock**. Generating a lock was the smaller half of TD-21;
+  making the build consume it was the larger half, and it had not been named.
+
+  It was wrong in **three** places, not one: the Dockerfile builder, builder-dev, and
+  `.github/workflows/ci.yml`. A green CI that installed different packages from the gate is
+  worse than no CI.
+
+- **`make lock` could never have worked.** It ran `uv` inside the app container, where `uv`
+  is not installed — it lives only in the `builder` stage — and wrote to `/app`, which is
+  not bind-mounted, so the artefact could not have reached the repository.
+
+**Added**
+
+- **`uv.lock` — 91 packages**, generated and committed. The `==` pins bound three *direct*
+  dev dependencies; the lock binds every transitive one, which is the surface the
+  pytest-django 4.13.0 incident moved through.
+- `[tool.uv] package = false` — **an architectural statement, not a workaround.**
+  DistriCore's repository root is an application, not a distribution: nothing has ever
+  built, installed or imported a `districore` package, and every `districore.*` name in the
+  codebase is a logger. It is also what lets the dependency layer work, since D-3 installs
+  dependencies *before* copying code and a packaged root would have to be built from a
+  context with no source in it. It does not constrain future internal packages — a
+  non-package root with workspace members is the recommended uv layout.
+- `make lock` now runs in a throwaway uv container against the working tree: no `uv` in the
+  app image, no `/app` bind mount, no running stack, and the lock lands owned by the caller.
+
+**Changed**
+
+- All three install sites use `uv sync --frozen`, which **refuses to re-resolve**: a lock
+  that disagrees with the manifest fails the build rather than quietly resolving something
+  else.
+- `COPY pyproject.toml uv.lock ./` — **the glob is gone.** A missing lock is now a hard stop
+  at stage 1. `make verify` became its own proof, and no new test was required.
+
+**Closed**
+
+- **TD-21**, deferred through M5, M6 and M7.
+
+**Note**
+
+- The `==` dev pins are now redundant but **deliberately kept**. Retiring them in the same
+  change that introduced the lock would move two variables at once — recorded as TD-32.
+
 ### Performance — the receivables walk was quadratic (TD-27, FR-RPT-015)
 
 **Fixed**

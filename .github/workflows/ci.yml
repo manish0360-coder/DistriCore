@@ -51,10 +51,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The third install site. It read the specifiers and never opened the lock, so CI
+      # could pass having installed different packages from the gate — which is worse than
+      # no CI. `--frozen` refuses to re-resolve, so a stale lock fails here too (TD-21).
       - name: Install
         run: |
-          uv venv
-          uv pip install -r pyproject.toml --extra dev
+          uv sync --frozen --extra dev
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       # 2-3. Fast static checks
