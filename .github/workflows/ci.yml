@@ -65,7 +65,7 @@ jobs:
       - name: Format check
         run: ruff format --check .
       - name: Type check
-        run: mypy backend/ || true   # advisory until M2; hard gate from M3
+        run: mypy backend/
 
       # 4. Architecture contracts — N-01 and N-02, mechanically
       - name: Import contracts

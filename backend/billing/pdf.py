@@ -54,7 +54,7 @@ def _render_pdf_bytes(invoice: Invoice) -> bytes:
     """HTML to PDF. Imported lazily so a missing native library cannot break startup."""
     from weasyprint import HTML
 
-    return HTML(string=render_invoice_html(invoice)).write_pdf()  # type: ignore[no-any-return]
+    return HTML(string=render_invoice_html(invoice)).write_pdf()
 
 
 def invoice_pdf(*, actor: Any, invoice: Invoice) -> MediaFile:
@@ -65,8 +65,12 @@ def invoice_pdf(*, actor: Any, invoice: Invoice) -> MediaFile:
     race and the second would be refused by the database — correct, but a 500 for a user
     who did nothing wrong.
     """
-    if invoice.pdf_media_id:
-        return invoice.pdf_media
+    # Reading the relation rather than the id column: Django returns `None` for a null FK
+    # **without a query** (`has_value` is False, so the fetch is skipped), so this costs
+    # exactly what the `pdf_media_id` test cost and narrows the type at the same time.
+    existing = invoice.pdf_media
+    if existing is not None:
+        return existing
 
     content = _render_pdf_bytes(invoice)
 

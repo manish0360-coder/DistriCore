@@ -103,7 +103,9 @@ def _money_sum(field: str) -> Any:
     return Coalesce(Sum(field), ZERO_MONEY, output_field=MoneyField())
 
 
-def _within(queryset: QuerySet[Any], field: str, date_from: date | None, date_to: date | None):
+def _within(
+    queryset: QuerySet[Any], field: str, date_from: date | None, date_to: date | None
+) -> QuerySet[Any]:
     if date_from is not None:
         queryset = queryset.filter(**{f"{field}__gte": date_from})
     if date_to is not None:
@@ -644,7 +646,9 @@ def order_pipeline(
 
 
 # ---------------------------------------------------------------- 8. customer statement
-def statement_table(customer: Any, *, date_from: date | None = None, date_to: date | None = None):
+def statement_table(
+    customer: Any, *, date_from: date | None = None, date_to: date | None = None
+) -> ReportTable:
     """The sixth report, delivered at M6 — M7 adds CSV only (C-6, FR-RPT-012).
 
     Takes a ``Customer`` rather than an actor because the caller has already resolved and

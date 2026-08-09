@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M7 — Reporting** — verified 8/8. Latest run **712/712 tests, 94.85%** (M7 plus the identity phone fix, the owner bootstrap and TD-30) |
+| Current milestone | **M7 — Reporting** — verified 8/8. Latest run **712/712 tests, 94.83%**, with **`mypy` blocking** (M7 plus the identity fix, the owner bootstrap, TD-30, TD-21 and TD-2/TD-18) |
 | Next milestone | **M8 — Mobile app** (not started) |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -50,10 +50,18 @@
 | M7 | 8/8 | 665 | 94.47% | 3 kept | **2** |
 | M7 + identity fix | 8/8 | 685 | 94.78% | 3 kept | **1** |
 | M7 + owner bootstrap | 8/8 | 703 | 94.83% | 3 kept | **1** |
-| M7 + TD-30 | 8/8 | **712** | *not captured* | 3 kept | **2** |
+| M7 + TD-30 | 8/8 | 712 | 94.85% | 3 kept | **2** |
+| M7 + TD-21 | 8/8 | 712 | 94.85% | 3 kept | **1** |
+| M7 + TD-2/TD-18 | 8/8 | **712** | **94.83%** | 3 kept | **1** |
 
-> Coverage fell 0.18 points in M3 and 0.41 in M6. Both recorded rather than rounded away.
-> The gate is 80% and has never been moved.
+> Coverage fell 0.18 points in M3, 0.41 in M6 and **0.02 closing TD-2**. All recorded
+> rather than rounded away. The gate is 80% and has never been moved.
+>
+> **The TD-2 dip is structural and will not come back.** The `WithAnnotations` block in
+> `inventory/selectors.py` sits under `if TYPE_CHECKING:` — statements that **can never
+> execute**, and so can never be covered. That is the price of describing an annotated
+> queryset without asserting that every `Product` carries `on_hand`, and it is a deliberate
+> trade. *(Attribution is inference: per-file coverage was not captured for this run.)*
 >
 > **Only two of M6's five cycles were domain work.** One went to lint, one to migrations
 > that by definition cannot be generated, one to test defects. Cycle count measures
@@ -87,6 +95,7 @@ introduction would move two variables at once.
 | **The first authorised user is reachable** | `bootstrap_owner` (FR-IAM-014). Refuses while an **active** owner exists, refuses a deactivated target, audits every use as `OWNER_BOOTSTRAP` with `actor_user` NULL. **A test asserts the deadlock it exists to break**, so it cannot be deleted as redundant |
 | **The factory builds users like production** | `UserFactory._create` routes through `UserManager.create_user`. A test gives it a non-canonical phone and asserts it comes back canonical — the smallest statement that the production path is taken, and it fails the moment anyone reverts it |
 | **FR-RPT-015 measured, not assumed** | `ops/report_performance.py` builds a five-year DR-8 dataset (73k invoices, 292k lines, 103k ledger entries) and times all eleven report calls **individually**. Currently **0 breach(es)**. Re-run after any change to a report or to the §5A walk |
+| **`mypy` is blocking** | **Zero errors across 115 source files.** Stage 6 of `make verify` and the CI type-check step both fail on a type error — verified by injecting one and confirming exit code 1. No error was silenced with `Any`; three were **false signatures** the check caught (TD-2/TD-18) |
 | **The build is reproducible** | `uv.lock` pins **91 packages** including every transitive one. All three install sites — Dockerfile builder, builder-dev, CI — use `uv sync --frozen`, which **refuses to re-resolve**. `COPY ... uv.lock` carries no glob, so a missing lock fails stage 1 rather than falling back silently (TD-21) |
 | Order/inventory/ledger boundary | Orders write no stock movement and no ledger entry, and cannot import the ledger's writer (M3-6) |
 | Financial immutability | Raw SQL refused on `invoice`, `invoice_line`, `credit_note`, `credit_note_line`, `customer_ledger_entry` and now `payment` |
@@ -102,7 +111,7 @@ introduction would move two variables at once.
 | 1 | M7, **the identity phone fix and the owner bootstrap** committed, tagged `m7-reporting`, pushed. **The tag goes here** — this is the first commit in the repository's history at which `git clone && make up && make owner` yields a usable system | Engineering |
 | ~~2~~ | ~~TD-27 — run `ops/report_performance.py`~~ | **Done.** Measured before M8, which was the point: a second toolchain would have conflated two variables |
 | ~~3~~ | ~~TD-21 — make the build reproducible~~ | **Done.** `uv.lock` committed and consumed; the build fails closed without it |
-| 4 | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7**. It needs its own change and a scheduled slot, not another good reason to defer | Engineering |
+| ~~4~~ | ~~TD-2/TD-18 — make `mypy` blocking~~ | **Done.** Zero errors, stage 6 and CI both blocking |
 | 5 | **CF-1 — is statutory e-invoicing mandatory?** More expensive with every invoice issued | Business owner |
 | 6 | M8 design review written and signed | All |
 | 7 | TD-15 — assign a milestone to `offer` | Product Architect |
@@ -116,11 +125,13 @@ it can prove.**
 | --- | --- | --- |
 | **TD-32** | **New. Retire the `==` dev pins**, now superseded by `uv.lock`. Their own change, their own verify run — and keep the pytest-django incident narrative when the comment block goes | M8 |
 | TD-11 | **SMS / DLT registration not started — blocks go-live.** Unbounded external lead time | Now |
-| TD-2 / TD-18 | **`mypy` advisory. Missed at M5, M6 and now M7 — a third miss.** M7 §11 argued it needed its own change and kept it out; the argument was right and the item still is not done | **Schedule it** |
+| **TD-33** | **New. Adopt `djangorestframework-stubs`.** Deferred deliberately: it would surface a fresh error wave across `api/v1` in the same change that closed the gate. The original objection — tight `mypy`/`django-stubs` pins — is now **weaker**, because `uv.lock` manages them (TD-21). Adopt once the gate has held through one milestone | M8+ |
+| **TD-34** | **New. `ops/` is outside `mypy backend/`.** `ops/report_performance.py` imports eight model modules and every report selector, and the blocking gate cannot see it — so a selector signature can change under it silently | M8 |
+| **TD-35** | **New. `pip-audit --strict \|\| true` in CI** is still advisory. Found while closing the type gate; the *same* pattern, a different scan | M8 |
 | TD-23 | `billing/selectors.py` scoping branches. FR-RPT-014's tests exercise exactly that surface, so it is **very likely closed — but per-file coverage was not captured**, and this table does not record what was not observed | M8 |
 | TD-26 | `_walk`'s three robustness guards are exercised only by the randomised property test | M8 |
 | TD-14 | `Product._has_history()` still inert. **Overdue** since M3 | M8 |
-| TD-22 / TD-25 | Advisory `mypy` diagnostics — **24 errors in 7 files, six of them new in `reporting/selectors.py`**. Fourth consecutive milestone with the gate advisory, second in which the untyped surface grew while it stayed that way | M8 |
+| ~~TD-22 / TD-25~~ | ~~Advisory `mypy` diagnostics~~ | **CLOSED with TD-2/TD-18** — all 24 fixed, none silenced with `Any` |
 | **TD-29** | **New.** Nothing asserts a *newly added* report is wired into `REPORT_MENU`, the API router and the CSV path. The eighth report will be added by someone who forgets one of the three | M8 |
 | **TD-31** | **New. A test that reads the wall clock while asserting against a constant fails on a date rather than on a change.** Four instances found and fixed; two other `stocked` fixtures were left alone because they bound no period. The class is recorded because the next instance will be written by someone who has not read this row | M8 |
 | **TD-28** | **New.** `?format=csv` on an unauthorised report stringifies the problem+json body through `CsvRenderer`. Cosmetic, untested error path | M10 |
@@ -128,7 +139,12 @@ it can prove.**
 | TD-15 | `offer` has no milestone | Open |
 
 **Closed:** TD-5 (M1) · TD-12, TD-13 (M2) · TD-17 (M3) · TD-16, TD-19 (M5) · **none (M6)** ·
-**none confirmed (M7)** · **TD-30, TD-27, TD-21 (post-M7)**.
+**none confirmed (M7)** · **TD-30, TD-27, TD-21, TD-2/TD-18, TD-22/TD-25 (post-M7)**.
+
+> **TD-2/TD-18 closed at the fourth attempt.** Missed at M5, M6 and M7 — each time for a
+> sound reason, and the fourth time there was none left. Of the 24 errors it cleared,
+> **three were signatures that lied** about what a function returned; one of those alone
+> produced five errors, four of them in a module it did not live in.
 
 > **TD-27 closed with evidence, not with a tick.** The harness measured 11.7 s for
 > receivables ageing — a **quadratic in the §5A walk**, where `_annulled_entry_ids` was

@@ -152,6 +152,12 @@ def _annulled_entry_ids(entries: list[CustomerLedgerEntry]) -> set[int]:
             continue
         if entry.source_document_type not in _ANNULLABLE_SOURCES:
             continue  # a manual adjustment annuls nothing
+        if entry.source_document_id is None:
+            # An annulment with no document to point at annuls nothing. Previously this
+            # fell through to the lookup below and missed, because every key in
+            # `unclaimed` carries a non-null id — same outcome, one branch later. Stated
+            # here so the key is provably `tuple[str, int]`, which is what the dict holds.
+            continue
         key = (entry.source_document_type, entry.source_document_id)
         target = unclaimed.get(key)
         if target is None:

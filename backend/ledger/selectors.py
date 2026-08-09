@@ -27,12 +27,19 @@ from ledger.models import CustomerLedgerEntry
 ZERO_MONEY = Value(Decimal("0.00"), output_field=MoneyField())
 
 
-def _balance_expression(*, as_of: date | None = None):
-    """Sum of entries, left-joined from Customer, coalesced to a typed zero."""
-    kwargs = {"output_field": MoneyField()}
-    if as_of is not None:
-        kwargs["filter"] = Q(ledger_entries__entry_date__lte=as_of)
-    return Coalesce(Sum("ledger_entries__amount", **kwargs), ZERO_MONEY)
+def _balance_expression(*, as_of: date | None = None) -> Coalesce:
+    """Sum of entries, left-joined from Customer, coalesced to a typed zero.
+
+    ``filter=None`` is `Sum`'s own default, so passing it explicitly is the same
+    aggregate. The kwargs dict it replaces was inferred as ``dict[str, MoneyField]`` from
+    its first assignment, which made the later ``kwargs["filter"] = Q(...)`` a type error.
+    Naming both arguments states the shape instead of assembling it.
+    """
+    entry_filter = Q(ledger_entries__entry_date__lte=as_of) if as_of is not None else None
+    return Coalesce(
+        Sum("ledger_entries__amount", filter=entry_filter, output_field=MoneyField()),
+        ZERO_MONEY,
+    )
 
 
 def settled_balance(customer: Customer, *, as_of: date | None = None) -> Decimal:
@@ -72,12 +79,18 @@ def statement_for(
     return queryset.order_by("entry_date", "id")
 
 
-def settled_order_ids(customer: Customer) -> QuerySet[int]:
+def settled_order_ids(customer: Customer) -> QuerySet[CustomerLedgerEntry, int]:
     """Primary keys of this customer's orders that have reached the ledger (D-9).
 
     The exposure query uses this to subtract orders whose value has become settled debt,
     so the open and settled terms partition rather than overlap. Returning ids rather
     than a boolean per order keeps it one subquery instead of N.
+
+    **The two type parameters are the model and the row.** A `values_list(flat=True)`
+    still *queries* `CustomerLedgerEntry` — it only changes what each row is. The previous
+    annotation said `QuerySet[int]`, which claimed the queryset was over a model called
+    `int`; it stays a queryset so that `orders.selectors` can use it as one subquery
+    rather than N.
     """
     return (
         CustomerLedgerEntry.objects.filter(

@@ -7,7 +7,7 @@ here (N-02) — selectors exist precisely so this file never has to.
 from __future__ import annotations
 
 from django.contrib.auth.decorators import login_required
-from django.http import FileResponse, HttpRequest, HttpResponse
+from django.http import FileResponse, HttpRequest, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
@@ -125,7 +125,18 @@ def invoice_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @login_required
-def invoice_pdf(request: HttpRequest, pk: int) -> HttpResponse:
+def invoice_pdf(request: HttpRequest, pk: int) -> HttpResponseBase:
+    """Stream the invoice PDF, or redirect if the caller may not see it.
+
+    **`HttpResponseBase`, not `HttpResponse`.** `FileResponse` descends from
+    `StreamingHttpResponse`, which is a *sibling* of `HttpResponse` — not a subclass. The
+    old annotation was false, and it was the kind that stays quiet: a caller trusting it
+    and reading `.content` would fail at runtime on a streaming response, which is exactly
+    the attribute `StreamingHttpResponse` does not have.
+
+    `HttpResponseBase` is the real common supertype of the two branches — a redirect and
+    a streamed file. Django's handler accepts it, so nothing about the response changes.
+    """
     invoice = billing_selectors.get_invoice_for(request.user, pk)
     if invoice is None:
         return redirect("webadmin:invoice-list")

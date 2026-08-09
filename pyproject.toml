@@ -150,7 +150,7 @@ strict_equality = true
 module = [
     "axes.*", "environ.*", "factory.*",
     "rest_framework.*", "rest_framework_simplejwt.*",
-    "sentry_sdk.*", "whitenoise.*",
+    "sentry_sdk.*", "weasyprint.*", "whitenoise.*",
 ]
 ignore_missing_imports = true
 

@@ -24,8 +24,14 @@ platform enter the repository.
 | ~~TD-30~~ | ~~Make `UserFactory` use the production creation path~~ | **Closed.** Creation half structurally; role half by direct coverage (`docs/TD-30_Factory_Creation_Path_Note.md` §3) |
 | ~~TD-27~~ | ~~Run `ops/report_performance.py`~~ | **Closed.** Measured 11.7 s, found a quadratic in the §5A walk, fixed to **0 breach(es)** — before M8's second runtime could conflate the measurement |
 | ~~TD-21~~ | ~~Make the build reproducible~~ | **Closed.** `uv.lock` pins 91 packages; all three install sites use `uv sync --frozen`; a missing lock fails stage 1. Done **before** the Dart toolchain arrives, which was the point |
-| **1** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead — and there is now nothing else queued ahead of it** |
-| **2** | **TD-32 — retire the `==` dev pins**, superseded by the lock | Small, but it must not ride along with anything: the pins and the lock are two ways of doing one job, and removing one while the other is new means two variables move together |
+| ~~TD-2/TD-18~~ | ~~Make `mypy` blocking~~ | **Closed at the fourth attempt.** Zero errors across 115 files; stage 6 and CI both fail on a type error. Three of the 24 were signatures that lied |
+| **1** | **TD-32 — retire the `==` dev pins**, superseded by the lock | Small, but it must not ride along with anything: the pins and the lock are two ways of doing one job, and removing one while the other is new means two variables move together. **`mypy` and `django-stubs` keep theirs** — see below |
+
+> **The type gate changes what a lock refresh means.** `make lock` can now break stage 6
+> under unchanged source, by moving `mypy` or `django-stubs` — the pytest-django failure
+> mode relocated to a different gate. So TD-32 retires the *pytest* pins and **leaves
+> `mypy` and `django-stubs` pinned**, and any future lock refresh is its own change with
+> its own verify run.
 
 ### What TD-30 cost, and what it left behind
 

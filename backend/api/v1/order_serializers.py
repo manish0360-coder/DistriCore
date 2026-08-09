@@ -71,7 +71,11 @@ class OrderLineWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"quantity": "Give a quantity in base units or in packs, not both."}
             )
-        if (base if base is not None else packs) <= 0:
+        # Hoisted so the narrowing is visible. The guard above proves exactly one of the
+        # two was given, so `quantity is None` is unreachable — but that proof lives in a
+        # derived boolean and no reader, human or static, can follow it from here.
+        quantity = base if base is not None else packs
+        if quantity is None or quantity <= 0:
             raise serializers.ValidationError({"quantity": "Quantity must be greater than zero."})
         return attrs
 

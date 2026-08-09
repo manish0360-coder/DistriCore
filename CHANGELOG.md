@@ -4,6 +4,52 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### Types — the `mypy` gate is blocking (TD-2 / TD-18)
+
+**Fixed**
+
+- **Three signatures that lied about what a function returned.** These were the only errors
+  in the set that described a real defect, and they are the reason the milestone was worth
+  doing:
+  - `inventory.variance_by_reason` declared `QuerySet[StockMovement]` and returned
+    `values().annotate()` — **dicts**. One false annotation produced **five** errors: one at
+    the return, four in `reporting.selectors` where the caller iterates the dicts.
+  - `ledger.settled_order_ids` declared `QuerySet[int]`, claiming a queryset over a model
+    called `int`.
+  - `webadmin.invoice_pdf` declared `-> HttpResponse` and returned a `FileResponse`, which
+    descends from `StreamingHttpResponse` — a **sibling** of `HttpResponse`, not a subclass.
+    A caller trusting the annotation and reading `.content` would fail at runtime.
+- **Two expression helpers built a heterogeneous kwargs dict**, inferred from its first
+  assignment, making the later `kwargs["filter"] = Q(...)` a type error. Replaced with named
+  arguments; `filter=None` is `Sum`'s own default, verified attribute by attribute against
+  the previous aggregate.
+- **Four narrowing gaps** in `order_serializers`, `receivables` and `billing/pdf`.
+
+**Changed**
+
+- `weasyprint.*` added to `ignore_missing_imports`; the now-unnecessary
+  `# type: ignore[no-any-return]` removed. The two were **inversely coupled** and had to
+  move together — the direction was not predictable in advance.
+- `on_hand` typed with django-stubs' `WithAnnotations` under `TYPE_CHECKING`. A hand-rolled
+  stub class was rejected: it would make the type system believe **every** `Product` has the
+  attribute, including where it does not.
+- **`mypy` is now blocking** in `make verify` stage 6 **and** in CI. The stale
+  *"advisory until M2; hard gate from M3"* comment is gone — it had been wrong since M3.
+
+**Closed**
+
+- **TD-2 / TD-18**, at the fourth attempt. Missed at M5, M6 and M7, each time for a sound
+  reason; the fourth time there was none left.
+- **TD-22 / TD-25** — all 24 diagnostics fixed. **None silenced with `Any`.**
+
+**Note**
+
+- Coverage 94.85% -> 94.83%. The `TYPE_CHECKING` block can never execute and so can never be
+  covered — a deliberate trade for not lying about `Product`.
+- Scope held: **`disallow_untyped_defs` was not turned on globally** and
+  `djangorestframework-stubs` was not adopted. Both are separate changes (TD-33), because
+  this one was about closing the gate, not raising the bar behind it.
+
 ### Build — the build is reproducible for the first time (TD-21)
 
 **Fixed**

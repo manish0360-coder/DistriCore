@@ -305,11 +305,11 @@ reports the number.
 | --- | --- | --- |
 | ~~TD-21~~ | ~~`uv.lock` absent, `make lock` non-functional~~ | **CLOSED post-M7** — `docs/TD-21_Reproducible_Build_Note.md` §7 |
 | TD-11 | SMS / DLT registration not started | Blocks go-live, unbounded external lead time |
-| TD-2 / TD-18 | `mypy` advisory rather than blocking | **Missed at M5, M6 and now M7 — a third miss.** §11 predicted exactly this and kept it out anyway, which was the right call and did not help |
+| ~~TD-2 / TD-18~~ | ~~`mypy` advisory rather than blocking~~ | **CLOSED post-M7** at the fourth attempt — `docs/TD-2_Mypy_Blocking_Design_Note.md` §8 |
 | TD-23 | `billing/selectors.py` scoping branches | Unconfirmed, see above |
 | TD-26 | `_walk` guards covered only by the property test | Untouched |
 | TD-14 | `Product._has_history()` inert | Overdue since M3 |
-| TD-22 / TD-25 | Advisory `mypy` diagnostics | Untouched |
+| ~~TD-22 / TD-25~~ | ~~Advisory `mypy` diagnostics~~ | **CLOSED post-M7** — all 24 fixed, none silenced with `Any` |
 | TD-24 | Move `_ImmutableDocument` to `core` | M10 |
 | TD-15 | `offer` has no milestone | Product Architect |
 
@@ -425,6 +425,11 @@ annotation gaps around Django's `values()`/`annotate()` return types. Advisory o
 
 **This is the fourth consecutive milestone in which the `mypy` gate was not made blocking**
 and the second in which the untyped surface grew while it stayed advisory.
+
+> **Closed post-M7.** All 24 were fixed and the gate now blocks in both `make verify` and
+> CI. Six of them were in `reporting/selectors.py` — and **five of those traced to a single
+> false signature in `inventory`**, which this section counted as new untyped surface when
+> it was really one wrong annotation propagating. `docs/TD-2_Mypy_Blocking_Design_Note.md` §8.
 
 ---
 

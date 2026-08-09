@@ -143,8 +143,8 @@ verify: ## Docker verification — the ONLY authority (N-12, 00 §5.2)
 	$(TOOLS) ruff check .
 	@echo "==> 5/8  import contracts (N-01, N-02)"
 	$(TOOLS) lint-imports
-	@echo "==> 6/8  type check"
-	$(TOOLS) mypy backend/ || true
+	@echo "==> 6/8  type check (BLOCKING since TD-2/TD-18)"
+	$(TOOLS) mypy backend/
 	@echo "==> 7/8  tests + coverage gate"
 	$(TOOLS) pytest --cov --cov-fail-under=80
 	@echo "==> 8/8  health endpoint"
