@@ -49,7 +49,7 @@
 | M7 | 8/8 | 665 | 94.47% | 3 kept | **2** |
 | M7 + identity fix | 8/8 | 685 | 94.78% | 3 kept | **1** |
 | M7 + owner bootstrap | 8/8 | 703 | 94.83% | 3 kept | **1** |
-| M7 + TD-30 | 8/8 | **712** | **94.85%** | 3 kept | **2** |
+| M7 + TD-30 | 8/8 | **712** | *not captured* | 3 kept | **2** |
 
 > Coverage fell 0.18 points in M3 and 0.41 in M6. Both recorded rather than rounded away.
 > The gate is 80% and has never been moved.
