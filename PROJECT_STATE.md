@@ -8,9 +8,10 @@
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
 
-> **Edition 1a's server side is done. One requirement in it is unverified.** FR-RPT-015
-> (reports under 10 s over five years) has never been measured — the harness exists and has
-> not been run. See TD-27.
+> **Edition 1a's server side is done, and every requirement in it now has evidence.**
+> FR-RPT-015 was the last one without any: measured at the DR-8 envelope, it caught a
+> quadratic in the §5A walk (11.7 s), which was fixed to **0 breach(es)**. TD-27 closed —
+> `docs/M7_Verification_Report.md` §13.
 >
 > **`00` §20.3 criterion 2 became true on 2026-08-08.** *"A user can log in ... by password
 > on web"* was never satisfiable on a clean machine through the supported path; it passed at
@@ -83,6 +84,7 @@ Introduced at M5 after a toolchain change broke the gate under unchanged source.
 | **One canonical phone number** | `identity/phone.py` defines it once; `UserManager._create` writes it and every lookup reads it. Migration `identity/0004` normalised existing rows and **refuses to merge collisions** (`04` T-01) |
 | **The first authorised user is reachable** | `bootstrap_owner` (FR-IAM-014). Refuses while an **active** owner exists, refuses a deactivated target, audits every use as `OWNER_BOOTSTRAP` with `actor_user` NULL. **A test asserts the deadlock it exists to break**, so it cannot be deleted as redundant |
 | **The factory builds users like production** | `UserFactory._create` routes through `UserManager.create_user`. A test gives it a non-canonical phone and asserts it comes back canonical — the smallest statement that the production path is taken, and it fails the moment anyone reverts it |
+| **FR-RPT-015 measured, not assumed** | `ops/report_performance.py` builds a five-year DR-8 dataset (73k invoices, 292k lines, 103k ledger entries) and times all eleven report calls **individually**. Currently **0 breach(es)**. Re-run after any change to a report or to the §5A walk |
 | Order/inventory/ledger boundary | Orders write no stock movement and no ledger entry, and cannot import the ledger's writer (M3-6) |
 | Financial immutability | Raw SQL refused on `invoice`, `invoice_line`, `credit_note`, `credit_note_line`, `customer_ledger_entry` and now `payment` |
 | Double-restock (Scenario F) | Impossible by construction — a credit note writes no stock (ADR-0009) |
@@ -95,7 +97,7 @@ Introduced at M5 after a toolchain change broke the gate under unchanged source.
 | # | Item | Owner |
 | --- | --- | --- |
 | 1 | M7, **the identity phone fix and the owner bootstrap** committed, tagged `m7-reporting`, pushed. **The tag goes here** — this is the first commit in the repository's history at which `git clone && make up && make owner` yields a usable system | Engineering |
-| 2 | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured. Do it **before** M8 adds a second toolchain, or the measurement conflates two variables | Engineering |
+| ~~2~~ | ~~TD-27 — run `ops/report_performance.py`~~ | **Done.** Measured before M8, which was the point: a second toolchain would have conflated two variables |
 | 3 | **TD-21 — make the build reproducible.** Still the highest-value debt. M8 adds a Dart build; an unpinned Python build plus a new one is two unpinned builds | Engineering |
 | 4 | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7**. It needs its own change and a scheduled slot, not another good reason to defer | Engineering |
 | 5 | **CF-1 — is statutory e-invoicing mandatory?** More expensive with every invoice issued | Business owner |
@@ -109,7 +111,6 @@ it can prove.**
 
 | # | Item | Due |
 | --- | --- | --- |
-| **TD-27** | **New. FR-RPT-015 has never been measured.** `ops/report_performance.py` builds the five-year dataset and times all eleven report calls; it has not been run. Named suspects: the receivables walk, and top-customers (both candidate indexes lead on `customer`, not on the date) | **Next** |
 | TD-21 | **`uv.lock` absent and `make lock` non-functional** — `uv` is not in the dev image, `/app` is not bind-mounted. Pins bound direct dependencies only | **Next** |
 | TD-11 | **SMS / DLT registration not started — blocks go-live.** Unbounded external lead time | Now |
 | TD-2 / TD-18 | **`mypy` advisory. Missed at M5, M6 and now M7 — a third miss.** M7 §11 argued it needed its own change and kept it out; the argument was right and the item still is not done | **Schedule it** |
@@ -124,7 +125,13 @@ it can prove.**
 | TD-15 | `offer` has no milestone | Open |
 
 **Closed:** TD-5 (M1) · TD-12, TD-13 (M2) · TD-17 (M3) · TD-16, TD-19 (M5) · **none (M6)** ·
-**none confirmed (M7)** · **TD-30 (post-M7)**.
+**none confirmed (M7)** · **TD-30, TD-27 (post-M7)**.
+
+> **TD-27 closed with evidence, not with a tick.** The harness measured 11.7 s for
+> receivables ageing — a **quadratic in the §5A walk**, where `_annulled_entry_ids` was
+> re-evaluated once per entry inside a comprehension condition. Hoisting the pure call
+> fixed it without changing a single answer or a single test. **0 breach(es)**
+> (`docs/M7_Verification_Report.md` §13).
 
 > **TD-30's creation half is closed structurally; its role half is closed by coverage
 > elsewhere** (`docs/TD-30_Factory_Creation_Path_Note.md` §3). The second is a discipline

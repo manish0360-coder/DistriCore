@@ -4,6 +4,48 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### Performance — the receivables walk was quadratic (TD-27, FR-RPT-015)
+
+**Fixed**
+
+- **`receivables ageing` took 11.7 seconds at the DR-8 envelope, breaching FR-RPT-015's
+  10-second budget.** Step 1 of the §5A FIFO walk read:
+
+  ```python
+  live = [e for e in entries if e.pk not in _annulled_entry_ids(entries)]
+  ```
+
+  A comprehension re-evaluates its condition for every element, so `_annulled_entry_ids`
+  ran **once per entry** — allocating a fresh dict and set each time and rescanning every
+  entry. O(n²) where O(n) was intended: ~10.6 million entry-visits across 1,000 customers.
+
+  Fixed by hoisting the call. The function is **pure**, so hoisting an invariant call out
+  of a loop is result-preserving by construction — §5A.7's invariant, the FIFO ordering and
+  edge cases E-1…E-13 are untouched, and **no test needed changing.**
+
+  Measured 36× faster at the observed shape, and **267× at 400 entries per customer** — the
+  defect was getting worse as the ledger grew, which for a distributor it only ever does.
+
+- **`dashboard` took 11.8 seconds** for the same reason: it calls `receivables_position`
+  for its total-outstanding metric. One root cause, two breaches.
+
+**Note**
+
+- No index was added, no aggregate stored, no report logic changed. M7 §7 requires a breach
+  to be answered by an index or a **domain** optimisation; this was neither — an algorithmic
+  defect in the module that owns the rule. `reporting`, the schema and the migrations are
+  untouched.
+- Every comprehension in production code was swept for the same defect class. **Zero other
+  sites.**
+- **Top customers — the independent reviewer's suspect (§17.2) — measured 0.221s.** The
+  index concern did not materialise at this envelope, and none was added.
+
+**Closed**
+
+- **TD-27.** FR-RPT-015 was the last Edition-1a requirement with no evidence behind it. It
+  now has a measurement, a defect that measurement caught, and a fix it verified:
+  **0 breach(es)**.
+
 ### Fix — the test suite now builds users the way production does (TD-30)
 
 **Fixed**

@@ -22,9 +22,9 @@ platform enter the repository.
 | # | Item | Why now, not later |
 | --: | --- | --- |
 | ~~TD-30~~ | ~~Make `UserFactory` use the production creation path~~ | **Closed.** Creation half structurally; role half by direct coverage (`docs/TD-30_Factory_Creation_Path_Note.md` §3) |
-| **1** | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured | M8 adds a Dart build and a second runtime. Measuring after that switch conflates two variables, and the harness already exists |
-| **2** | **TD-21 — make the build reproducible.** `uv.lock` absent, `make lock` non-functional | An unpinned Python build plus a brand-new Dart build is **two** unpinned builds. The M5 toolchain drift that broke a green gate under unchanged source is the precedent |
-| **3** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead** |
+| ~~TD-27~~ | ~~Run `ops/report_performance.py`~~ | **Closed.** Measured 11.7 s, found a quadratic in the §5A walk, fixed to **0 breach(es)** — before M8's second runtime could conflate the measurement |
+| **1** | **TD-21 — make the build reproducible.** `uv.lock` absent, `make lock` non-functional | An unpinned Python build plus a brand-new Dart build is **two** unpinned builds. The M5 toolchain drift that broke a green gate under unchanged source is the precedent |
+| **2** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead** |
 
 ### What TD-30 cost, and what it left behind
 
@@ -43,22 +43,28 @@ three more would have failed on 1 September. All four are fixed by stating the i
 > still writes `UserRole` directly. If the fixture layer is ever reworked, route it through
 > `grant_role` / `bootstrap_owner` then.
 
-### On TD-27 specifically
+### What TD-27 found, and what it settled
 
-`make verify` green does **not** mean the reports are fast enough. The suite exercises tens
-of rows; FR-RPT-015 requires under 10 seconds over five years — roughly 73,000 invoices and
-292,000 lines at the DR-8 envelope.
+`make verify` green did **not** mean the reports were fast enough. The suite exercises tens
+of rows; at the DR-8 envelope — 73,000 invoices, 292,000 lines, 103,000 ledger entries —
+**receivables ageing took 11.7 s and the dashboard 11.8 s**, both breaching FR-RPT-015.
 
-Two suspects were named in the design and remain unmeasured:
+**One root cause.** `_annulled_entry_ids` was called inside a comprehension *condition*, so
+it re-ran once per entry: O(n²) where O(n) was intended, ~10.6 million entry-visits. The
+function is pure, so hoisting it changed nothing but the cost. **0 breach(es)** after.
 
-- **receivables** — the only report whose figures come from a row-by-row Python walk (§5A)
-  rather than a database aggregate. It walks every ledger entry for every visible customer.
-- **top customers** — `ix_invoice_customer_date` and `ix_credit_note_cust_date` **both lead
-  on `customer`**, so neither serves a date-range scan that then groups.
+Two things worth carrying into M8:
 
-If a report breaches, the fix is an index or a domain optimisation **recorded with the
-measurement that justified it** (M7 §7) — never a reporting shortcut, and never a stored
-aggregate (M7-4).
+- **The design named the right suspect for the wrong reason.** Receivables was flagged as
+  the only Python-walk report — true, but no query was slow. The cost was an algorithmic
+  defect, not the walk's size.
+- **Top customers, the independent reviewer's suspect, measured 0.221 s.** The index concern
+  did not materialise, and no index was added. A prediction that proves wrong is worth
+  recording too.
+
+**Re-run the harness after any change to a report or to the §5A walk.** It is not part of
+`make verify` and never will be — an 858-second dataset build has no place in an 8-stage
+gate — so nothing else will catch a regression of this class.
 
 ---
 

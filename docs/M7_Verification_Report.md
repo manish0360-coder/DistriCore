@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M7_Verification_Report` |
-| Version | **1.3.0** |
-| Status | **VERIFIED** — `make verify` 8/8 |
-| Date | 2026-08-08 · **addenda §10–§12 added 2026-08-08/09** |
+| Version | **1.4.0** |
+| Status | **VERIFIED** — `make verify` 8/8 · **FR-RPT-015 measured, 0 breaches** |
+| Date | 2026-08-08 · **addenda §10–§13 added 2026-08-08/09** |
 | Milestone | M7 — Reporting |
 | Design authority | `docs/M7_Design_Review.md` v1.2.0 (signed, independently reviewed) |
 | Verify cycles to green | **2** |
@@ -227,7 +227,12 @@ migrations, and it holds.
 
 ## 6. Known limitations
 
-### 6.1 FR-RPT-015 is unverified, and M7 is not complete without it
+### 6.1 FR-RPT-015 is unverified, and M7 is not complete without it *(RESOLVED — see §13)*
+
+> **Superseded 2026-08-09.** The harness was run, found a breach, and the breach was fixed.
+> This section is left standing rather than rewritten: it is the statement that made the
+> measurement happen, and deleting it would erase the reason M7 was not declared complete
+> on the strength of a green suite.
 
 > **`make verify` green does not mean the reports are fast enough.** The suite exercises
 > tens of rows. FR-RPT-015 requires under 10 seconds over **five years** of history —
@@ -249,6 +254,10 @@ Two suspects were named in advance and both remain unmeasured:
   neither serves a date-range scan that then groups.
 
 Recorded as **TD-27**, and it is the highest-priority item in this report.
+
+> **Outcome (§13):** receivables breached at **11.7 s** — the right suspect for the wrong
+> reason, since no query was slow and the cost was a quadratic in the walk. **Top customers
+> measured 0.221 s**; the index concern did not materialise and no index was added.
 
 ### 6.2 Other limitations, by decision
 
@@ -286,7 +295,7 @@ reports the number.
 
 | # | Item | Due |
 | --- | --- | --- |
-| **TD-27** | **FR-RPT-015 unmeasured.** The five-year harness exists and has never been run. Two named suspects. **This is the highest-value item in the repository after TD-21** | **Next** |
+| ~~TD-27~~ | ~~FR-RPT-015 unmeasured~~ | **CLOSED — §13** |
 | **TD-28** | `?format=csv` on an unauthorised report stringifies the problem+json body through `CsvRenderer`. Cosmetic, on an untested error path | M10 |
 | **TD-29** | `reporting` has no test that a *newly added* report is wired into `REPORT_MENU`, the API router and the CSV path. The eighth report will be added by someone who forgets one of the three | M8 |
 
@@ -317,7 +326,7 @@ reports the number.
 | --- | --- |
 | Edition 1a back end | **Feature-complete.** M0–M7 deliver every server-side capability Edition 1a requires |
 | API surface | 8 report endpoints added; `05` §9.11 amended, additively |
-| **TD-27 — FR-RPT-015** | **Blocking a claim of completeness, not blocking M8.** M8 changes language and platform; running the harness after that switch conflates two variables |
+| ~~TD-27 — FR-RPT-015~~ | **Closed before M8 opened**, which was the point of doing it first. §13 |
 | TD-21 — reproducible build | **Should be closed before M8.** M8 adds a second toolchain; an unpinned Python build plus a new Dart build is two unpinned builds |
 | CF-1 — statutory e-invoicing | Still unanswered, and more expensive with every invoice issued |
 
@@ -600,3 +609,130 @@ boundary and not the other.**
 None was findable by design review. The first two hid behind TD-30; the third hid behind the
 calendar. **Every one of them was found by running the real thing**, which is the argument
 for N-12 restated as evidence three more times.
+
+---
+
+## 13. Addendum — FR-RPT-015 measured, breached, fixed. TD-27 closed
+
+§6.1 said M7 could not be called complete on the strength of a green suite. It was right.
+
+### 13.1 The measurement
+
+`ops/report_performance.py` was run against a synthesised five-year dataset at the DR-8
+envelope, built in **858 seconds**:
+
+| Rows | Count |
+| --- | --: |
+| Customers · products | 1,000 · 500 |
+| Stock movements | 60,000 |
+| Orders · invoices · invoice lines | 73,000 · 73,000 · 292,000 |
+| Ledger entries (invoice · payment) | 73,000 · 30,000 |
+| Credit notes | 2,190 |
+
+**Two breaches, and they were one defect:**
+
+| Report | Seconds | Result |
+| --- | --: | --- |
+| receivables ageing | **11.717** | BREACH |
+| dashboard | **11.829** | BREACH |
+| sales (5y, product) | 0.697 | OK |
+| sales (5y, customer) | 0.222 | OK |
+| top customers (5y) | 0.221 | OK |
+| stock variance (5y) | 0.152 | OK |
+| sales (5y, day) | 0.129 | OK |
+| stock position | 0.120 | OK |
+| sales (1y, day) | 0.070 | OK |
+| order pipeline (5y) | 0.058 | OK |
+| returns (5y) | 0.057 | OK |
+
+The dashboard was not independently slow: `dashboard()` calls `receivables_position` for
+its total-outstanding metric, so 11.829 is 11.717 plus three cheap figures. **One root
+cause, two rows.**
+
+### 13.2 §10.1 named the right suspect for the wrong reason
+
+Receivables was flagged in advance as *"the only report whose figures come from a
+row-by-row Python walk rather than a database aggregate"*. Correct — but the cost was not
+the walk's size. **No query was slow**, and the three-query structure M6 built to avoid N+1
+worked exactly as designed.
+
+**Top customers, the independent reviewer's suspect (§17.2), came in at 0.221s.** The
+index concern — that `ix_invoice_customer_date` and `ix_credit_note_cust_date` both lead on
+`customer` — did not materialise at this envelope. Recorded because a prediction that
+proves wrong is worth as much as one that proves right, and no index was added.
+
+### 13.3 The defect: a quadratic hiding in a comprehension
+
+`receivables/selectors.py`, step 1 of the §5A walk:
+
+```python
+live = [e for e in entries if e.pk not in _annulled_entry_ids(entries)]
+```
+
+**A comprehension re-evaluates its condition for every element.** `_annulled_entry_ids` ran
+once per entry, allocating a fresh dict and set each time and rescanning every entry — O(n²)
+where O(n) was intended.
+
+At 103,000 ledger entries across 1,000 customers (~103 each): ~10,600 entry-visits per
+customer, **~10.6 million across the dataset**, and ~103,000 needless allocations.
+
+The fix is to hoist the call. `_annulled_entry_ids` is **pure** — it reads `entries` and
+builds only local structures — so hoisting an invariant call out of a loop is
+result-preserving by construction. §5A.7's invariant, the FIFO ordering and edge cases
+E-1 … E-13 are untouched, which is why no test needed changing.
+
+Measured on a standalone model asserting the two versions produce identical output:
+
+| entries/customer | quadratic | hoisted | speedup |
+| ---: | ---: | ---: | ---: |
+| 25 | 0.126s | 0.008s | 16× |
+| **103** *(the measured shape)* | **1.911s** | **0.053s** | **36×** |
+| 400 | 27.234s | 0.102s | 267× |
+
+**The third row is the one that matters commercially.** The defect was getting worse as the
+business grew: at 400 entries per customer the old walk takes 27 seconds and the fixed one
+barely moves. A distributor's ledger only ever gets longer.
+
+Every comprehension in production code was swept for the same defect class — a function
+call inside a comprehension condition. **Zero other sites.**
+
+### 13.4 The fix respected the frozen constraints
+
+M7 §7 requires a breach to be answered by *"an index or a domain optimisation recorded with
+the measurement that justified it — never a reporting shortcut and never a stored aggregate
+(M7-4)."*
+
+It was neither an index nor an aggregate. It was an algorithmic defect in the domain module
+that owns the rule: **`reporting` untouched, no schema change, no migration, no test
+weakened.**
+
+### 13.5 Closing result
+
+| Gate | Result |
+| --- | --- |
+| `make verify` | **8/8** |
+| Tests | **712/712** |
+| Coverage | **94.85%** |
+| Import contracts | **3 kept, 0 broken** |
+| Missing migrations | **none** |
+| **FR-RPT-015 benchmark** | **0 breach(es)** |
+
+**TD-27 is closed.** FR-RPT-015 is the last Edition-1a requirement that had no evidence
+behind it; it now has a measurement, a defect it caught, and a fix it verified.
+
+> **The per-report timings of the confirming run were not captured**, only the
+> `0 breach(es)` summary. §10.1 of the design says in terms that *"one 'reports are fast'
+> number hides the one that is not"* — so this report records the aggregate as the aggregate
+> it is. The pre-fix table in §13.1 is complete and is the substantive evidence; the
+> post-fix per-report figures should be pasted in when next run.
+
+### 13.6 What this makes four for four
+
+§12.4 named three defects sharing a shape: a rule enforced on one side of a boundary and
+not the other. This is the fourth, and it is the same shape again — **an operation whose
+cost is invariant, evaluated as though it were not.**
+
+All four were invisible to a green suite. Three were found by running the real system; this
+one was found by measuring it at real size. **The test suite has never once caught this
+class**, and that is not a criticism of the tests: they exercise tens of rows, and at tens
+of rows a quadratic and a linear walk are indistinguishable.

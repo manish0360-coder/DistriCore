@@ -178,7 +178,19 @@ def _walk(
     invoice it references.
     """
     # --- 1. ANNUL ------------------------------------------------------------
-    live = [e for e in entries if e.pk not in _annulled_entry_ids(entries)]
+    # **Computed once, deliberately.** A comprehension re-evaluates its condition for every
+    # element, so calling `_annulled_entry_ids(entries)` inside the `if` ran it once per
+    # entry — O(n²), with a fresh dict and set allocated each time. At the DR-8 envelope
+    # that was ~10.6 million entry-visits across 1,000 customers and **11.7 seconds**,
+    # breaching FR-RPT-015 (M7 §10.1). The suite never saw it: at tens of entries a
+    # quadratic and a linear walk are indistinguishable.
+    #
+    # The function is pure — it reads `entries` and builds only local structures — so
+    # hoisting cannot change the answer. §5A.7's invariant holds unchanged.
+    #
+    # Do not inline this again.
+    annulled = _annulled_entry_ids(entries)
+    live = [e for e in entries if e.pk not in annulled]
 
     # --- 2. DEBITS -----------------------------------------------------------
     debits = [
