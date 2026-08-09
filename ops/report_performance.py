@@ -7,8 +7,13 @@ five-year dataset, and this is that dataset.
 Run inside the Docker stack, against a scratch database — it writes tens of thousands of
 immutable financial documents and must never be pointed at anything real::
 
-    docker compose -f docker/compose.dev.yml run --rm tools \\
+    docker compose -f docker/compose.yml -f docker/compose.dev.yml --env-file .env \\
+        exec -T -w /app -e PYTHONPATH=/app/backend app \\
         python ops/report_performance.py
+
+Both compose files are required: the base one defines the services, the dev overlay sets
+`DJANGO_SETTINGS_MODULE`. There is no separate `tools` service — quality tooling runs in
+`app` with the project root as the working directory, exactly as `make verify` does.
 
 Timings are reported **per report**, not as an aggregate. One "reports are fast" number
 hides the one that is not, and §10.1 names two suspects in advance:
@@ -66,6 +71,13 @@ CREDIT_NOTE_RATE = 0.03
 PAYMENTS_PER_CUSTOMER = 30
 BUDGET_SECONDS = 10.0
 
+#: Adjustment sizes: uniform over ±50, **excluding zero**. `ck_stock_movement_qty_nonzero`
+#: refuses a zero movement — "a zero movement is a bug, not a record" — so drawing from
+#: `randint(-50, 50)` would have hit the constraint roughly 594 times in 60,000 rows.
+#: Computed once rather than filtered per row: one draw per movement, same shape, minus
+#: the one value the database will not accept.
+NONZERO_ADJUSTMENTS: tuple[int, ...] = tuple(n for n in range(-50, 51) if n)
+
 SEED = 20260808
 
 
@@ -119,8 +131,9 @@ def synthesise() -> User:
     ]
     _bulk(Product, products, "products")
     products = list(Product.objects.filter(code__startswith="PERF-P-"))
+    # The field is `lot_code`, not `code` (04 T-09). `uq_stock_lot` is (product, lot_code).
     lots = {
-        product.pk: StockLot.objects.get_or_create(product=product, code="DEFAULT")[0]
+        product.pk: StockLot.objects.get_or_create(product=product, lot_code="DEFAULT")[0]
         for product in products
     }
 
@@ -133,7 +146,7 @@ def synthesise() -> User:
                 location=location,
                 lot=lots[product.pk],
                 movement_type=StockMovement.Type.ADJUSTMENT,
-                quantity=Decimal(rng.randint(-50, 50)),
+                quantity=Decimal(rng.choice(NONZERO_ADJUSTMENTS)),
                 reason_code=rng.choice(reasons) if reasons else None,
                 occurred_at=timezone.make_aware(
                     datetime.combine(
