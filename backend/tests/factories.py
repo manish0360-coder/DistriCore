@@ -27,6 +27,15 @@ class RoleFactory(factory.django.DjangoModelFactory):
 
 
 class UserFactory(factory.django.DjangoModelFactory):
+    """Builds users **through the manager production uses** (TD-30).
+
+    ``DjangoModelFactory`` calls ``Manager.create()`` by default, which never reaches
+    ``UserManager._create`` and therefore never applies the write-path rules. That gap hid
+    two defects in a row — phone numbers stored uncanonicalised, and the owner-bootstrap
+    deadlock — because factory phones were already canonical and factory users already had
+    roles. **A clean install could fail while the suite stayed green, and did.**
+    """
+
     class Meta:
         model = User
         skip_postgeneration_save = True
@@ -35,15 +44,35 @@ class UserFactory(factory.django.DjangoModelFactory):
     full_name = factory.Faker("name")
     language = "hi"
     is_active = True
+    #: A plain declaration rather than a `post_generation` hook, so it reaches
+    #: `create_user` as an argument instead of being written over the top afterwards.
+    #: ``None`` means an unusable hash — what production gives a retailer who logs in by
+    #: OTP alone.
+    password = None
 
-    @factory.post_generation
-    def password(obj, create, extracted, **kwargs):
-        if create and extracted:
-            obj.set_password(extracted)
-            obj.save(update_fields=["password"])
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        """The single line that makes this factory faithful.
+
+        Anything that reverts this to ``Manager.create()`` is reintroducing the blind
+        spot; ``tests/unit/test_factories.py`` fails immediately if it does.
+        """
+        password = kwargs.pop("password", None)
+        return model_class.objects.create_user(*args, password=password, **kwargs)
 
     @factory.post_generation
     def roles(obj, create, extracted, **kwargs):
+        """**A fixture convenience, not a claim about production.**
+
+        Production grants roles through `identity.services.grant_role` (which requires an
+        OWNER) or `bootstrap_owner` (which does not, and refuses once one exists). Routing
+        this through them would make every fixture that merely needs a salesman carry an
+        owner, and would make fixtures order-dependent.
+
+        Those two paths are covered directly instead — `test_authorization_matrix.py` and
+        `test_identity_bootstrap.py`, the latter including the deadlock itself. See
+        `docs/TD-30_Factory_Creation_Path_Note.md` §3.
+        """
         if not create:
             return
         for code in extracted or []:

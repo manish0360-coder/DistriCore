@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M7_Verification_Report` |
-| Version | **1.2.0** |
+| Version | **1.3.0** |
 | Status | **VERIFIED** — `make verify` 8/8 |
-| Date | 2026-08-08 · **addenda §10, §11 added 2026-08-08** |
+| Date | 2026-08-08 · **addenda §10–§12 added 2026-08-08/09** |
 | Milestone | M7 — Reporting |
 | Design authority | `docs/M7_Design_Review.md` v1.2.0 (signed, independently reviewed) |
 | Verify cycles to green | **2** |
@@ -491,8 +491,9 @@ database constraint on PostgreSQL, so it emits no DDL. Third of its kind after `
 
 This was **never satisfiable on a clean machine** through the supported path. It passed at
 M0 and at every milestone since because the suite reached that state through
-`UserFactory(roles=[...])`, which bypasses `UserManager._create` (TD-30). A clean install
-could fail while the suite stayed green — and did, for eight milestones.
+`UserFactory(roles=[...])`, which at the time of this run bypassed `UserManager._create`
+entirely (TD-30, **closed at §12**) and granted roles by a path production could not reach.
+A clean install could fail while the suite stayed green — and did, for eight milestones.
 
 `tests/integration/test_webadmin.py::test_a_clean_install_can_reach_the_admin_through_the_supported_path`
 now asserts it end-to-end: seeded roles, the bootstrap service, a browser login.
@@ -504,5 +505,98 @@ boundary and not the other.** The phone had a canonical form on read and not on 
 role had a grant path for the second owner and none for the first.
 
 Neither was findable by design review — both are properties of paths the test suite did not
-take. **TD-30 is the common cause**, and it remains open: a factory that bypasses the
-production creation path made both invisible.
+take. **TD-30 is the common cause**, and §12 closes it.
+
+---
+
+## 12. Addendum — TD-30, and a defect class the calendar exposed
+
+### 12.1 TD-30: the factory now builds users the way production does
+
+`factory.django.DjangoModelFactory._create` ends in `manager.create()` — read from the
+installed `factory_boy 3.3.3`, not assumed. `UserManager._create` was therefore never
+reached, and **no user in the suite had ever been built the way production builds one.**
+
+One method closes it:
+
+```python
+@classmethod
+def _create(cls, model_class, *args, **kwargs):
+    password = kwargs.pop("password", None)
+    return model_class.objects.create_user(*args, password=password, **kwargs)
+```
+
+`password` moved from a `post_generation` hook to a plain declaration so it reaches
+`create_user` as an argument rather than being written over the top afterwards. Blast radius
+counted rather than estimated: **six call sites**, none passing `phone=`.
+
+**TD-30 had two halves and they are closed differently** — recorded so nobody reads "closed"
+as "both routed" (`docs/TD-30_Factory_Creation_Path_Note.md` §3):
+
+| Half | Closed |
+| --- | --- |
+| Creation | **Structurally.** It cannot regress without `test_factories.py` failing |
+| Role granting | **By coverage elsewhere.** Routing `roles=` through `grant_role` would make every fixture needing a salesman carry an owner, and make fixtures order-dependent. `grant_role` and `bootstrap_owner` have direct tests instead — including the deadlock itself |
+
+The second is a discipline rather than a mechanism, and is therefore weaker.
+
+### 12.2 The defect the date change exposed
+
+The first run after the fix failed on **one** test —
+`test_the_last_day_of_a_period_is_included` — and not because of TD-30.
+
+The `stocked` fixture called `receive_stock` without `occurred_at`, so the movement landed
+at `timezone.now()`. The test asserted against a hard-coded `TODAY = date(2026, 8, 8)`. The
+date rolled to the 9th and the movement fell outside its own period.
+
+> **The test had never tested what it claimed.** M7-3 says a period includes its closing
+> day; the assertion only passed while the wall clock still agreed with a constant.
+
+Three more tests carried the same defect and would have failed on **1 September**, when
+`MONTH_START..MONTH_END` stopped containing `now()`. All four are fixed by stating the
+instant — pinned in the two `stocked` fixtures, and, in the boundary test itself, at the
+**last microsecond** of the period so that a `time.min` bound excludes it and a `time.max`
+bound includes it. The assertion now discriminates between the two implementations, which
+it never did before.
+
+Both ends of every stock period are now constants, so those tests no longer consult the
+calendar at all.
+
+**Recorded as TD-31**, because the class matters more than the four instances: *a test that
+reads the wall clock while asserting against a constant fails on a date rather than on a
+change.* Two other `stocked` fixtures were left alone deliberately — they bound no period,
+so they are not in this class, and pinning them would be consistency mistaken for rigour.
+
+### 12.3 Verified run
+
+| Metric | M7 | + identity fix | + owner bootstrap | **+ TD-30** |
+| --- | --: | --: | --: | --: |
+| Stages | 8/8 | 8/8 | 8/8 | **8/8** |
+| Tests | 665 | 685 | 703 | **712** (+9) |
+| Coverage | 94.47% | 94.78% | 94.83% | **94.85%** |
+| Import contracts | 3 kept | 3 kept | 3 kept | **3 kept, 0 broken** |
+| Missing migrations | none | none | none | **none** |
+
+The +9 is the seven functions in `test_factories.py`, one of them parametrised over three
+phone spellings. No production file changed: the diff is confined to `backend/tests/`.
+
+> **94.85%, and not the 94.94% the previous run printed.** That run was the *failing* one:
+> its figure is higher because a failing test still executes lines on its way to the
+> assertion, and because the four clock-pinned tests now take shorter paths through
+> `variance_by_reason`. **A number from a failing run is not this run's number**, which is
+> why it was left blank until the green figure existed rather than carried across.
+
+### 12.4 What the four defects since M7 have in common
+
+§10, §11 and §12.2 are the same shape at three layers: **a rule enforced on one side of a
+boundary and not the other.**
+
+| Defect | The boundary |
+| --- | --- |
+| Phone normalisation | Canonical on read, not on write |
+| Owner bootstrap | A grant path for the second owner, none for the first |
+| Test clock | A period fixed by a constant, an event fixed by the wall clock |
+
+None was findable by design review. The first two hid behind TD-30; the third hid behind the
+calendar. **Every one of them was found by running the real thing**, which is the argument
+for N-12 restated as evidence three more times.

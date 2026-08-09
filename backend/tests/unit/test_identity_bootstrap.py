@@ -90,9 +90,10 @@ def test_bootstrap_promotes_a_user_that_already_exists(seeded_roles):
 def test_the_owner_can_then_sign_in_to_the_admin(seeded_roles, client):
     """`00` §20.3 criterion 2, executable for the first time.
 
-    "A user can log in by OTP on mobile and by password on web" has never been satisfiable
-    on a clean machine through the supported path — the suite reached it only through
-    `UserFactory(roles=[...])`, which is a creation path production does not use (TD-30).
+    "A user can log in by OTP on mobile and by password on web" was never satisfiable on a
+    clean machine through the supported path — the suite reached it only through
+    `UserFactory(roles=[...])`, whose role shortcut writes `UserRole` directly and so hid
+    the absence of any path to the first role (TD-30 §3).
     """
     bootstrap_owner(phone=PHONE, full_name="Mack", password=PASSWORD)
     response = client.post(

@@ -1,11 +1,12 @@
 # Next Task
 
-> M7 is verified and closed: `docs/M7_Verification_Report.md` **v1.2.0** — 8/8, **703/703,
-> 94.83%**, 3 contracts kept. Design authority `docs/M7_Design_Review.md` v1.2.0. Post-M7
-> fixes in §10–§11; owner bootstrap in `docs/Owner_Bootstrap_Design_Note.md` v1.1.0.
+> M7 is verified and closed: `docs/M7_Verification_Report.md` **v1.3.0** — 8/8, **712/712**,
+> 3 contracts kept. Design authority `docs/M7_Design_Review.md` v1.2.0. Post-M7 fixes in
+> §10–§12; owner bootstrap in `docs/Owner_Bootstrap_Design_Note.md` v1.1.0; TD-30 in
+> `docs/TD-30_Factory_Creation_Path_Note.md` v1.0.0.
 
 **Milestone:** M8 — Mobile app (Flutter, `S2`/`S3`)
-**State:** **not started. Four engineering items should close first — see below.**
+**State:** **not started. Three engineering items should close first — see below.**
 
 > **The install works end to end for the first time.** `git clone && make up && make owner`
 > now yields a system the owner can sign in to. That was true at **no previous commit**, and
@@ -20,23 +21,27 @@ platform enter the repository.
 
 | # | Item | Why now, not later |
 | --: | --- | --- |
-| **1** | **TD-30 — make `UserFactory` use the production creation path.** | **It hid two defects in a row.** M8 builds a client whose entire relationship with the server is authentication, and the factory every auth test uses does not exercise how real users are made. Fix this **before** writing M8's auth tests, not after |
-| **2** | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured | M8 adds a Dart build and a second runtime. Measuring after that switch conflates two variables, and the harness already exists |
-| **3** | **TD-21 — make the build reproducible.** `uv.lock` absent, `make lock` non-functional | An unpinned Python build plus a brand-new Dart build is **two** unpinned builds. The M5 toolchain drift that broke a green gate under unchanged source is the precedent |
-| **4** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead** |
+| ~~TD-30~~ | ~~Make `UserFactory` use the production creation path~~ | **Closed.** Creation half structurally; role half by direct coverage (`docs/TD-30_Factory_Creation_Path_Note.md` §3) |
+| **1** | **TD-27 — run `ops/report_performance.py`.** FR-RPT-015 has never been measured | M8 adds a Dart build and a second runtime. Measuring after that switch conflates two variables, and the harness already exists |
+| **2** | **TD-21 — make the build reproducible.** `uv.lock` absent, `make lock` non-functional | An unpinned Python build plus a brand-new Dart build is **two** unpinned builds. The M5 toolchain drift that broke a green gate under unchanged source is the precedent |
+| **3** | **TD-2/TD-18 — make `mypy` blocking.** Missed at M5, M6 **and M7** | M7 §11 argued it deserved its own change rather than a third ride on someone else's milestone. That argument was correct and the item still is not done. **The next milestone that keeps it out for good reasons should be the one that schedules it instead** |
 
-### On TD-30 specifically — it is now first for a reason
+### What TD-30 cost, and what it left behind
 
-`DjangoModelFactory` calls `Manager.create()`, so no factory-built user has ever gone through
-`UserManager._create`, and `UserFactory(roles=[...])` grants roles by a path production could
-not reach. Both post-M7 defects lived exactly there:
+Both post-M7 defects lived in the factory's blind spot:
 
 | Defect | What the factory hid |
 | --- | --- |
 | Phone normalisation | Factory phones were already canonical, so the missing write-path rule never showed |
 | Owner bootstrap deadlock | Factory users arrived **with roles**, so the absence of any way to grant the first one never showed |
 
-**A clean install could fail while the suite stayed green — and did, for eight milestones.**
+Closing it exposed a third, unrelated defect class — **TD-31**: four tests read the wall
+clock while asserting against a hard-coded period. One failed the morning the date rolled;
+three more would have failed on 1 September. All four are fixed by stating the instant.
+
+> **The role half of TD-30 is closed by discipline, not by mechanism.** `UserFactory(roles=[...])`
+> still writes `UserRole` directly. If the fixture layer is ever reworked, route it through
+> `grant_role` / `bootstrap_owner` then.
 
 ### On TD-27 specifically
 

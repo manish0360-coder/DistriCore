@@ -4,6 +4,50 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### Fix — the test suite now builds users the way production does (TD-30)
+
+**Fixed**
+
+- **`UserFactory` never reached `UserManager._create`.** `DjangoModelFactory._create` ends
+  in `manager.create()`, so no user in 703 tests had ever been built the way production
+  builds one. It hid two defects in a row: phone numbers stored uncanonicalised (factory
+  phones were already canonical), and the owner-bootstrap deadlock (factory users already
+  had roles). **A clean install could fail while the suite stayed green — and did, for
+  eight milestones.**
+
+  `_create` now routes through `create_user`, and `password` moves from a `post_generation`
+  hook to a plain declaration so it reaches the manager as an argument rather than being
+  written over the top afterwards. Six call sites; none passed `phone=`.
+
+  TD-30 had two halves, closed differently and recorded as such: **creation** is closed
+  structurally and cannot regress without a test failing; **role granting** is closed by
+  direct coverage of `grant_role` and `bootstrap_owner` rather than by routing `roles=`
+  through them, which would make every fixture needing a salesman carry an owner and make
+  fixtures order-dependent (`docs/TD-30_Factory_Creation_Path_Note.md` §3).
+
+- **Four tests read the wall clock while asserting against a constant.** `receive_stock`
+  defaults `occurred_at` to `timezone.now()`; the assertions bounded periods with hard-coded
+  August dates. `test_the_last_day_of_a_period_is_included` failed the morning the date
+  rolled past its constant — **it had never tested what it claimed**, only that the calendar
+  still agreed. Three others would have failed on 1 September.
+
+  Fixed by stating the instant: pinned in both `stocked` fixtures, and in the boundary test
+  at the **last microsecond** of the period, so a `time.min` bound excludes it and a
+  `time.max` bound includes it. That assertion now discriminates between the two
+  implementations, which it never did before. Recorded as **TD-31** — the class matters more
+  than the four instances.
+
+**Added**
+
+- `backend/tests/unit/test_factories.py` — 9 tests of the test infrastructure. The
+  load-bearing one gives the factory a non-canonical phone and asserts it comes back
+  canonical: the smallest statement of *"the factory takes the production path"*, and it
+  fails the moment anyone reverts `_create`.
+
+**Note**
+
+- No production file changed. The entire diff is confined to `backend/tests/`.
+
 ### Fix — the system can now reach its own first authorised user (FR-IAM-014)
 
 **Fixed**

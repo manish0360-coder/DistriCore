@@ -10,10 +10,11 @@ asserts the figures; that one asserts the properties.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from billing.selectors import invoice_lines
 from billing.services import cancel_invoice, issue_credit_note, issue_invoice
@@ -43,8 +44,22 @@ def _invoice(owner, customer, product, *, units: str, invoice_date: date = TODAY
 
 @pytest.fixture
 def stocked(owner, product, receipt_reason):
+    """Goods received at a **pinned** instant, at the start of the worked scenario's day.
+
+    ``receive_stock`` defaults ``occurred_at`` to ``timezone.now()``. Every stock assertion
+    in this file bounds a period with hard-coded dates, so an unpinned receipt makes those
+    assertions depend on the calendar rather than on the code — they passed only while the
+    real date still fell inside the constant range, and began failing the morning after.
+
+    Pinned here, at the row that is written, rather than patched at each assertion: the
+    defect is that the movement has no stated time, not that three tests read it.
+    """
     receive_stock(
-        actor=owner, product=product, quantity=Decimal("1000"), reason_code=receipt_reason
+        actor=owner,
+        product=product,
+        quantity=Decimal("1000"),
+        reason_code=receipt_reason,
+        occurred_at=timezone.make_aware(datetime.combine(TODAY, time.min)),
     )
     return product
 
@@ -238,14 +253,33 @@ def test_stock_variance_can_be_filtered_to_one_reason(owner, august, receipt_rea
     assert {row["code"] for row in table.rows} == {receipt_reason.code}
 
 
-def test_the_last_day_of_a_period_is_included(owner, credit_customer, stocked, receipt_reason):
+def test_the_last_day_of_a_period_is_included(owner, product, receipt_reason):
     """M7-3 against a timestamp column.
 
     ``occurred_at`` is an instant and the bound is a date. Comparing them naively drops
     everything after midnight on the closing day — a whole day, silently, every time.
+
+    **The instant is pinned deliberately.** The movement is written at the last microsecond
+    of the period: a ``date_to`` bound built with ``time.min`` excludes it and one built
+    with ``time.max`` includes it, so the assertion discriminates between the two.
+
+    The earlier version relied on ``receive_stock`` defaulting ``occurred_at`` to
+    ``timezone.now()`` and compared it against a hard-coded ``TODAY``. That passed only
+    while the real date happened to equal the constant, and failed the morning after — it
+    was testing the calendar, not the bound.
     """
+    last_moment = timezone.make_aware(datetime.combine(TODAY, time.max))
+    receive_stock(
+        actor=owner,
+        product=product,
+        quantity=Decimal("5"),
+        reason_code=receipt_reason,
+        occurred_at=last_moment,
+    )
+
     table = reports.stock_variance(owner, date_from=TODAY, date_to=TODAY)
-    assert table.rows, "movements recorded today fell outside a period that includes today"
+    assert table.rows, "a movement on the closing day fell outside a period that includes it"
+    assert table.total["quantity"] == Decimal("5.000")
 
 
 # --------------------------------------------------------------------------- receivables

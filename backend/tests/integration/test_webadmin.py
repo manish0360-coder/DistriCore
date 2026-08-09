@@ -43,9 +43,11 @@ def test_sign_in_works_for_every_spelling_of_one_number(client, seeded_roles, sp
     correct password. `check_password` was never reached — the `user is None` branch
     short-circuits before it.
     """
-    # Created through `create_user`, not `UserFactory`. The factory calls
-    # `Manager.create()` and therefore **bypasses `UserManager._create` entirely** — which
-    # is precisely why 665 green tests never caught this defect.
+    # Created through `create_user` directly rather than through `UserFactory`. When this
+    # test was written the factory called `Manager.create()` and so bypassed
+    # `UserManager._create` entirely — which is why 665 green tests never caught the
+    # defect. TD-30 has since closed that, but this test keeps the explicit call: it is
+    # asserting the *manager's* behaviour, and it should not depend on a fixture to do so.
     from identity.models import Role as RoleModel
     from identity.models import User, UserRole
 
@@ -77,11 +79,14 @@ def test_a_clean_install_can_reach_the_admin_through_the_supported_path(
 ):
     """`00` §20.3 criterion 2 — *"a user can log in ... by password on web"*.
 
-    Asserted end-to-end through the **supported** sequence for the first time: nothing but
-    seeded roles, then the bootstrap command, then a browser login. Every earlier
-    authentication test reached this state through `UserFactory(roles=[...])`, which
-    bypasses `UserManager._create` (TD-30) — so a clean install could fail while the suite
-    stayed green, and did.
+    Asserted end-to-end through the **supported** sequence: nothing but seeded roles, then
+    the bootstrap service, then a browser login. Every earlier authentication test reached
+    this state through `UserFactory(roles=[...])`, whose role shortcut writes `UserRole`
+    directly — so the absence of any path to the *first* role was invisible, and a clean
+    install could fail while the suite stayed green. It did, for eight milestones.
+
+    The creation half of that gap is closed (TD-30); the role shortcut remains a fixture
+    convenience, which is why this test does not use it.
     """
     from identity.services import bootstrap_owner
 

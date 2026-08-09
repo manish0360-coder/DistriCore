@@ -14,10 +14,11 @@ returns and stock variance must never be asserted equal.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from billing.selectors import invoice_lines
 from billing.services import issue_credit_note, issue_invoice
@@ -38,8 +39,19 @@ MONTH_END = date(2026, 8, 31)
 
 @pytest.fixture
 def stocked(owner, product, receipt_reason):
+    """Goods received at a **pinned** instant (see `test_report_selectors.py`).
+
+    ``receive_stock`` defaults ``occurred_at`` to ``timezone.now()``, and
+    ``test_returns_and_variance_are_allowed_to_disagree`` bounds its period with hard-coded
+    August dates. Unpinned, that assertion would have started failing on 1 September while
+    the code under test had not changed at all.
+    """
     receive_stock(
-        actor=owner, product=product, quantity=Decimal("1000"), reason_code=receipt_reason
+        actor=owner,
+        product=product,
+        quantity=Decimal("1000"),
+        reason_code=receipt_reason,
+        occurred_at=timezone.make_aware(datetime.combine(TODAY, time.min)),
     )
     return product
 

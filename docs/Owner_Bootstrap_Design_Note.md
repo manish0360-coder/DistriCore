@@ -82,8 +82,13 @@ is the actual control.
 
 `00` §20.3 criterion 2 — *"A user can log in by OTP on mobile and by password on web"* —
 has **never been satisfiable on a clean machine** through the supported path. It passed at
-M0 because the suite grants roles through `UserFactory(roles=[...])`, which (TD-30) is a
-creation path production does not use.
+M0 because the suite grants roles through `UserFactory(roles=[...])`, which at the time of
+writing was a creation path production did not use (TD-30).
+
+> **Corrected 2026-08-08, after TD-30 closed.** The factory now builds users through
+> `UserManager.create_user`. Its `roles=` shortcut still writes `UserRole` directly and
+> remains a fixture convenience — see `docs/TD-30_Factory_Creation_Path_Note.md` §3, which
+> records why that half was closed by direct coverage rather than by routing.
 
 ---
 
