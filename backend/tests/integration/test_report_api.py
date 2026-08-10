@@ -11,15 +11,19 @@ is also what TD-23 was asking for.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 from django.urls import reverse
 
+from api.v1.report_views import money_string
 from billing.services import issue_invoice
+from core.fields import to_money
 from fulfilment.services import assign_delivery, dispatch_delivery
 from inventory.services import receive_stock
 from orders.services import confirm_order, place_order
+from receivables.services import record_payment
 from tests.factories import CustomerFactory, ZoneFactory
 
 pytestmark = pytest.mark.django_db
@@ -199,3 +203,155 @@ def test_the_statement_still_returns_json_by_default(auth, owner, traded, credit
     response = auth(owner).get(reverse("v1:customer-statement", args=[credit_customer.pk]))
     assert response.status_code == 200
     assert "closing_balance" in response.json()
+
+
+# ------------------------------------------------------------------------------ dashboard
+#: D-4, in the order the selector returns them. Asserted as a set *and* a length so that
+#: adding a fifth number is a failing test rather than a silent change to a screen the
+#: owner reads daily.
+DASHBOARD_KEYS = {"sales_today", "collected_today", "total_outstanding", "awaiting_dispatch"}
+
+
+@pytest.fixture
+def collected(owner, credit_customer, traded):
+    """A payment recorded today, so `collected_today` is not trivially zero.
+
+    Without it the money-encoding tests would pass against `"0.00"`, which is a string
+    whatever the encoder does — the assertion would hold and prove nothing.
+    """
+    return record_payment(
+        actor=owner, customer=credit_customer, amount=Decimal("500.00"), method="CASH"
+    )
+
+
+def test_the_dashboard_answers_with_exactly_four_numbers(auth, owner, traded):
+    response = auth(owner).get(reverse("v1:dashboard"))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["as_of"], "a dashboard without an as_of is a figure with no date"
+    assert {metric["key"] for metric in body["metrics"]} == DASHBOARD_KEYS
+    assert len(body["metrics"]) == 4, "D-4 is four numbers, not four-or-more"
+
+
+def test_the_dashboard_sends_money_as_a_decimal_string(auth, owner, traded, collected):
+    """AD-02 / C-1, and M8 P-3. **The reason this endpoint exists is a Dart client.**
+
+    DRF's JSON encoder renders `Decimal("1180.00")` as the JSON number `1180.0`, and
+    `jsonDecode` in Dart yields a `double` for it. A rupee figure that has been exact
+    through the column, the service and the selector would become inexact in the last
+    hop — and the client cannot detect that it happened.
+    """
+    body = auth(owner).get(reverse("v1:dashboard")).json()
+    money = [metric for metric in body["metrics"] if metric["is_money"]]
+    assert len(money) == 3, "three of the four D-4 numbers are money"
+
+    for metric in money:
+        assert isinstance(metric["value"], str), (
+            f"{metric['key']} crossed the wire as {type(metric['value']).__name__}, "
+            "not a decimal string (AD-02)"
+        )
+        Decimal(metric["value"])  # raises InvalidOperation if it is not an exact decimal
+        assert metric["value"].count(".") == 1 and len(metric["value"].split(".")[1]) == 2, (
+            f"{metric['key']} = {metric['value']!r} is not at the canonical money scale"
+        )
+
+    assert any(Decimal(metric["value"]) > 0 for metric in money), (
+        "every money figure is zero — this test would pass without an encoder"
+    )
+
+
+def test_the_dashboard_does_not_stringify_a_count(auth, owner, traded):
+    """The other half of AD-02: it applies to money and quantity, not to everything.
+
+    Over-applying it is as wrong as under-applying it — `"3.00"` orders awaiting dispatch
+    would be a type the client has to un-learn.
+    """
+    body = auth(owner).get(reverse("v1:dashboard")).json()
+    count = next(m for m in body["metrics"] if m["key"] == "awaiting_dispatch")
+    assert count["is_money"] is False
+    assert isinstance(count["value"], int)
+
+
+def test_the_dashboard_marks_which_numbers_are_live(auth, owner, traded):
+    """M7 §8.2. The client must be able to tell a reproducible figure from a live one."""
+    body = auth(owner).get(reverse("v1:dashboard")).json()
+    live = {metric["key"] for metric in body["metrics"] if metric["is_live"]}
+    assert live == {"sales_today", "collected_today"}
+
+
+def test_the_dashboard_refuses_csv(auth, owner, traded):
+    """M7 §8.2 — the half of the ruling M8 did **not** overturn.
+
+    404 rather than 400 because the refusal is structural: `DashboardView` declares only
+    `JSONRenderer`, so DRF's own negotiation has nothing to match and raises `Http404`
+    before the view runs. If someone adds `CsvRenderer` to that list, this test fails.
+    """
+    assert auth(owner).get(reverse("v1:dashboard"), {"format": "csv"}).status_code == 404
+
+
+def test_the_dashboard_is_absent_from_the_report_csv_suite():
+    """TD-29's shape, inverted: the dashboard must *not* be wired into the CSV path.
+
+    `REPORTS` is parametrised over the FR-RPT-012 export assertion. A dashboard added to
+    that list would be given an export by a test rather than by a decision.
+    """
+    assert "v1:dashboard" not in REPORTS
+    assert len(REPORTS) == 7, "the seven reports export CSV; the dashboard is not one of them"
+
+
+def test_the_dashboard_requires_authentication(api):
+    assert api.get(reverse("v1:dashboard")).status_code == 401
+
+
+def test_a_retailer_cannot_read_the_dashboard(auth, retailer_login, traded):
+    """Same refusal as the seven reports, from the same `_internal` predicate."""
+    assert auth(retailer_login).get(reverse("v1:dashboard")).status_code == 403
+
+
+def test_the_dashboard_is_scoped_to_the_caller(
+    auth, owner, salesman_with_zone, foreign_trade, other_zone_customer
+):
+    """AR-5 again. A scoped selector reached through a new view is not scoped by assumption.
+
+    `foreign_trade` puts a real invoice outside the salesman's zone, so the owner's
+    outstanding is strictly larger. Without the fixture both figures would be zero and
+    this would pass whatever the view did.
+    """
+
+    def outstanding(user):
+        body = auth(user).get(reverse("v1:dashboard")).json()
+        metric = next(m for m in body["metrics"] if m["key"] == "total_outstanding")
+        return Decimal(metric["value"])
+
+    owner_total, salesman_total = outstanding(owner), outstanding(salesman_with_zone)
+    assert owner_total > 0, "the fixture is not exercising the scoping"
+    assert salesman_total < owner_total
+
+
+def test_the_dashboard_endpoint_derives_nothing_of_its_own(auth, owner, traded, collected):
+    """The view arranges; the selector derives (D-3).
+
+    Asserted by equality against the selector rather than against literals: a hard-coded
+    expectation would still pass if the view quietly recomputed a number its own way.
+
+    The selector is pinned to the day the *response* reports, not to `date.today()` read a
+    second time. Two live figures compared across an unpinned midnight is TD-31's defect
+    class, and this test would be the fifth instance of it.
+    """
+    from reporting import selectors as reports
+
+    body = auth(owner).get(reverse("v1:dashboard")).json()
+    served = {metric["key"]: metric["value"] for metric in body["metrics"]}
+    as_of = date.fromisoformat(body["as_of"])
+    for metric in reports.dashboard(owner, today=as_of).metrics:
+        expected = str(to_money(metric.value)) if metric.is_money else metric.value
+        assert served[metric.key] == expected, f"{metric.key} disagrees with the selector"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("1180", "1180.00"), ("1180.005", "1180.01"), ("0", "0.00"), ("-12.5", "-12.50")],
+)
+def test_money_string_is_canonical_and_half_up(raw, expected):
+    """One scale, one rounding rule (N-07). `1180` and `1180.00` are the same rupees."""
+    assert money_string(Decimal(raw)) == expected

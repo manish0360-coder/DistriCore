@@ -1,98 +1,139 @@
 # Next Task
 
-> M7 is verified and closed: `docs/M7_Verification_Report.md` **v1.3.0** — 8/8, **712/712**,
-> 3 contracts kept. Design authority `docs/M7_Design_Review.md` v1.2.0. Post-M7 fixes in
-> §10–§12; owner bootstrap in `docs/Owner_Bootstrap_Design_Note.md` v1.1.0; TD-30 in
-> `docs/TD-30_Factory_Creation_Path_Note.md` v1.0.0.
+> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.2.0**, signed
+> 2026-08-10. Both ADRs approved: **Drift + SQLCipher** (§5.6), **Dio** (§7.5). Design
+> principles **P-1…P-10** frozen at §1.3.
+>
+> **Phase 2 task 0 is verified:** `GET /reports/dashboard` — 8/8, **726/726**, **94.88%**,
+> `mypy` clean, **3 contracts kept**. Contracted at `05` §9.11.1.
 
-**Milestone:** M8 — Mobile app (Flutter, `S2`/`S3`)
-**State:** **not started. Three engineering items should close first — see below.**
-
-> **The install works end to end for the first time.** `git clone && make up && make owner`
-> now yields a system the owner can sign in to. That was true at **no previous commit**, and
-> no test caught it, because the suite reached that state through `UserFactory` (TD-30).
+**Milestone:** M8 — Mobile app (3.0 units, `00` §19.1)
+**Phase:** **2 — Implementation. Task 0 of 10 done. Next: task 1.**
+**Flutter code written so far: none.**
 
 ---
 
-## Do these before M8 opens
+## What task 0 found, and why it matters more than the endpoint
 
-All four are cheap now and become entangled the moment a second toolchain and a second
-platform enter the repository.
+Deciding how to encode one number surfaced a defect in the **seven existing** report
+endpoints — the exact one P-3 exists to prevent, on the server side:
 
-| # | Item | Why now, not later |
-| --: | --- | --- |
-| ~~TD-30~~ | ~~Make `UserFactory` use the production creation path~~ | **Closed.** Creation half structurally; role half by direct coverage (`docs/TD-30_Factory_Creation_Path_Note.md` §3) |
-| ~~TD-27~~ | ~~Run `ops/report_performance.py`~~ | **Closed.** Measured 11.7 s, found a quadratic in the §5A walk, fixed to **0 breach(es)** — before M8's second runtime could conflate the measurement |
-| ~~TD-21~~ | ~~Make the build reproducible~~ | **Closed.** `uv.lock` pins 91 packages; all three install sites use `uv sync --frozen`; a missing lock fails stage 1. Done **before** the Dart toolchain arrives, which was the point |
-| ~~TD-2/TD-18~~ | ~~Make `mypy` blocking~~ | **Closed at the fourth attempt.** Zero errors across 115 files; stage 6 and CI both fail on a type error. Three of the 24 were signatures that lied |
-| **1** | **TD-32 — retire the `==` dev pins**, superseded by the lock | Small, but it must not ride along with anything: the pins and the lock are two ways of doing one job, and removing one while the other is new means two variables move together. **`mypy` and `django-stubs` keep theirs** — see below |
-
-> **The type gate changes what a lock refresh means.** `make lock` can now break stage 6
-> under unchanged source, by moving `mypy` or `django-stubs` — the pytest-django failure
-> mode relocated to a different gate. So TD-32 retires the *pytest* pins and **leaves
-> `mypy` and `django-stubs` pinned**, and any future lock refresh is its own change with
-> its own verify run.
-
-### What TD-30 cost, and what it left behind
-
-Both post-M7 defects lived in the factory's blind spot:
-
-| Defect | What the factory hid |
+| | |
 | --- | --- |
-| Phone normalisation | Factory phones were already canonical, so the missing write-path rule never showed |
-| Owner bootstrap deadlock | Factory users arrived **with roles**, so the absence of any way to grant the first one never showed |
+| `05` AD-02 | *"Every monetary and quantity value crosses the wire as a string."* Its rationale names Dart by name |
+| Settings | `COERCE_DECIMAL_TO_STRING: True` — **but it only reaches `serializers.DecimalField`** |
+| `_as_json` | Hand-builds its response dict, bypassing serialisation entirely |
+| Measured | `Decimal("1180.00")` → `1180.0` under DRF's own encoder |
 
-Closing it exposed a third, unrelated defect class — **TD-31**: four tests read the wall
-clock while asserting against a hard-coded period. One failed the morning the date rolled;
-three more would have failed on 1 September. All four are fixed by stating the instant.
+**The existing assertion reads `Decimal(str(body["total"]["sales"]))`.** That `str()` makes it
+pass whichever type arrives. Seven endpoints carried this through four reviews and a newly
+blocking type gate because the test could not fail.
 
-> **The role half of TD-30 is closed by discipline, not by mechanism.** `UserFactory(roles=[...])`
-> still writes `UserRole` directly. If the fixture layer is ever reworked, route it through
-> `grant_role` / `bootstrap_owner` then.
+**Recorded as TD-36. Not fixed in task 0** — changing the seven is a breaking change to a
+published response type, so it gets its own change and its own verify run. `money_string()`
+was added in task 0 to be the mechanism that fix reuses.
 
-### What TD-27 found, and what it settled
-
-`make verify` green did **not** mean the reports were fast enough. The suite exercises tens
-of rows; at the DR-8 envelope — 73,000 invoices, 292,000 lines, 103,000 ledger entries —
-**receivables ageing took 11.7 s and the dashboard 11.8 s**, both breaching FR-RPT-015.
-
-**One root cause.** `_annulled_entry_ids` was called inside a comprehension *condition*, so
-it re-ran once per entry: O(n²) where O(n) was intended, ~10.6 million entry-visits. The
-function is pure, so hoisting it changed nothing but the cost. **0 breach(es)** after.
-
-Two things worth carrying into M8:
-
-- **The design named the right suspect for the wrong reason.** Receivables was flagged as
-  the only Python-walk report — true, but no query was slow. The cost was an algorithmic
-  defect, not the walk's size.
-- **Top customers, the independent reviewer's suspect, measured 0.221 s.** The index concern
-  did not materialise, and no index was added. A prediction that proves wrong is worth
-  recording too.
-
-**Re-run the harness after any change to a report or to the §5A walk.** It is not part of
-`make verify` and never will be — an 858-second dataset build has no place in an 8-stage
-gate — so nothing else will catch a regression of this class.
+> **The recurring shape, in a new place:** a rule enforced on one side of a boundary and not
+> the other. Canonical on read but not on write; a grant path for the second owner and none
+> for the first; and now AD-02 enforced in the serializer layer and not in the hand-built
+> layer beside it.
 
 ---
 
-## M8 — what it is
+## The ruling that changed the design
 
-The first milestone that changes language and platform. One Flutter binary serving
-`SALESMAN`, `DELIVERY` and later `RETAILER` (DV-4), against the API M0–M7 has already
-built.
+**§3.4 "no owner mobile role" is replaced by Owner Companion Mode.** Lightweight read-only
+operational visibility on the phone; all administration and reporting stay on the web.
 
-**The Edition 1a back end is feature-complete.** M8 adds no server-side capability; it adds
-a client. That is worth stating because it sets the shape of the design review: the
-questions are about the device, not about the domain.
+v1.0.0's §12.5 predicted this recommendation would be *"overturned by one sentence from the
+business"* because its premise — that the owner sits at a desk — was an inference, not an
+observation. **It was, within a day.** The paragraph is kept verbatim in v1.1.0 rather than
+deleted.
 
-### The condition DV-4 is accepted on, and it is absolute
+**Two dependencies were found only after the ruling, by checking it against the code:**
 
-> **The binary is publicly downloadable and must be assumed fully decompiled** (`02A` §9.3,
-> DV-4). It may contain no internal-only logic, endpoint or secret that server-side
-> authorisation does not independently enforce.
+| # | Finding | Effect |
+| --: | --- | --- |
+| ~~**OI-6**~~ | ~~`GET /reports/dashboard` does not exist.~~ Three of the four D-4 numbers were reachable; **"collected today" was not** — only a paginated `/payments` list, which the device would have had to page and sum, **deriving a figure on the device** over 2G | ✔ **Built and verified as task 0.** `05` §9.11.1 |
+| **OI-7** | **"Notifications" were cut from Edition 1** — `02A` §13: *"In-app notifications (**M-14 entirely**)… 0.5"*. No model, table, endpoint or milestone exists | Blocks task 8. Recommendation: adopt `02A`'s own substitute — a **"Needs attention"** filtered read |
 
-Every milestone so far has kept authorisation in `core` and out of the delivery layers
-(N-06, BR-003). M8 is where that discipline is tested by someone holding the client.
+> **Same shape as M7's C-1…C-6.** `02A` §7.x's feature matrix predates §13's Edition-1
+> re-validation, and **§13 governs.** OI-7 is a request a frozen document has already
+> answered.
+
+**Neither blocks Phase 2 from starting.** Both sit inside task 8, which §10.1 places last
+precisely because nothing depends on it.
+
+---
+
+## Design principles — frozen, and the reason they exist
+
+`docs/M8_Design_Review.md` §1.3 records **P-1…P-10** so a Phase 2 decision is checked in one
+line instead of re-argued. The three that cannot be repaired after the fact:
+
+| # | Principle | Why it is unrecoverable |
+| --: | --- | --- |
+| **P-3** | Money and quantity are `Decimal` end to end — **no `double`** | Corrupts figures that have already been sent |
+| **P-6** | `client_uuid` generated before the first attempt, **never regenerated** | Defeats the server idempotency M9 depends on |
+| **P-9** | The binary holds **no secret and no rule** the server does not independently enforce | A security property of a binary already downloaded |
+
+> **These get tests, not review comments.** §12.7 admits the rest are currently advisory —
+> the exact status TD-2's type gate held for six milestones before it caught 24 errors.
+
+---
+
+## Phase 2 task order
+
+| # | Task | Gate |
+| --: | --- | --- |
+| ~~**0**~~ | ~~Backend: `GET /reports/dashboard`~~ | ✔ **DONE** — 8/8, 726/726, 94.88% |
+| **1** | **← NEXT.** Toolchain, shell, DI, router; **layering rule + no-secrets structural tests** | Contract tests exist **before** the first feature |
+| **2** | **Decimal codec and the API layer** (Dio, interceptors, typed failures) | Build fails on any `double` in a money path |
+| **3** | **Drift schema, outbox, sequencer** | Kill · restart · storage exhaustion, at **every** write boundary |
+| 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | C-7, FR-IAM-015/016 |
+| 5 | Delivery: list, detail, complete, fail | No screen touches the network to save |
+| 6 | GPS and the **separate media queue** | C-9 |
+| 7 | Customers, visits | — |
+| 8 | **Owner Companion Mode** | Read-only; every figure carries `as_of`; **blocked on OI-7 and TD-36** |
+| 9 | Sync-status screen | FR-SYN-008, partial until M9 |
+| 10 | **8-hour offline soak** (NFR-OFF-001) and the M8→M9 gate | **Measured on a real device** |
+
+**Task 3 is the milestone.** Everything else is screens over an API that already exists and
+is already verified. If task 3 is wrong, M9 inherits a corrupt queue and both non-negotiable
+sync metrics become unreachable.
+
+**Tasks 1 and 2 precede every feature deliberately.** `reporting`'s four AST tests were
+written when it had one file; that is why the contract still holds at seven. Written last,
+they are worth nothing — by then the violation *is* the code.
+
+**Task 0 was first because it is a different toolchain**, and that held: it is verified and
+commits on its own, before any Dart enters the repository. Mixing a Django change into a Dart
+milestone is how a green gate stops meaning anything.
+
+**Task 1 is now the critical one to get right.** `reporting`'s four AST tests were written
+when it had one file, and TD-36 is what the absence of such a test costs: seven endpoints
+violating a frozen clause for a whole milestone because nothing could fail. **Write the Dart
+layering and no-secrets tests before the first widget**, not after.
+
+---
+
+## Entry conditions
+
+| # | Condition | State |
+| --: | --- | :-: |
+| 1 | §13 signed; both ADRs approved | ✔ |
+| 2 | §1.3 principles frozen | ✔ |
+| 3 | **TD-32 — retire the superseded `==` dev pins** | ☐ **Do before the Dart toolchain lands** |
+| 4 | **K-1 — keystore procedure agreed** | ☐ |
+| 5 | **TD-11 — DLT registration started** | ☐ **External, unbounded** |
+| 6 | **Flutter/Dart SDK pinned**, as `uv.lock` pins Python | ☐ Decide in task 1 |
+| ~~7~~ | ~~OI-6 — the dashboard endpoint~~ | ✔ **Built and verified** |
+| 8 | **OI-7** ("Needs attention" vs reopening M-14) and **TD-36** ruled | ☐ Task 8 only |
+
+> **Conditions 3 and 6 are one lesson.** TD-21 was closed *before* a second toolchain
+> arrived, so reproducibility was settled with one language in the repository. Phase 2 adds
+> the second. **Pin Dart the way Python is pinned, on the first day** — not after the first
+> "works on my machine".
 
 ### K-1 — the one irreversible thing in M8
 
@@ -102,46 +143,47 @@ Every milestone so far has kept authorisation in `core` and out of the delivery 
 Generated once, stored in the password manager, backed up to **two locations that are not
 the development machine**, never in Git (S-06, N-11). Done at M8, verified at M11.
 
-### Known external dependency
+### The condition DV-4 is accepted on, and it is absolute
 
-**TD-11 — SMS/DLT registration.** `00` §2.4 says to start it at Phase 0 and it has not
-started. `00` §2.5 records the contingency: if DLT approval is not complete by M8, the
-fallback is owner-provisioned passwords for internal users and deferred retailer
-self-registration — **a recorded deviation, not a silent scope change.**
+> **The binary is publicly downloadable and must be assumed fully decompiled** (`02A` §9.3).
+> It may contain no internal-only logic, endpoint or secret that server-side authorisation
+> does not independently enforce.
+
+**Companion Mode raises the stakes on this, it does not change it.** An owner token now
+reaches the app, so read-only must be enforced by the absence of a server-side write path —
+**not by the absence of a button.**
 
 ---
 
 ## Workflow, unchanged
 
-1. Review the frozen corpus first — `00`, `01`, `02` v0.2.0, `02A`, `03`, `04`, `05`.
-2. Identify specification conflicts **before** proposing a design.
-3. Write `docs/M8_Design_Review.md`: governing principle, worked scenarios, irreversible
-   decisions with reversal cost, concurrency, boundaries, task decomposition, self-critique,
-   sign-off.
-4. Independent architecture review before implementation.
-5. Implement one logically complete milestone.
-6. `make verify` 8/8 — the only authority (N-12).
-7. Verification report, then documentation, then commit.
+1. Review the frozen corpus and `M8_Design_Review.md` v1.1.0 §1.3 before deciding anything.
+2. Identify specification conflicts **before** proposing an implementation.
+3. Implement one logically complete task.
+4. `make verify` 8/8 — the only authority (N-12).
+5. Verification note, then documentation, then commit.
 
 **No weakened tests. No lowered coverage. No bypassed contracts.**
 
 ---
 
-## What M7 leaves behind, for the M8 designer
+## Carried forward
 
 | Item | Note |
 | --- | --- |
-| `reporting` owns nothing | Four AST tests enforce it. If M8 wants a figure on the device, the selector goes in the **domain**, not in `reporting` (D-3) |
-| **First-owner bootstrap** | `make owner` / `manage.py bootstrap_owner`, documented in `docs/runbooks/first-owner.md`. M8's device provisioning will need users with roles — use this path, not a factory shortcut |
-| **TD-29** | Nothing asserts a newly added report is wired into `REPORT_MENU`, the API router **and** the CSV path. The eighth report will be added by someone who forgets one of the three |
-| **TD-28** | `?format=csv` on an unauthorised report stringifies the problem+json body. Cosmetic, untested error path |
-| TD-23 | `billing/selectors.py` scoping branches — **very likely closed by FR-RPT-014's tests, but per-file coverage was not captured**, so it is not recorded as closed |
-| The lesson worth carrying | **A design review cannot find a defect on a path the tests do not take.** M7's two defects lived in the seam with a library; the two after it lived in the seam with the test suite's own scaffolding. Four reviews found none of them; the only thing that did was running the real thing |
+| **Uncommitted** | Task 0's code and this documentation pass await the milestone commit. **`LICENSE` also shows as modified — line endings only (LF→CRLF), no content change.** `git checkout -- LICENSE` before committing so it does not ride along |
+| **Re-run `ops/report_performance.py`** after any change to a report or the §5A walk | Not in `make verify` and never will be — an 858-second dataset build has no place in an 8-stage gate, so **nothing else catches a regression of that class** |
+| **TD-29** | Nothing asserts a new report is wired into `REPORT_MENU`, the API router **and** the CSV path. **Task 0 adds an eighth report endpoint — this is the first time TD-29 can actually bite** |
+| **TD-31** | Clock-dependent tests. Four fixed; the class is not structurally prevented |
+| **TD-36** | **New, and on M8's path.** Money leaves the seven report endpoints as a JSON float. Fix by routing `_as_json`'s numeric cells through `money_string()` — added in task 0 for this reuse — in its own change, with its own verify run |
+| Deferred debt | TD-32, TD-33 (DRF stubs), TD-34 (`ops/` outside mypy), TD-35 (`pip-audit \|\| true`), TD-23, TD-26, TD-28, TD-14, TD-15 |
+| **The lesson still standing** | **A design review cannot find a defect on a path the tests do not take.** Four reviews found none of M7's four defects; running the real thing found all of them. M8 runs on hardware no test rig replicates — §10 task 10 is the only place that gets checked |
 
 ## Blocking, not owned by engineering
 
 | Item | Owner |
 | --- | --- |
 | **CF-1 — is statutory e-invoicing mandatory?** (`02` OI-1). More expensive with every invoice issued | Business owner |
-| **TD-11 — SMS/DLT registration.** Now inside M8's critical path | Business owner |
+| **TD-11 — SMS/DLT registration.** Inside M8's critical path | Business owner |
+| **OI-7 — "Needs attention" substitute vs reopening M-14** | Product Architect |
 | **TD-15 — `offer` has no milestone** | Product Architect |

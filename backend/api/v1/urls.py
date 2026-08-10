@@ -129,4 +129,8 @@ urlpatterns = [
         report_views.OrderStatusReportView.as_view(),
         name="report-order-status",
     ),
+    # --- dashboard (M8 task 0) — four scalars, no CSV. Named `dashboard`, not
+    # `report-dashboard`: it returns no ReportTable and must never join the list the
+    # FR-RPT-012 CSV suite is parametrised over.
+    path("reports/dashboard", report_views.DashboardView.as_view(), name="dashboard"),
 ]

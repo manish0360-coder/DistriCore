@@ -25,9 +25,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.v1.renderers import CsvRenderer
+from core.fields import to_money
 from reporting import csv as report_csv
 from reporting import selectors as report_selectors
-from reporting.tables import ReportTable
+from reporting.tables import Dashboard, ReportTable
 
 #: Both renderers must be declared on any view that honours `?format=csv`. DRF negotiates
 #: that parameter against this list and raises ``Http404`` when nothing matches — see
@@ -55,6 +56,22 @@ def _parse_int(request: Request, name: str, default: int) -> int:
     if raw is None or not raw.lstrip("-").isdigit():
         return default
     return int(raw)
+
+
+def money_string(value: Any) -> str:
+    """AD-02: money crosses the wire as a decimal string, never as a JSON number.
+
+    ``COERCE_DECIMAL_TO_STRING`` is set, but it only reaches ``serializers.DecimalField``.
+    A view that hand-builds its response dict bypasses serialisation entirely, and DRF's
+    JSON encoder renders ``Decimal("1180.00")`` as ``1180.0`` — the exactness N-07 protects
+    all the way from the column to the selector is then lost at the last hop, in the one
+    place no database constraint can catch it.
+
+    ``to_money`` before ``str`` so the scale is the canonical one: without it the same
+    figure could reach a client as ``"1180"`` from an aggregate and ``"1180.00"`` from a
+    column, and a client comparing two responses for equality would be wrong about both.
+    """
+    return str(to_money(value))
 
 
 def _as_json(table: ReportTable) -> dict[str, Any]:
@@ -176,3 +193,58 @@ class TopCustomersReportView(_ReportView):
 
 class OrderStatusReportView(_ReportView):
     build = staticmethod(report_selectors.order_pipeline)
+
+
+# -------------------------------------------------------------------------- dashboard
+def _dashboard_json(board: Dashboard) -> dict[str, Any]:
+    """Arrange the four metrics. Compute nothing.
+
+    ``is_money`` decides the encoding, and the selector already decides ``is_money``. The
+    count of orders awaiting dispatch stays a JSON number because it is a count — sending
+    it as ``"3.00"`` would be over-applying AD-02 until it lies about the type.
+    """
+    return {
+        "as_of": board.as_of,
+        "metrics": [
+            {
+                "key": metric.key,
+                "label": metric.label,
+                "value": money_string(metric.value) if metric.is_money else metric.value,
+                "caption": metric.caption,
+                "is_live": metric.is_live,
+                "is_money": metric.is_money,
+            }
+            for metric in board.metrics
+        ],
+    }
+
+
+class DashboardView(APIView):
+    """The four D-4 numbers over HTTP (M8 §3.4.1). Read-only, and not exportable.
+
+    **Deliberately not a ``_ReportView``.** That base renders a ``ReportTable`` and honours
+    ``?format=csv``; a dashboard has neither columns nor rows. Subclassing it would mean
+    inheriting a shape in order to override both halves of it away.
+
+    **The refusal of CSV is the renderer list, not a branch.** Declaring only
+    ``JSONRenderer`` leaves DRF's format negotiation nothing to match ``?format=csv``
+    against, so it raises ``Http404`` — the mechanism M7 discovered when every CSV route
+    appeared to be missing. An ``if wants_csv: raise`` would be a rule someone can delete
+    while adding a feature; an absent renderer cannot be deleted by accident.
+
+    M7 §8.2 refused this endpoint on the grounds that two of the four numbers describe
+    *today* and are therefore not reproducible. That objection is to a figure acquiring the
+    authority of a **document**, which is an argument about export — so the export stays
+    refused and the read is allowed. ``is_live`` travels with each metric to say which two.
+
+    **No period parameter.** ``dashboard()`` accepts ``today`` so tests can pin the day;
+    exposing it would make the live numbers reproducible for arbitrary past dates, which is
+    precisely the authority M7 §8.2 withholds. ``/reports/sales`` already answers that
+    question, over any period, with a CSV.
+    """
+
+    permission_classes = [IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    def get(self, request: Request) -> Response:
+        return Response(_dashboard_json(report_selectors.dashboard(request.user)))

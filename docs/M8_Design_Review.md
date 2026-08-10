@@ -1,0 +1,792 @@
+# M8 — Mobile App: Design Review
+
+| Field | Value |
+| --- | --- |
+| Document ID | `M8_Design_Review` |
+| Version | **1.2.0** |
+| Status | **Phase 1 FROZEN. Phase 2 in progress — task 0 done, task 1 next. No Flutter code yet** |
+| Date | 2026-08-10 |
+| Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
+| Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
+| Depends on | `00` v1.0.0 · `01` · `02` v0.2.0 · `02A` v0.2.0 · `03` · `04` · `05` · M0–M7 verified |
+| ADR required | ~~Yes — two~~ **Both approved 2026-08-10.** §5.6 Drift + SQLCipher · §7.5 Dio |
+
+### Change log
+
+| Version | Date | Change |
+| --- | --- | --- |
+| 1.0.0 | 2026-08-09 | Phase 1 issued for review |
+| **1.1.0** | **2026-08-10** | **Signed.** §3.4 "no owner role" **replaced by Owner Companion Mode** (ruling); §3.4.1 and §3.4.2 record the two corpus conflicts it creates; **§1.3 Design Principles P-1…P-10 added and frozen**; §10 rewritten as the Phase 2 plan; §11.2, §12.5, §13 updated |
+| **1.2.0** | **2026-08-10** | **Task 0 complete and verified** — `GET /reports/dashboard`, contracted at `05` §9.11.1. **§3.4.1a added: the seven report endpoints were already emitting money as JSON floats (TD-36)**, found while deciding this endpoint's encoding. §10 task 0 struck; §11.2 item 6 closed, item 8 opened; §12.8 added |
+
+---
+
+## 1. The governing principle
+
+Every milestone has been organised around refusing to store or derive something in the
+wrong place. M8 is the first to run **outside** the trust boundary, on hardware the business
+does not control, against a network that is not there for hours at a time.
+
+> **The device captures facts. It never decides them.**
+
+A fact is something the field already knows and the server cannot: *this delivery was
+handed over at 14:32, here, to this person, and here is the photograph.* A decision is
+everything else — whether the customer has credit, what the price is, whether the stock
+exists, whether this user may do this at all.
+
+`02` BR-001 states the rule and `02A` §9.3 states the consequence: **the binary is publicly
+downloadable and must be assumed fully decompiled.** Role-based UI is presentation. Every
+authorisation decision is server-side, per request.
+
+### 1.1 Why this milestone is affordable at all
+
+`02A` §5 is the reason M8 is 3.0 units rather than the largest thing in the programme.
+
+**In the frozen baseline, salesmen captured orders offline.** That one capability produced
+six conflict classes, four needing human resolution, a resolution console, and R-1 — the
+highest-severity risk in the programme.
+
+**In Edition 1 they do not.** They read assigned orders and write delivery status, visits,
+coordinates and photographs. None of those contend for a shared resource:
+
+| Offline write | Why it cannot conflict |
+| --- | --- |
+| Delivery status on a known order | A state transition; last-write-wins is correct |
+| Visit record | Append-only; no shared resource |
+| GPS coordinate | Append-only; immutable once captured |
+| Photograph | Append-only blob |
+
+Six conflict classes collapse to two — `SC-DUPLICATE` and `SC-SEQUENCE` — and both resolve
+deterministically. **The app is cheap because the hard problem was cut out of the release,
+not because the app is small.**
+
+### 1.2 The boundary with M9, stated before anything else
+
+`00` §19.1 splits them deliberately, and the split is easy to blur:
+
+| | M8 | M9 |
+| --- | --- | --- |
+| Owns | Flutter shell, auth, delivery, visits, GPS, photo, **the outbox** | **Push/pull**, idempotency, ordering, sync status |
+| Gate | *"Outbox survives kill, restart and storage exhaustion"* | *"Zero loss, zero duplicates"* |
+
+**M8 writes the outbox. M9 drains it.** M8 must therefore be built so that a device with no
+network and no sync engine is still a correct, useful tool for a full working day — because
+for the whole of M8 that is exactly what it is.
+
+That is not a limitation to work around. It is the acceptance test: **if M8 needs M9 to be
+useful, M8 is wrong.**
+
+---
+
+### 1.3 Design principles — the invariants Phase 2 is held to
+
+**Frozen with this document.** Ten statements, each derived from the governing principle or
+from a frozen clause. They exist so that a Phase 2 implementation decision can be checked in
+one line instead of re-argued, and so a reviewer can cite a number.
+
+**A principle is violated the moment code makes it false — not when it looks untidy.**
+
+| # | Principle | Source | What violating it looks like |
+| --: | --- | --- | --- |
+| **P-1** | **The device captures facts. It never decides them.** | §1 | A total, a price, a tax or a status computed in Dart |
+| **P-2** | **A user action writes to the outbox, never to the network.** The network is a background consequence | §5.1, NFR-OFF-001 | A screen that awaits an HTTP call, or shows a spinner during a save |
+| **P-3** | **Money and quantity are `Decimal` end to end.** No `double` on any path that reaches a figure | `05` C-1, AD-02 | `as double`, `jsonDecode` into a numeric field, `double.parse` |
+| **P-4** | **The device clock is never on a correctness path.** It labels; it does not order or expire | §5.5, `05` C-8 | Sorting the outbox by local time; expiring a session against `DateTime.now()` |
+| **P-5** | **Nothing leaves the outbox unacknowledged, and a `REJECTED` row is never deleted by code.** | §5.3, `05` C-4, C-9 | A cleanup that deletes by age; a retry that drops after N attempts |
+| **P-6** | **`client_uuid` is generated before the first attempt and never regenerated.** | `05` C-3 | A new UUID on retry — the one bug that defeats server idempotency |
+| **P-7** | **Roles are an array. The UI composes; it never switches on a single role.** | `05` C-12, §4 | `if (role == 'DELIVERY')`; a screen unreachable by a dual-role user |
+| **P-8** | **A cached figure is always displayed with its `as_of`.** Stale is acceptable; silently stale is not | §2.3, §5.2 | A KPI or balance rendered with no timestamp |
+| **P-9** | **The binary holds no secret and no rule that the server does not independently enforce.** | `02A` §9.3, DV-4, N-06 | An API key in source; a limit checked only on the device; a hidden button as a control |
+| **P-10** | **`domain/` imports nothing.** Dependencies point inward only: `features → data → domain` | §2.1 | A Drift or Dio type appearing in `domain/` |
+
+**P-3, P-6 and P-9 are the three that cannot be fixed later.** P-3 corrupts figures already
+sent; P-6 defeats a server guarantee M9 depends on; P-9 is a security property of a binary
+that has already been downloaded. **These get tests, not review comments.**
+
+**P-10 is the one with an existing enforcement precedent.** The backend has `import-linter`
+and three contracts; the Dart analogue is a lint rule in `analysis_options.yaml`. Phase 2
+adds it in the first task, not the last — `reporting`'s four AST tests were written before
+`reporting` had a second file, and that is why the contract still holds.
+
+---
+
+## 2. Mobile architecture
+
+### 2.1 Four layers, one direction
+
+```
+  ┌──────────────────────────────────────────────────┐
+  │  presentation   screens, widgets, routing        │
+  ├──────────────────────────────────────────────────┤
+  │  application    controllers — orchestration only │
+  ├──────────────────────────────────────────────────┤
+  │  domain         entities, value objects, results │
+  ├──────────────────────────────────────────────────┤
+  │  data           repositories · outbox · API · db │
+  └──────────────────────────────────────────────────┘
+```
+
+Dependencies point **downward only**, mirroring the backend's `03` §2.1 layering and
+enforced the same way: a structural test, not a convention (§10, task 1).
+
+**`domain` depends on nothing** — no Flutter, no Dio, no Drift. It is the layer that can be
+tested without a device, an emulator or a network, and it is where the two things worth
+protecting live: `Decimal` money and the outbox state machine.
+
+### 2.2 The repository is the only thing the UI can see
+
+No screen touches `Dio`, the database, or the outbox directly. A repository answers one
+question and hides where the answer came from:
+
+```
+DeliveryRepository.assignedToday()      -> local cache, always
+DeliveryRepository.complete(...)        -> writes the outbox, returns immediately
+```
+
+**Writes never await the network.** They append to the outbox and return. That is what makes
+the app work identically on 4G and in a basement, and it is why M8 can ship before M9: the
+outbox simply grows until a drain exists.
+
+### 2.3 What the app is not allowed to compute
+
+`05` C-6 forbids displaying a locally derived price or tax as authoritative. §1's principle
+generalises it: **no price, tax, credit decision, stock availability or authorisation is
+computed on the device.** Cached values are displayed with the `as_of` label C-8 requires.
+
+The temptation this forbids is real: *"we already have the products, we could total the
+order locally."* That total would eventually disagree with the invoice in front of the
+retailer, and the retailer would believe the phone.
+
+---
+
+## 3. Screen inventory by role
+
+`02A` DV-4 puts all three roles in **one binary**. `05` C-12 says `roles` is an **array** —
+one person is routinely both `SALESMAN` and `DELIVERY`, and the M0 conftest models exactly
+that. **The app must never assume a single role.**
+
+### 3.1 Shared
+
+| Screen | Notes |
+| --- | --- |
+| Splash / bootstrap | Restore session, decide route |
+| Login — OTP | Phone → code. The field path |
+| Login — password | Internal fallback |
+| Sync status | Last sync, pending count, failed count (FR-SYN-008). **Present at M8 showing outbox depth**; gains server figures at M9 |
+| Settings / about | Version, device id, sign out |
+
+### 3.2 `DELIVERY` — the milestone's core
+
+| Screen | Writes | Requirement |
+| --- | --- | --- |
+| Today's deliveries | — | FR-FUL-* |
+| Delivery detail | — | Order lines, customer, address, phone |
+| **Complete delivery** | Outbox | Recipient name, time, GPS, photo |
+| **Fail delivery** | Outbox | Mandatory reason (`ck_delivery_failed_reason`) |
+| Capture photo | Media queue | Separate queue — C-9 |
+
+### 3.3 `SALESMAN`
+
+| Screen | Writes | Notes |
+| --- | --- | --- |
+| My customers | — | Scoped by zone, server-side (P-3) |
+| Customer detail | — | Balance and ageing **labelled `as_of`** (C-8) |
+| **Record visit** | Outbox | GPS, outcome, note (FR-SYN payload shape, `05` §11.2) |
+| Customer statement | — | Read-only, cached |
+| Collections | **Deferred** | FR-REC-010 is **v1.1** — §3.5 |
+
+### 3.4 `OWNER` — **Companion Mode** *(RULED 2026-08-09, replacing "no owner role")*
+
+> **Lightweight read-only operational visibility. All administration and reporting stay on
+> the web.**
+
+v1.0.0 recommended no owner surface, on the reasoning that the owner sits at a desk. §12.5
+already flagged that as an inference about the client rather than an observation of them.
+**The ruling is that a distributor's owner is not at a desk — they are in the market, on a
+scooter, at a supplier.** Companion Mode is the right shape: it answers *"is anything wrong
+right now?"* without becoming a second admin UI.
+
+| Screen | Content | Backing |
+| --- | --- | --- |
+| **Today** | The four D-4 numbers: sales today · collected today · total outstanding · orders awaiting dispatch | §3.4.1 — **one endpoint is missing** |
+| **Pending deliveries** | Assigned and not yet completed, with the salesman's name | `/deliveries?status=PENDING` ✔ exists |
+| **Receivables summary** | Total outstanding, oldest bucket, worst ten customers | `/reports/receivables` ✔ exists |
+| **Needs attention** | Confirmed orders not dispatched · failed deliveries · overdue balances | §3.4.2 — **replaces "notifications"** |
+
+**The boundary that keeps this from becoming the admin UI:**
+
+| Companion Mode does | Companion Mode does not |
+| --- | --- |
+| Read | Write **anything** |
+| Show today's operational state | Run reports over arbitrary periods |
+| Drill from a number to the list behind it | Export CSV |
+| Link out to the web admin for action | Approve, cancel, adjust, price, invoice |
+
+**Read-only is enforced server-side, not by hiding buttons.** An owner token carries owner
+scope; the app simply has no write path for it. This is `02A` §9.3 again: the binary is
+public, so the absence of a button is not a control.
+
+#### 3.4.1 The four numbers need a backend endpoint that M7 deliberately did not build
+
+`M7_Design_Review` §8.2 states, in terms:
+
+> *"**The owner dashboard is not an endpoint.** It is four scalars rendered by webadmin,
+> two of which describe today and are therefore not reproducible. It offers no CSV."*
+
+Checked against what exists:
+
+| D-4 number | Available today? |
+| --- | --- |
+| Total outstanding | ✔ `/reports/receivables` total |
+| Orders awaiting dispatch | ✔ `/reports/order-status`, `CONFIRMED` count |
+| Sales today | ✔ `/reports/sales?date_from=today&date_to=today` |
+| **Collected today** | ✘ **No total endpoint.** Only `/payments`, a paginated list |
+
+Three of four are reachable; the fourth is not. Composing it on the device would mean paging
+payments and summing them — **deriving a figure on the device**, which §1 and `05` C-6
+forbid, over 2G.
+
+**Recommendation: add `GET /reports/dashboard`**, returning the four D-4 scalars and **no
+CSV**.
+
+Small, and it does not overturn M7's reasoning. Re-read §8.2: the objection is that a
+non-reproducible figure *"must not acquire the authority of a document"* — an argument about
+**export**, not about accessibility. An endpoint that returns live scalars and offers no
+export honours it exactly. `reporting.selectors.dashboard()` already exists, is tested, and
+returns precisely these four.
+
+**This puts a backend task inside M8** (§10, task 0). Stated plainly because it is the only
+one, and because a mobile milestone quietly growing server work is how scope moves.
+
+> **BUILT 2026-08-10.** `GET /reports/dashboard` ships in `api.v1.report_views.DashboardView`,
+> contracted at `05` §9.11.1, verified 8/8 at **726/726, 94.88%**. No CSV; no period
+> parameter; the same `_internal` scoping as the seven reports.
+
+#### 3.4.1a What building it found — money was already leaving as a float
+
+Checking how to encode the response surfaced a defect in the **existing** seven report
+endpoints, and it is the exact one P-3 exists to prevent, on the server side:
+
+| | |
+| --- | --- |
+| `05` AD-02 | *"Every monetary and quantity value crosses the wire as a string."* Its rationale names Dart |
+| Settings | `COERCE_DECIMAL_TO_STRING: True` — **but that only reaches `serializers.DecimalField`** |
+| `report_views._as_json` | Hand-builds its response dict, bypassing serialisation entirely |
+| Measured | `json.dumps({"x": Decimal("1180.00")}, cls=rest_framework...JSONEncoder)` → `{"x": 1180.0}` |
+
+**The seven reports emit money as JSON floats.** `jsonDecode` in Dart yields a `double` for
+that, and a figure exact through the column, the service and the selector becomes inexact at
+the last hop — where no database constraint can see it.
+
+The existing test reads `Decimal(str(body["total"]["sales"]))`. **The `str()` wrapper makes it
+pass whichever type arrives**, which is why seven endpoints carried this through four reviews.
+
+**Task 0 fixed only its own endpoint.** Changing the seven is a breaking change to a published
+response type and belongs in its own change with its own verification — recorded as **TD-36**,
+and it **blocks task 8**, which reads `/reports/receivables`.
+
+> **This is the recurring shape again, in a new place:** a rule enforced on one side of a
+> boundary and not the other. AD-02 was enforced in the serializer layer and not in the
+> hand-built layer beside it. §12.7 called P-1…P-10 *"asserted, not yet enforced"* the day
+> before this was found.
+
+#### 3.4.2 "Notifications" conflicts with a recorded decision — and `02A` supplies the answer
+
+`02A` §7.12's feature matrix lists in-app notifications as Edition 1. **`02A` §13's
+Edition-1 re-validation cut them:**
+
+> *"In-app notifications (**M-14 entirely**) | E1 | An 'unactioned orders' filter on the
+> order list achieves the same thing for nothing | **0.5**"*
+
+Verified against the code: **no notification model, table, endpoint or milestone exists.**
+Building M-14 for Companion Mode would reopen a decision taken to save 0.5 units, and add a
+table, an endpoint, a read-state machine and a badge-count sync.
+
+**This is the same shape as M7's C-1…C-6** — `02A` §7.x's matrix predates §13's
+re-validation, and §13 governs.
+
+**Recommendation: adopt `02A`'s own substitute.** A **"Needs attention"** screen — one
+filtered read across state the server already exposes — satisfies the intent (*the owner
+learns what needs them*) at zero backend cost, and is the answer `02A` chose when it made
+the cut.
+
+**What is genuinely lost:** *push*. A filtered list must be opened; a notification arrives.
+`02A` §7.12 puts push in Edition 2 behind a third-party dependency and a cost line, and A-19
+excludes per-message costs. **Companion Mode is a thing the owner checks, not a thing that
+interrupts them** — and that should be said out loud rather than discovered.
+
+### 3.5 Deliberately absent, with authority
+
+| Absent | Why |
+| --- | --- |
+| **Field order capture** | `02A` §5 — the decision the whole edition rests on |
+| **Payment collection** | FR-REC-010 is **v1.1**, not v1.0 |
+| Retailer screens | M12, Edition 1b |
+| Conflict resolution | `02A` §5 — zero classes need human resolution |
+| Any report | `S1` only |
+
+> Field order capture is the one a stakeholder will ask for by name. The answer is not
+> "later" — it is `02A` §5, and re-opening it re-opens R-1.
+
+---
+
+## 4. Navigation architecture
+
+**Declarative routing, role-derived, with the redirect as the only guard.**
+
+```
+/splash  → decide
+/login   → /login/otp · /login/password
+/home    → role-derived tab shell
+           ├ today        (OWNER)      ← Companion Mode, §3.4
+           ├ deliveries   (DELIVERY)
+           ├ customers    (SALESMAN)
+           └ status       (always)
+/delivery/:id · /delivery/:id/complete · /delivery/:id/fail
+/customer/:id · /customer/:id/visit
+/owner/receivables · /owner/attention · /owner/pending-deliveries   (read-only)
+/settings
+```
+
+Three rules:
+
+1. **Tabs are composed from `roles`, never switched on a "primary role".** A user holding
+   both sees both. C-12 exists because getting this wrong hides delivery screens from a
+   salesman who delivers — and that person is the client's normal case.
+2. **One redirect guard**: unauthenticated → `/login`; authenticated at `/login` → `/home`.
+   Route-level role checks are presentation only.
+3. **Deep links are not supported in M8.** Nothing external links into the app, and a route
+   reachable without the guard is a route reachable without a session.
+
+---
+
+## 5. Offline-first strategy
+
+### 5.1 The requirement is absolute
+
+`02` NFR-OFF-001: *"fully functional for a complete working day with no connectivity"*,
+verified by an **8-hour soak test**. NFR-OFF-004: three days of transactions without sync.
+NFR-OFF-005: crash, force-close and battery exhaustion must not lose a committed write.
+
+**These are not "offline support". They are the operating condition.** The app is built as
+if the network is absent and treats connectivity as an optimisation.
+
+### 5.2 Two stores, different guarantees
+
+| Store | Holds | Guarantee |
+| --- | --- | --- |
+| **Cache** | Products, customers, orders, deliveries, config | Disposable. Rebuilt by a pull; may be wiped |
+| **Outbox** | Every local write, in creation order | **Durable. Nothing is ever deleted before acknowledgement, and a rejected operation is never deleted at all** (C-3) |
+
+Conflating them is the defect to avoid: a cache is a convenience, an outbox is a promise.
+
+### 5.3 The outbox state machine
+
+```
+PENDING ──sent──> IN_FLIGHT ──ack──> ACKNOWLEDGED ──> (purged after N days)
+   ▲                  │
+   └───── retry ──────┘
+                      └──rejected──> REJECTED   (never auto-deleted — C-3, FR-SYN-006)
+```
+
+| Property | How |
+| --- | --- |
+| Durable | Committed to disk in the same transaction as the UI's confirmation. **The user is never told "saved" before it is** (NFR-OFF-005) |
+| Ordered | Monotonic per-device sequence, not a timestamp (BR-013, FR-SYN-002). **The device clock is never on the correctness path** |
+| Idempotent | `client_uuid` generated **before the first attempt** and reused on every retry (C-2, AD-09) |
+| Never lost | No delete path from `REJECTED`. A malformed payload is quarantined, not dropped (FR-SYN-006) |
+| Encrypted | At rest (FR-SYN-016, NFR-SEC-008) |
+
+**At M8 the machine stops at `PENDING`.** No transition out of it exists until M9. Building
+the full state set now is not speculative: the M8 gate is *"outbox survives kill, restart and
+storage exhaustion"*, and a schema that has to grow states at M9 is a migration on a device
+already carrying a farmer's week of unsent work.
+
+### 5.4 Media is a separate queue — not a nicety
+
+`05` C-9 and §10.7: **a 200 KB photo on 2G must never block a delivery confirmation.** Two
+queues, drained independently. If the photo fails, the delivery still submits with
+`photo_media_id: null`.
+
+### 5.5 The clock is not trusted, anywhere
+
+`05` P-2: the client stores `server_time` and sends it as the next `since`. A device five
+minutes fast would send a future `since` and **silently skip every record in that window.**
+
+M8 does not pull yet, but it stores `server_time` from the login response from day one. If
+M8 persists a device timestamp as the sync cursor, M9 inherits a silent data-loss bug.
+
+*(M7 §12.2 has just paid for this lesson on the server: four tests read the wall clock while
+asserting against a constant, and one failed the morning the date rolled.)*
+
+### 5.6 **ADR required — the local database**
+
+Drift (SQLite, typed, transactional, migration-aware) versus Hive/Isar versus files.
+
+The outbox needs **atomic multi-row commits**, **ordered reads** and **schema migration on a
+device that cannot be wiped**. Recommendation is **Drift with SQLCipher**, but the choice is
+irreversible in the sense that matters: changing it after M9 means migrating outboxes on
+devices in the field.
+
+---
+
+## 6. State management
+
+### 6.1 Recommendation: **Riverpod**
+
+Justification against the two alternatives a reviewer will raise:
+
+| Option | Assessment |
+| --- | --- |
+| **Riverpod** | **Recommended.** Compile-time safe dependency injection, testable without widgets, and — decisively — **`AsyncValue` models loading/data/error as one type**, which is the shape every screen in this app actually has |
+| BLoC | Well-proven and explicit, but every screen needs event and state classes for what is mostly "show cached data, queue one write". Ceremony without a matching benefit here |
+| `setState` + `InheritedWidget` | Sufficient for the shell, insufficient the moment two screens observe outbox depth |
+
+### 6.2 The argument that actually decides it
+
+**This app's hard state is not UI state — it is the outbox.** Its truth lives in SQLite, and
+the state layer's job is to *observe* it, not to own it.
+
+Riverpod's stream providers over Drift watch-queries give exactly that: the outbox-depth
+badge, the delivery list and the sync screen all observe the same database and cannot drift
+apart. **A pattern that encourages the queue to live in memory is a pattern that loses
+transactions when the OS kills the app.**
+
+The recommendation is therefore weaker than it looks: *any* solution that keeps durable state
+in the database and treats the state layer as a view over it would be acceptable. Riverpod is
+the smallest one that does so naturally.
+
+---
+
+## 7. Networking and API layer
+
+### 7.1 Non-negotiables from `05` §12
+
+Four of the twelve client obligations *each individually* break a guarantee:
+
+| # | Obligation | If broken |
+| --- | --- | --- |
+| **C-1** | Money and quantity parsed as **`Decimal`, never `double`** (AD-02) | Silent rounding on invoices |
+| **C-2** | `client_uuid` generated before the first attempt, reused on retry | Duplicate orders and payments |
+| **C-3** | A `REJECTED` operation is **never deleted** | A lost transaction |
+| **C-5** | `server_time` as the next `since`, never the device clock | Permanently skipped records |
+
+**C-1 deserves emphasis: Dart has no `Decimal`.** `jsonDecode` will produce `double` for any
+unquoted number. `05` AD-02 sends money as a **string** precisely so the client can parse
+exactly — and a single careless `as double` reintroduces the defect the whole `core.fields`
+discipline exists to prevent. This must be enforced by a **codec, not a convention** (§10,
+task 3).
+
+### 7.2 Shape
+
+```
+ApiClient (Dio)
+ ├─ AuthInterceptor      attaches the access token
+ ├─ RefreshInterceptor   refreshes ONCE on 401 TOKEN_EXPIRED, then re-auths (C-7)
+ ├─ DeviceInterceptor    device_id on every write (C-10)
+ └─ ProblemInterceptor   RFC 9457 problem+json -> typed failures
+```
+
+`05` returns RFC 9457 for every error with a stable machine-readable `code`. **The client
+branches on `code`, never on `detail`** — `05` says `title` and `detail` may be reworded
+without breaking a client.
+
+### 7.3 Failures are values, not exceptions
+
+Every repository returns a result type. A field app has no "unexpected" network failure — no
+signal is the normal state, and an app that throws on it will throw all day.
+
+### 7.4 What M8 calls, and what it does not
+
+**Calls:** `/auth/*`, `/deliveries*`, `/customers*`, `/media`.
+**Does not call:** `/sync/pull`, `/sync/push`, `/sync/status` — M9.
+
+M8 reads through the ordinary REST endpoints and caches the responses. **The cache schema is
+designed to be what `/sync/pull` will fill**, so M9 replaces the filling mechanism without
+touching the readers.
+
+### 7.5 **ADR required — HTTP client and offline auth window**
+
+Dio versus `http` + hand-rolled interceptors; and the FR-IAM-016 offline authentication
+period. `02` OI-5 records the default as **7 days, configurable**, due at M8. That number is
+a security decision: it is how long a lost, unreported device keeps working (R-8).
+
+---
+
+## 8. Authentication and session
+
+### 8.1 Two paths, one session
+
+| Path | Use |
+| --- | --- |
+| **OTP** (`/auth/otp/request` → `/auth/otp/verify`) | The field default. FR-IAM-001 |
+| **Password** (`/auth/login`) | Internal fallback |
+
+Both return access and refresh tokens plus the user payload with **`roles` as an array**.
+
+### 8.2 Storage
+
+| Item | Where |
+| --- | --- |
+| Refresh token | **Platform keystore** (`flutter_secure_storage` → Android Keystore) |
+| Access token | Memory. Re-derived from refresh on cold start |
+| Cached user, roles | Encrypted local DB |
+| Local auth material | FR-IAM-016 — §8.3 |
+
+**No token in shared preferences, no token in the outbox, no token in a log.** FR-IAM-015:
+credentials must not reach logs, audit records, error messages or crash reports — which
+makes the crash reporter a place this rule can be broken accidentally.
+
+### 8.3 Offline authentication is a security decision
+
+FR-IAM-016: offline surfaces authenticate **locally against cached credential material** for
+a configurable maximum period, after which sync is required. OI-5's default is 7 days.
+
+Beyond the window the app **stops accepting a local unlock and requires a server round-trip**
+— but it must still surrender nothing: the outbox is not readable, and it is **not erased**.
+A device that locks out with three days of unsent deliveries must still be able to hand them
+over once it reaches signal.
+
+### 8.4 Device identity
+
+`device_id` is generated once, stored in the keystore, and sent on **every write** (C-10,
+FR-IAM-009). It is the attribution in the audit trail and the unit FR-IAM-010 revokes.
+
+### 8.5 The condition M8 must not violate
+
+From `02A` §9.3, restated because it is the one thing that makes DV-4 acceptable:
+
+> **The binary contains no API key, secret, internal endpoint or business rule whose
+> confidentiality matters.** Role-based UI is presentation only.
+
+A structural test asserts no secret-shaped constant ships in the binary (§10, task 1).
+
+---
+
+## 9. Folder structure
+
+```
+mobile/
+├── lib/
+│   ├── main.dart
+│   ├── app/                    bootstrap, router, theme, DI
+│   ├── core/                   Result, Decimal codec, failures, clock, logging
+│   ├── domain/                 entities · value objects · repository INTERFACES
+│   │   ├── identity/  delivery/  customer/  outbox/
+│   ├── data/
+│   │   ├── api/                Dio client, interceptors, DTOs
+│   │   ├── db/                 Drift schema, DAOs, migrations
+│   │   ├── outbox/             queue, sequencer, state machine
+│   │   └── repositories/       implementations of the domain interfaces
+│   └── features/               one folder per feature, presentation + controllers
+│       ├── auth/  deliveries/  customers/  visits/  sync_status/  settings/
+├── test/                       unit — domain and outbox, no Flutter binding
+├── integration_test/           on-device: kill, restart, storage exhaustion
+└── pubspec.yaml
+```
+
+Two properties this shape exists for:
+
+- **`domain/` imports nothing from `data/` or `features/`.** Repository *interfaces* live in
+  `domain`, implementations in `data` — so the domain compiles without Flutter and the
+  outbox is testable on a laptop.
+- **`features/` is presentation.** Business logic in a feature folder is the mobile form of
+  the N-01 violation the backend has spent seven milestones refusing.
+
+---
+
+## 10. Phase 2 plan — implementation task decomposition
+
+**Ordered by dependency, not by visibility.** Each task is one logically complete unit that
+compiles, runs and is verified before the next opens. The principle it is held to is named,
+so a review has something to check against.
+
+| # | Task | Principles | Gate |
+| --: | --- | --- | --- |
+| ~~**0**~~ | ~~**Backend: `GET /reports/dashboard`**~~ | — | ✔ **DONE 2026-08-10** — 8/8, **726/726**, 94.88%, `mypy` clean, 3 contracts kept |
+| **1** | Toolchain, shell, DI, router; **`analysis_options.yaml` layering rule and the no-secrets structural test** | P-9, P-10 | The contract tests exist **before** the first feature |
+| **2** | **Decimal codec and the API layer** — Dio, interceptors, typed failures | **P-3** | A test fails the build on any `double` in a money path |
+| **3** | **Drift schema, outbox, sequencer** | **P-2, P-5, P-6** | Kill · restart · storage exhaustion, at **every** write boundary |
+| 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | P-4, P-9 | C-7, FR-IAM-015, FR-IAM-016 |
+| 5 | Delivery: list, detail, complete, fail | P-1, P-2, P-7 | No screen touches the network to save |
+| 6 | GPS and the **separate media queue** | P-2, P-5 | C-9. Media never blocks a transactional row |
+| 7 | Customers, visits | P-1, P-8 | — |
+| 8 | **Owner Companion Mode** — Today · pending deliveries · receivables · needs attention | **P-1, P-8, P-9** | Read-only; every cached figure carries `as_of`; no write path exists |
+| 9 | Sync-status screen (outbox depth) | P-8 | FR-SYN-008, necessarily partial until M9 |
+| 10 | **The 8-hour offline soak** (NFR-OFF-001) and the M8→M9 gate | P-2, P-5 | **Measured on a real device, not assumed** |
+
+### 10.1 What the ordering is actually protecting
+
+**Task 3 is the milestone.** Everything else is screens over a REST API that already exists
+and is already verified. If task 3 is wrong, M9 inherits a corrupt queue and both
+non-negotiable sync metrics become unreachable.
+
+**Tasks 1 and 2 come before any feature deliberately.** M7's four AST tests were written
+when `reporting` had one file, and that is the reason the contract still holds at seven. The
+Dart equivalents are worth nothing written last — by then the violation is the code.
+
+**Task 0 is first because it is a different toolchain.** It goes through `make verify`, gets
+committed, and is finished before Flutter enters the repository. Mixing a Django change into
+a Dart milestone is how a green gate stops meaning anything.
+
+**Task 8 is late on purpose.** Companion Mode is read-only over endpoints that already exist;
+it carries no risk that task 3 does not already carry, and no other task depends on it. If
+M8 runs long, **task 8 is the first thing that can move to M8.1 without breaking the
+milestone gate** — task 10 cannot.
+
+### 10.2 Entry conditions for Phase 2
+
+| # | Condition | State |
+| --: | --- | :-: |
+| 1 | §13 signed, both ADRs approved | ✔ 2026-08-10 |
+| 2 | §1.3 principles frozen | ✔ |
+| 3 | **TD-32 closed** — retire the superseded `==` dev pins (`NEXT_TASK.md`) | ☐ **Do before the Dart toolchain lands** |
+| 4 | **K-1 keystore procedure agreed** — generated once, two off-machine backups, never in Git | ☐ |
+| 5 | **TD-11 — DLT registration started** | ☐ **External, unbounded lead time** |
+| 6 | Flutter SDK version pinned, as `uv.lock` pins Python (TD-21's reasoning applies unchanged) | ☐ Decide in task 1 |
+
+> **Conditions 3 and 6 are the same lesson.** TD-21 was closed *before* a second toolchain
+> arrived, precisely so that reproducibility was settled with one language in the repository.
+> Phase 2 adds the second. **Pin Dart the way Python is pinned, on the first day.**
+
+---
+
+## 11. Risks, trade-offs and open items
+
+| # | Risk | Severity | Position |
+| --: | --- | :-: | --- |
+| **AR-1** | **`double` reaches money.** Dart has no `Decimal`; `jsonDecode` yields `double` | **Severe** | Codec + a test that fails on any `double` in a money path (§7.1) |
+| **AR-2** | **The outbox loses a write on kill.** NFR-OFF-005, and the M8→M9 gate | **Severe** | Commit before confirming; kill-test at **every** write boundary |
+| **AR-3** | An outbox schema change at M9 migrates devices holding unsent work | **High** | Full state machine at M8 (§5.3) |
+| **AR-4** | Role assumed singular; delivery screens vanish for a salesman who delivers | **High** | C-12; compose tabs from the array; test the both-roles user |
+| **AR-5** | **The keystore is lost.** `00` §2.3 K-1: *"the application can never be updated again"* | **Severe** | Not an M8 code risk — an M8 **procedure** risk. K-1 at generation, verified at M11 |
+| **AR-6** | Device clock persisted as a sync cursor | High | §5.5. M9 inherits silent loss if M8 gets this wrong |
+| **AR-7** | Stale cache read as a guarantee | Medium | C-8 `as_of` labels on every cached balance and stock figure |
+| **AR-8** | Scope pressure to add field order capture | Medium | `02A` §5. Re-opening it re-opens R-1 |
+
+### 11.1 Trade-offs accepted
+
+**One binary for three roles** (DV-4) — cheaper, and safe *only* under §8.5. **Android only,
+API 26+** (DR-3). **No iOS** (O10). **PO-2 only partially achieved** in Edition 1: phoned-in
+orders are still keyed by the owner — but they were before, so nothing is worse and the
+portal channel is strictly better.
+
+### 11.2 Open items for the Product Architect
+
+| # | Item | State |
+| --: | --- | :-: |
+| 1 | **ADR — local database** (§5.6): Drift + SQLCipher | ✔ **Approved 2026-08-10** |
+| 2 | **ADR — HTTP client and the FR-IAM-016 offline window** (§7.5): Dio | ✔ **Approved 2026-08-10** |
+| 3 | ~~Does the owner get mobile screens?~~ | ✔ **Ruled: Owner Companion Mode** (§3.4) |
+| 4 | **No payment collection** in M8 — FR-REC-010 is v1.1 (§3.5) | ✔ Confirmed |
+| 5 | **TD-11 — SMS/DLT registration** is on M8's critical path: OTP login is the field default and DLT approval has unbounded lead time. `00` §2.4's contingency is owner-provisioned passwords, recorded as a deviation | ☐ **Open** |
+| ~~**6**~~ | ~~`GET /reports/dashboard`~~ | ✔ **Built and verified 2026-08-10** (§3.4.1) |
+| **8** | **TD-36 — the seven report endpoints emit money as JSON floats** (§3.4.1a). AD-02 violated by `_as_json` bypassing serialisation. **Breaking change to a published response type**, so it is its own change with its own verify | ☐ **New — blocks task 8** |
+| **7** | **"Notifications" was cut from Edition 1** by `02A` §13 (M-14 entirely, 0.5 units). Recommendation: adopt `02A`'s own substitute — a **"Needs attention"** filtered read — rather than reopening the cut (§3.4.2) | ☐ **New — decide before task 8** |
+
+> **Item 5 is the one that can stop this milestone from outside it.** Everything else here
+> is engineering.
+>
+> **Items 6 and 7 arrived with Companion Mode and were not visible when it was requested.**
+> Neither changes the architecture; both change what task 8 is allowed to build. Item 7 in
+> particular is a request that a frozen document has already answered — recorded here so the
+> answer is a decision rather than a surprise during implementation.
+
+---
+
+## 12. Self-critique
+
+**1. §6's recommendation is softer than it appears.** I argue Riverpod and then concede any
+solution keeping durable state in the database would do. That is honest, and it means the
+choice is worth less scrutiny than §5.6's database ADR — which is the one that is genuinely
+hard to reverse.
+
+**2. I have specified an outbox state machine M8 cannot exercise.** Only `PENDING` is
+reachable until M9. The justification — avoiding a device-side migration — is real, but the
+cost is that `ACKNOWLEDGED` and `REJECTED` ship untested through a milestone. If the M9
+design finds the shape wrong, M8 will have shipped dead code that looks load-bearing.
+
+**3. The 8-hour soak is specified and not designed.** NFR-OFF-001 names the method; task 9
+names the task. How it is actually run — a real device, a day of representative volume, who
+watches it — is not settled here, and a soak test nobody schedules is a requirement nobody
+meets. FR-RPT-015 sat unmeasured for exactly this reason until three days ago.
+
+**4. Effort.** 3.0 units, the largest single milestone in Edition 1, and the first in a
+language and toolchain this project has never built in. Every M5–M7 estimate held; **none of
+them involved a new platform.** I have no basis for predicting cycles and will not offer one.
+
+**5. Owner screens — this critique was upheld within a day.** v1.0.0 recommended none, on
+the reasoning that the owner sits at a desk, while admitting that was an inference rather
+than an observation. **It was overturned by one sentence from the business, which is exactly
+what this paragraph predicted.** Kept verbatim rather than deleted: the reasoning was sound
+and the premise was invented, and that is the failure mode worth being able to recognise
+again. The §3.4 ruling is right; v1.0.0's §3.4 was not wrong about duplication, it was wrong
+about the user.
+
+**6. Companion Mode's dependencies were checked after it was approved, not before.** §3.4.1
+and §3.4.2 exist because I verified the four KPIs and the notification feature against the
+code and `02A` *after* the ruling — and found one missing endpoint and one feature cut by a
+frozen document. Had the ruling been implemented directly, task 8 would have discovered both
+mid-milestone. **The check cost minutes; it belonged in the same minutes as the request.**
+
+**7. §1.3's principles are asserted, not yet enforced.** P-1…P-10 currently have the status
+that TD-2's type gate had for six milestones: *advisory*. Only P-3, P-9 and P-10 have a named
+mechanism in §10, and P-1, P-4 and P-8 have none — they are review comments, and this project
+has already recorded what review comments are worth against a path the tests do not take.
+
+**8. Task 0 found a server-side defect four milestones of review did not** (§3.4.1a). AD-02
+has been frozen since `05` was written; the seven report endpoints have violated it since M7;
+four reviews and a newly blocking type gate all passed over it. It surfaced only because
+someone had to decide, concretely, how to encode **one number** — and that decision required
+reading what the encoder does rather than what the setting says.
+
+**The transferable part is not "check the encoder".** It is that §12.6 repeated inside the
+same milestone: I wrote §3.4.1 asserting three of four numbers were *"reachable"* without once
+asking in what **type** they were reachable. A claim about behaviour is worth whatever the
+check behind it cost, and here the check was one line of Python that I ran a day late.
+
+---
+
+## 13. Sign-off
+
+**Signed 2026-08-10.**
+
+| # | Item | Party | Status |
+| --: | --- | --- | :-: |
+| 1 | §1 governing principle and the §1.2 M8/M9 boundary | All | ✔ |
+| 2 | §2 layering; §9 folder structure | All | ✔ |
+| 3 | §3 screen inventory — **§3.4 Owner Companion Mode** *(replaces "no owner role")* | Product Architect | ✔ |
+| 4 | §5 offline strategy and the §5.3 outbox state machine | All | ✔ |
+| 5 | §6 Riverpod | All | ✔ |
+| 6 | §7–§8 networking, auth, and the §8.5 condition | All | ✔ |
+| 7 | **ADR — local database:** Drift + SQLCipher (§5.6) | All | ✔ |
+| 8 | **ADR — HTTP client and offline window:** Dio (§7.5) | All | ✔ |
+| 9 | §11.2 items 4 and 5 | Product Architect | ✔ / ☐ open |
+| 10 | **§1.3 Design Principles P-1…P-10** | All | ✔ **Frozen** |
+| 11 | §10 Phase 2 plan | All | ✔ |
+| 12 | This document accepted | All | ✔ |
+
+### 13.1 What is frozen, and what freezing means here
+
+**Frozen:** §1 (principle and boundary), **§1.3 (P-1…P-10)**, §2, §3, §4, §5, §6, §7, §8, §9.
+
+A frozen clause is not reopened by an implementation preference. It is reopened by a
+**verified contradiction** — the same standard M5, M6 and M7 were held to, and the reason
+`02A` §5 can still answer the field-order-capture question without re-arguing it.
+
+### 13.2 The two things that were **not** settled by this signature
+
+| # | Item | Blocks |
+| --: | --- | --- |
+| ~~**6**~~ | ~~`GET /reports/dashboard`~~ | ✔ **Closed by task 0** |
+| **7** | "Notifications" vs `02A` §13's cut (§3.4.2) — recommendation: the "Needs attention" substitute | **Task 8 only** |
+| **8** | **TD-36** — money as floats on the seven report endpoints (§3.4.1a) | **Task 8 only** |
+
+**None blocks Phase 2 from proceeding.** All sit inside task 8, which §10.1 places last for
+this reason. **Tasks 1–7 are unblocked.**
+
+> **TD-11 still blocks nothing in engineering and everything in go-live.**
+
+---
+
+*Phase 1 is closed. No Flutter code exists. Phase 2 begins at task 0.*

@@ -580,7 +580,43 @@ Enforced in `services.py` on every request (N-01, N-06). ● full · ◐ own rec
 | GET | `/reports/top-customers` | `?limit=10&date_from=` — the Top 10 ranking |
 | GET | `/reports/order-status` | Pipeline counts by status |
 
-All reports accept `?format=csv` (FR-RPT-012).
+All **reports** accept `?format=csv` (FR-RPT-012). The dashboard below does not, and is not a report.
+
+#### 9.11.1 Dashboard — the four D-4 numbers
+
+> **Added 2026-08-10** by `M8_Design_Review.md` v1.1.0 §3.4.1 (M8 Phase 2, task 0). **Purely
+> additive.** No existing path, parameter, response field or role changed.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/reports/dashboard` | The four D-4 scalars: sales today · collected today · total outstanding · orders awaiting dispatch |
+
+```json
+{
+  "as_of": "2026-08-10",
+  "metrics": [
+    {"key": "sales_today",       "label": "Sales today",              "value": "11800.00", "caption": "Taxable value, net of credit notes",     "is_live": true,  "is_money": true},
+    {"key": "collected_today",   "label": "Collected today",          "value": "500.00",   "caption": "Payments recorded today, excluding reversals", "is_live": true,  "is_money": true},
+    {"key": "total_outstanding", "label": "Total outstanding",        "value": "11300.00", "caption": "Derived from the ledger, oldest first",  "is_live": false, "is_money": true},
+    {"key": "awaiting_dispatch", "label": "Orders awaiting dispatch", "value": 3,          "caption": "Confirmed, not yet gone",               "is_live": false, "is_money": false}
+  ]
+}
+```
+
+**Three deliberate departures from the report contract**, each the reason this sits in its own
+subsection rather than in the table above:
+
+| # | Departure | Why |
+| --: | --- | --- |
+| 1 | **No `?format=csv`.** Returns `404`, from renderer negotiation rather than from a branch | M7 §8.2 — two of the four numbers describe *today* and are not reproducible. A figure that cannot be reproduced must not acquire the authority of a document |
+| 2 | **No period parameter.** It resolves "today" server-side — the one endpoint under `/reports/` that does | A period would make the live numbers reproducible for arbitrary past dates, which is exactly the authority (1) withholds. `/reports/sales` answers that question over any period, with a CSV |
+| 3 | **`awaiting_dispatch` is a JSON number, not a string** | AD-02 governs money and quantity. A count is neither; `"3.00"` orders would be over-applying the rule until it lies about the type. `is_money` says which encoding applies, per metric |
+
+`is_live` marks the two figures that are not reproducible, so a client can label them rather
+than cache them as a record (C-8's reasoning, applied to a figure rather than to a snapshot).
+
+**Roles:** the same `_internal` predicate as the seven reports — `OWNER`, `SALESMAN`,
+`DELIVERY`, each scoped. A `RETAILER` receives `403`, not an empty dashboard.
 
 **`stock-variance` and `returns` are separate endpoints, not one endpoint with a filter.** A
 credit note writes no stock movement (ADR-0009), so the two report different facts with
@@ -588,10 +624,18 @@ different row shapes and their totals legitimately differ. Merging them would im
 the domain does not have.
 
 Every report requires an explicit period or `as_of`; none resolves "now" server-side, so a
-report over a closed period returns the same answer on any later day.
+report over a closed period returns the same answer on any later day. **§9.11.1's dashboard is
+the sole exception, and is not a report** — it resolves today deliberately, offers no export,
+and says so per metric with `is_live`.
 
-**The owner dashboard is not an endpoint.** It is four scalars rendered by webadmin (`M7`
-§4.4), two of which describe *today* and are therefore not reproducible. It offers no CSV.
+> ~~**The owner dashboard is not an endpoint.** It is four scalars rendered by webadmin (`M7`
+> §4.4), two of which describe *today* and are therefore not reproducible. It offers no CSV.~~
+>
+> **Superseded 2026-08-10 by §9.11.1.** The first sentence no longer holds; the last one
+> still does. M8 Owner Companion Mode needs the four numbers on a phone, and this paragraph's
+> own reasoning — that a non-reproducible figure must not acquire the authority of a
+> **document** — is an argument about *export*, not about *access*. The export stays refused.
+> Kept struck rather than deleted: the reasoning was sound and only its scope was wrong.
 
 ### 9.12 System
 

@@ -107,7 +107,15 @@ class Metric:
 
 @dataclass(frozen=True)
 class Dashboard:
-    """Exactly four numbers (D-4, M7-8). Not an endpoint, not exportable."""
+    """Exactly four numbers (D-4, M7-8). **Not exportable.**
+
+    M7 called this "not an endpoint" as well. M8 §3.4.1 overturned the first half and kept
+    the second: Owner Companion Mode needs the four numbers on a phone, and while three
+    were already reachable from the report endpoints, ``collected_today`` was not — only a
+    paginated payment list, which the device would have had to page and sum. The objection
+    in M7 §8.2 was that a non-reproducible figure must not acquire the authority of a
+    *document* — an argument about export, which still holds. See ``api.v1.report_views``.
+    """
 
     metrics: tuple[Metric, ...] = field(default_factory=tuple)
     as_of: date | None = None

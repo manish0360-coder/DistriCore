@@ -3,8 +3,8 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M7 — Reporting** — verified 8/8. Latest run **712/712 tests, 94.83%**, with **`mypy` blocking** (M7 plus the identity fix, the owner bootstrap, TD-30, TD-21 and TD-2/TD-18) |
-| Next milestone | **M8 — Mobile app** (not started) |
+| Current milestone | **M8 — Mobile app.** Phase 1 design **frozen and signed**; Phase 2 **task 0 of 10 done**. Latest run **726/726 tests, 94.88%**, `mypy` clean, 3 contracts kept |
+| Last closed | **M7 — Reporting**, verified 8/8, plus the identity fix, the owner bootstrap, TD-30, TD-27, TD-21 and TD-2/TD-18 |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
 
@@ -31,7 +31,7 @@
 | M5 | Fulfilment & Billing — delivery, dispatch, GST invoice, credit note, ledger | **Verified & tagged** — `docs/M5_Verification_Report.md` |
 | M6 | Receivables — payments, reversal, write-off, derived outstanding, statement | **Verified & tagged** — `docs/M6_Verification_Report.md` |
 | M7 | Reporting — seven reports, CSV, scoping, owner dashboard | **Verified** — `docs/M7_Verification_Report.md` |
-| M8 | Mobile app | Not started |
+| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.2.0**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2: task 0 done** (`GET /reports/dashboard`); **no Flutter code yet** |
 | M9 | Sync | Not started |
 | M10 | Hardening | Not started |
 | M11 | Go-live | Not started |
@@ -53,6 +53,7 @@
 | M7 + TD-30 | 8/8 | 712 | 94.85% | 3 kept | **2** |
 | M7 + TD-21 | 8/8 | 712 | 94.85% | 3 kept | **1** |
 | M7 + TD-2/TD-18 | 8/8 | **712** | **94.83%** | 3 kept | **1** |
+| **M8 task 0 — dashboard endpoint** | 8/8 | **726** | **94.88%** | 3 kept | **1** |
 
 > Coverage fell 0.18 points in M3, 0.41 in M6 and **0.02 closing TD-2**. All recorded
 > rather than rounded away. The gate is 80% and has never been moved.
@@ -89,7 +90,8 @@ introduction would move two variables at once.
 | Gate | State |
 | --- | --- |
 | `ops/check_structural_columns.py` | Satisfied since M2 — `location_id` and `lot_id` on every movement (ADR-0004, E-06) |
-| `lint-imports` — 3 contracts | Kept. **139 files, 268 dependencies**, 14 root packages. Has caught 4 violations across 7 milestones, all by the rule's author |
+| `lint-imports` — 3 contracts | Kept. 14 root packages. Has caught 4 violations across 7 milestones, all by the rule's author. *(File and dependency counts were **139 / 268** as of the TD-2 run; task 0 added an `api → core.fields` edge and the counts were not re-captured, so they are not restated here rather than restated wrongly.)* |
+| **The dashboard cannot acquire an export** | `DashboardView` declares only `JSONRenderer`, so `?format=csv` fails DRF's negotiation with `Http404` before the view runs — a mechanism, not a branch. Two tests hold it: one asserts the 404, one asserts the dashboard is **absent** from the seven-report CSV parametrisation, so it cannot be handed an export by a test (M7 §8.2, `05` §9.11.1) |
 | **`reporting` owns nothing** | No `models.py`, no `services.py`, no migration, absent from `INSTALLED_APPS`. Four AST tests assert it, including that it imports no `*.services` and no first-party `*.models` (M7-4, M7-5) |
 | **One canonical phone number** | `identity/phone.py` defines it once; `UserManager._create` writes it and every lookup reads it. Migration `identity/0004` normalised existing rows and **refuses to merge collisions** (`04` T-01) |
 | **The first authorised user is reachable** | `bootstrap_owner` (FR-IAM-014). Refuses while an **active** owner exists, refuses a deactivated target, audits every use as `OWNER_BOOTSTRAP` with `actor_user` NULL. **A test asserts the deadlock it exists to break**, so it cannot be deleted as redundant |
@@ -113,8 +115,15 @@ introduction would move two variables at once.
 | ~~3~~ | ~~TD-21 — make the build reproducible~~ | **Done.** `uv.lock` committed and consumed; the build fails closed without it |
 | ~~4~~ | ~~TD-2/TD-18 — make `mypy` blocking~~ | **Done.** Zero errors, stage 6 and CI both blocking |
 | 5 | **CF-1 — is statutory e-invoicing mandatory?** More expensive with every invoice issued | Business owner |
-| 6 | M8 design review written and signed | All |
+| ~~6~~ | ~~M8 design review written and signed~~ | **Done.** `docs/M8_Design_Review.md` v1.2.0, signed 2026-08-10, both ADRs approved |
 | 7 | TD-15 — assign a milestone to `offer` | Product Architect |
+
+### Open inside M8, blocking task 8 only
+
+| # | Item | Owner |
+| --- | --- | --- |
+| OI-7 | **"Notifications" were cut from Edition 1** by `02A` §13 (*"In-app notifications, M-14 entirely"*, 0.5 units). Recommendation: adopt `02A`'s own substitute — a **"Needs attention"** filtered read — rather than reopening the cut | Product Architect |
+| TD-36 | **The seven report endpoints emit money as JSON floats** (below) | Engineering |
 
 ## Technical debt
 
@@ -123,6 +132,7 @@ it can prove.**
 
 | # | Item | Due |
 | --- | --- | --- |
+| **TD-36** | **New, and the most consequential.** The seven report endpoints **emit money as JSON floats**, against AD-02 — whose rationale names Dart and whose client obligation is C-1. `COERCE_DECIMAL_TO_STRING` is set but reaches only `serializers.DecimalField`; `api.v1.report_views._as_json` hand-builds its dict, so DRF's encoder renders `Decimal("1180.00")` as `1180.0`. **Measured, not inferred.** The existing assertion reads `Decimal(str(...))`, and that `str()` makes it pass whichever type arrives — which is how this survived four reviews and a blocking type gate. **Breaking change to a published response type: its own change, its own verify run.** Fix by routing `_as_json`'s numeric cells through `money_string`, added in task 0 for exactly this reuse | **M8, before task 8** |
 | **TD-32** | **New. Retire the `==` dev pins**, now superseded by `uv.lock`. Their own change, their own verify run — and keep the pytest-django incident narrative when the comment block goes | M8 |
 | TD-11 | **SMS / DLT registration not started — blocks go-live.** Unbounded external lead time | Now |
 | **TD-33** | **New. Adopt `djangorestframework-stubs`.** Deferred deliberately: it would surface a fresh error wave across `api/v1` in the same change that closed the gate. The original objection — tight `mypy`/`django-stubs` pins — is now **weaker**, because `uv.lock` manages them (TD-21). Adopt once the gate has held through one milestone | M8+ |
@@ -132,7 +142,7 @@ it can prove.**
 | TD-26 | `_walk`'s three robustness guards are exercised only by the randomised property test | M8 |
 | TD-14 | `Product._has_history()` still inert. **Overdue** since M3 | M8 |
 | ~~TD-22 / TD-25~~ | ~~Advisory `mypy` diagnostics~~ | **CLOSED with TD-2/TD-18** — all 24 fixed, none silenced with `Any` |
-| **TD-29** | **New.** Nothing asserts a *newly added* report is wired into `REPORT_MENU`, the API router and the CSV path. The eighth report will be added by someone who forgets one of the three | M8 |
+| **TD-29** | **New.** Nothing asserts a *newly added* report is wired into `REPORT_MENU`, the API router and the CSV path. The eighth report will be added by someone who forgets one of the three. **Task 0 added an eighth endpoint under `/reports/` and TD-29 did not bite — because the dashboard is deliberately in none of the three.** A test now asserts that absence; the gap for a genuine eighth *report* is unchanged | M8 |
 | **TD-31** | **New. A test that reads the wall clock while asserting against a constant fails on a date rather than on a change.** Four instances found and fixed; two other `stocked` fixtures were left alone because they bound no period. The class is recorded because the next instance will be written by someone who has not read this row | M8 |
 | **TD-28** | **New.** `?format=csv` on an unauthorised report stringifies the problem+json body through `CsvRenderer`. Cosmetic, untested error path | M10 |
 | TD-24 | Move `_ImmutableDocument` to `core` (D-7, deferred by ruling) | M10 |

@@ -4,6 +4,70 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M8 Phase 2, task 0 — `GET /reports/dashboard`
+
+**Added**
+
+- **`GET /reports/dashboard`** — the four D-4 scalars over HTTP for Owner Companion Mode
+  (`docs/M8_Design_Review.md` v1.2.0 §3.4.1), contracted at `05` §9.11.1. Three of the four
+  numbers were already reachable from the report endpoints; **`collected_today` was not** —
+  only a paginated payment list, which the device would have had to page and sum, deriving a
+  figure on the device over 2G.
+- **`api.v1.report_views.money_string()`** — AD-02 encoding for a hand-built response dict.
+
+**Design**
+
+- **Not a `_ReportView`.** That base renders a `ReportTable` and honours `?format=csv`; a
+  dashboard has neither columns nor rows. Subclassing would mean inheriting a shape in order
+  to override both halves of it away.
+- **The refusal of CSV is the renderer list, not a branch.** `DashboardView` declares only
+  `JSONRenderer`, so DRF's format negotiation has nothing to match `?format=csv` against and
+  raises `Http404`. An `if wants_csv: raise` is a rule someone deletes while adding a
+  feature; an absent renderer is not.
+- **No period parameter.** `dashboard()` accepts `today` so tests can pin the day; exposing
+  it would make the two live numbers reproducible for arbitrary past dates — precisely the
+  authority M7 §8.2 withholds. `/reports/sales` answers that question, with a CSV.
+- **M7 §8.2 is half overturned, deliberately.** It said *"the owner dashboard is not an
+  endpoint … it offers no CSV."* Its stated reasoning is that a non-reproducible figure must
+  not acquire the authority of a **document** — an argument about export. The export stays
+  refused; the read is allowed. `Dashboard`'s docstring was corrected rather than left to
+  assert something now false.
+
+**Found**
+
+- **The seven existing report endpoints emit money as JSON floats**, against AD-02 — whose
+  stated rationale names Dart, and whose client obligation is C-1. `COERCE_DECIMAL_TO_STRING`
+  is set but only reaches `serializers.DecimalField`; `_as_json` hand-builds its dict, so
+  DRF's encoder renders `Decimal("1180.00")` as `1180.0`. **Measured, not inferred.**
+  - The existing assertion reads `Decimal(str(body["total"]["sales"]))` — **the `str()`
+    wrapper makes it pass whichever type arrives**, which is how seven endpoints carried this
+    through four reviews and a blocking type gate.
+  - **Recorded as TD-36 and not fixed here.** Changing the seven is a breaking change to a
+    published response type; it gets its own change and its own verify run. **It blocks M8
+    task 8**, which reads `/reports/receivables`.
+  - The same recurring shape as M7's four defects: **a rule enforced on one side of a
+    boundary and not the other.** AD-02 was enforced in the serializer layer and not in the
+    hand-built layer beside it.
+
+**Tests** — 11 new (14 cases), 712 → **726**
+
+- Money is a decimal string at canonical scale, **and non-zero**: a `collected` payment
+  fixture exists so the assertion cannot pass against `"0.00"`, which is a string whatever
+  the encoder does.
+- A count is **not** stringified — over-applying AD-02 until it lies about the type is as
+  wrong as under-applying it.
+- `?format=csv` → `404`; and the dashboard is asserted **absent** from the seven-report CSV
+  suite, so it cannot be handed an export by a parametrisation.
+- Scoping proven non-vacuously through the existing `foreign_trade` fixture.
+- Equality **against the selector**, not against literals — a hard-coded expectation would
+  still pass if the view recomputed a number its own way (D-3). Pinned to the `as_of` the
+  response reports rather than reading `date.today()` twice, so it cannot become TD-31's
+  fifth instance.
+
+**Verified** — 8/8, **726/726**, **94.88%**, `mypy` clean, **3 import contracts kept**.
+
+---
+
 ### Types — the `mypy` gate is blocking (TD-2 / TD-18)
 
 **Fixed**
