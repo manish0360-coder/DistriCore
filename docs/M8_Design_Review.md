@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.2.0** |
-| Status | **Phase 1 FROZEN. Phase 2 in progress — task 0 done, task 1 next. No Flutter code yet** |
+| Version | **1.3.0** |
+| Status | **Phase 1 FROZEN. Phase 2 in progress — tasks 0 and 1 done, task 2 next. The shell exists; no feature behaviour** |
 | Date | 2026-08-10 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
@@ -18,6 +18,7 @@
 | 1.0.0 | 2026-08-09 | Phase 1 issued for review |
 | **1.1.0** | **2026-08-10** | **Signed.** §3.4 "no owner role" **replaced by Owner Companion Mode** (ruling); §3.4.1 and §3.4.2 record the two corpus conflicts it creates; **§1.3 Design Principles P-1…P-10 added and frozen**; §10 rewritten as the Phase 2 plan; §11.2, §12.5, §13 updated |
 | **1.2.0** | **2026-08-10** | **Task 0 complete and verified** — `GET /reports/dashboard`, contracted at `05` §9.11.1. **§3.4.1a added: the seven report endpoints were already emitting money as JSON floats (TD-36)**, found while deciding this endpoint's encoding. §10 task 0 struck; §11.2 item 6 closed, item 8 opened; §12.8 added |
+| **1.3.0** | **2026-08-10** | **Task 1 complete and verified** — Flutter shell, four-layer structure, DI/routing, pinned toolchain, and **16 blocking structural tests**. §10 task 1 struck; §12.9 records what the milestone's four infrastructure defects have in common; TD-37 and TD-38 opened |
 
 ---
 
@@ -104,9 +105,13 @@ sent; P-6 defeats a server guarantee M9 depends on; P-9 is a security property o
 that has already been downloaded. **These get tests, not review comments.**
 
 **P-10 is the one with an existing enforcement precedent.** The backend has `import-linter`
-and three contracts; the Dart analogue is a lint rule in `analysis_options.yaml`. Phase 2
-adds it in the first task, not the last — `reporting`'s four AST tests were written before
-`reporting` had a second file, and that is why the contract still holds.
+and three contracts; the Dart analogue was added in task 1, not the last task — `reporting`'s
+four AST tests were written before `reporting` had a second file, and that is why the
+contract still holds.
+
+> **Enforced since task 1** by `backend/tests/adversarial/test_mobile_boundary.py`, in
+> Python and inside stage 7 — not by `analysis_options.yaml`, which `make verify` never
+> runs and which would therefore have been advisory (TD-37).
 
 ---
 
@@ -733,6 +738,19 @@ mid-milestone. **The check cost minutes; it belonged in the same minutes as the 
 that TD-2's type gate had for six milestones: *advisory*. Only P-3, P-9 and P-10 have a named
 mechanism in §10, and P-1, P-4 and P-8 have none — they are review comments, and this project
 has already recorded what review comments are worth against a path the tests do not take.
+
+**9. Task 1's cost was entirely infrastructure, and three of its four defects lied about
+where they were.** A dead image registry, a pub cache that did not survive the container
+boundary, an analyzer whose defaults differ from `dart analyze`, and a directory never
+bind-mounted. None was in the Dart. What they share is that **the error message named the
+wrong layer**: 51 `uri_does_not_exist` errors that read as broken source were a missing
+cache; *"the Flutter pin is not stated exactly once"* was a missing mount.
+
+**The design review predicted the wrong risk.** §11.2 lists AR-1…AR-8 — `double`, the
+outbox, the keystore — all real, none of them what this task actually cost. **§10.1's claim
+that "everything else is screens over a REST API that already exists" is true and was
+irrelevant**, because the milestone was not spent on screens. A second toolchain is not a
+line item; it is a second set of assumptions about how things fail.
 
 **8. Task 0 found a server-side defect four milestones of review did not** (§3.4.1a). AD-02
 has been frozen since `05` was written; the seven report endpoints have violated it since M7;

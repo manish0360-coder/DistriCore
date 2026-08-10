@@ -1,0 +1,8 @@
+# Dart / Flutter build products. `pubspec.lock` is NOT ignored — it is the pin
+# (TD-21's reasoning, applied to the second toolchain).
+.dart_tool/
+.packages
+build/
+*.iml
+.flutter-plugins
+.flutter-plugins-dependencies

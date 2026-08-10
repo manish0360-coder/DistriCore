@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M8 — Mobile app.** Phase 1 design **frozen and signed**; Phase 2 **task 0 of 10 done**. Latest run **726/726 tests, 94.88%**, `mypy` clean, 3 contracts kept |
+| Current milestone | **M8 — Mobile app.** Phase 1 design **frozen and signed**; Phase 2 **tasks 0 and 1 of 10 done**. Latest run **742/742 tests, 94.88%**, `mypy` clean, 3 contracts kept. **The repository now holds two languages** |
 | Last closed | **M7 — Reporting**, verified 8/8, plus the identity fix, the owner bootstrap, TD-30, TD-27, TD-21 and TD-2/TD-18 |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -31,7 +31,7 @@
 | M5 | Fulfilment & Billing — delivery, dispatch, GST invoice, credit note, ledger | **Verified & tagged** — `docs/M5_Verification_Report.md` |
 | M6 | Receivables — payments, reversal, write-off, derived outstanding, statement | **Verified & tagged** — `docs/M6_Verification_Report.md` |
 | M7 | Reporting — seven reports, CSV, scoping, owner dashboard | **Verified** — `docs/M7_Verification_Report.md` |
-| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.2.0**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2: task 0 done** (`GET /reports/dashboard`); **no Flutter code yet** |
+| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.3.0**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2: tasks 0–1 done** — `GET /reports/dashboard`, then the Flutter shell, layer contracts and pinned toolchain. **Next: task 2, the Decimal codec** |
 | M9 | Sync | Not started |
 | M10 | Hardening | Not started |
 | M11 | Go-live | Not started |
@@ -54,6 +54,7 @@
 | M7 + TD-21 | 8/8 | 712 | 94.85% | 3 kept | **1** |
 | M7 + TD-2/TD-18 | 8/8 | **712** | **94.83%** | 3 kept | **1** |
 | **M8 task 0 — dashboard endpoint** | 8/8 | **726** | **94.88%** | 3 kept | **1** |
+| **M8 task 1 — Flutter shell + contracts** | 8/8 | **742** | **94.88%** | 3 kept | **1** |
 
 > Coverage fell 0.18 points in M3, 0.41 in M6 and **0.02 closing TD-2**. All recorded
 > rather than rounded away. The gate is 80% and has never been moved.
@@ -90,7 +91,11 @@ introduction would move two variables at once.
 | Gate | State |
 | --- | --- |
 | `ops/check_structural_columns.py` | Satisfied since M2 — `location_id` and `lot_id` on every movement (ADR-0004, E-06) |
-| `lint-imports` — 3 contracts | Kept. 14 root packages. Has caught 4 violations across 7 milestones, all by the rule's author. *(File and dependency counts were **139 / 268** as of the TD-2 run; task 0 added an `api → core.fields` edge and the counts were not re-captured, so they are not restated here rather than restated wrongly.)* |
+| `lint-imports` — 3 contracts | Kept. **143 files, 271 dependencies**, 14 root packages *(captured from the M8 task 1 verify run; the previous 139 / 268 predates task 0)*. Has caught 4 violations across 7 milestones, all by the rule's author |
+| **The mobile layers hold, from the first Dart file** | 16 tests in `backend/tests/adversarial/test_mobile_boundary.py`, running **inside stage 7** because `make verify` is the only authority and it does not run `flutter analyze`. They assert layering, `features` never importing an implementation, **P-9** (no secret, internal surface or high-entropy literal in a decompilable binary), **P-3**, **P-6**, and that the parser refuses constructs it cannot read. Each was **proved able to fail** by mutation |
+| **The Flutter pin is stated once** | `mobile/.flutter-version`. The Makefile reads it; `docker/flutter.Dockerfile` takes it as an `ARG` with no default. A test fails if either restates it — the first draft kept two copies and policed them with a test, which is the worse answer |
+| **The Flutter toolchain is built, not borrowed** | `ghcr.io/cirruslabs/flutter` stopped publishing 2026-05-01, before Flutter 3.44 existed. A test fails if `FLUTTER_IMAGE` points at that registry or its Docker Hub predecessor |
+| **No mobile check can be silenced** | A test forbids `\|\| true` and make's leading `-` in any mobile recipe. `mypy` carried `\|\| true` for six milestones with 24 real errors behind it (TD-2); `pip-audit` still does (TD-35) |
 | **The dashboard cannot acquire an export** | `DashboardView` declares only `JSONRenderer`, so `?format=csv` fails DRF's negotiation with `Http404` before the view runs — a mechanism, not a branch. Two tests hold it: one asserts the 404, one asserts the dashboard is **absent** from the seven-report CSV parametrisation, so it cannot be handed an export by a test (M7 §8.2, `05` §9.11.1) |
 | **`reporting` owns nothing** | No `models.py`, no `services.py`, no migration, absent from `INSTALLED_APPS`. Four AST tests assert it, including that it imports no `*.services` and no first-party `*.models` (M7-4, M7-5) |
 | **One canonical phone number** | `identity/phone.py` defines it once; `UserManager._create` writes it and every lookup reads it. Migration `identity/0004` normalised existing rows and **refuses to merge collisions** (`04` T-01) |
@@ -132,6 +137,8 @@ it can prove.**
 
 | # | Item | Due |
 | --- | --- | --- |
+| **TD-37** | **New. `mobile-verify` is not in `make verify`,** so *"does the Dart compile"* is ungated. The M8 contracts that must be blocking are enforced from stage 7 in Python — they are structural and need a parser — but a Dart compile error reaches `main` today. Promote to stage 9 once the toolchain image has held for a milestone; adding an untested stage to the only authority is worse than none | M9 |
+| **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `FLUTTER_SHA256` is an optional build-arg and the build prints the checksum it downloaded; `uv.lock` gives the Python side the stronger guarantee. Closing it is one paste from a `make mobile-image` run | M8, before task 3 |
 | **TD-36** | **New, and the most consequential.** The seven report endpoints **emit money as JSON floats**, against AD-02 — whose rationale names Dart and whose client obligation is C-1. `COERCE_DECIMAL_TO_STRING` is set but reaches only `serializers.DecimalField`; `api.v1.report_views._as_json` hand-builds its dict, so DRF's encoder renders `Decimal("1180.00")` as `1180.0`. **Measured, not inferred.** The existing assertion reads `Decimal(str(...))`, and that `str()` makes it pass whichever type arrives — which is how this survived four reviews and a blocking type gate. **Breaking change to a published response type: its own change, its own verify run.** Fix by routing `_as_json`'s numeric cells through `money_string`, added in task 0 for exactly this reuse | **M8, before task 8** |
 | **TD-32** | **New. Retire the `==` dev pins**, now superseded by `uv.lock`. Their own change, their own verify run — and keep the pytest-django incident narrative when the comment block goes | M8 |
 | TD-11 | **SMS / DLT registration not started — blocks go-live.** Unbounded external lead time | Now |
@@ -150,6 +157,15 @@ it can prove.**
 
 **Closed:** TD-5 (M1) · TD-12, TD-13 (M2) · TD-17 (M3) · TD-16, TD-19 (M5) · **none (M6)** ·
 **none confirmed (M7)** · **TD-30, TD-27, TD-21, TD-2/TD-18, TD-22/TD-25 (post-M7)**.
+
+> **M8 task 1 opened two debts and cost four infrastructure defects, none of them in the
+> application code.** A dead image registry, a pub cache that did not survive the container
+> boundary, an analyzer whose defaults differ from its sibling's, and a directory that was
+> never bind-mounted. **Every one was found by running the thing**, and three of the four
+> produced a failure message that pointed at the wrong layer — the missing mount reported
+> *"the Flutter pin is not stated exactly once"*. That is the cost worth remembering: a
+> misdiagnosis is more expensive than the fault, and the fix for it is a precondition check
+> that fails as plumbing.
 
 > **TD-2/TD-18 closed at the fourth attempt.** Missed at M5, M6 and M7 — each time for a
 > sound reason, and the fourth time there was none left. Of the 24 errors it cleared,

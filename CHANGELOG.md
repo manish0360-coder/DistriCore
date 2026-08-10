@@ -4,6 +4,85 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M8 Phase 2, task 1 — Flutter shell, layer contracts, pinned toolchain
+
+**The first code in a second language.** No feature behaviour: a shell, a composition root,
+declarative routing, and the structural contracts that everything after this is held to.
+
+**Added — toolchain**
+
+- **`docker/flutter.Dockerfile`** — the Flutter SDK installed from Google's own release
+  archive, version supplied as a build-arg with **no default**.
+- **`mobile/.flutter-version`** (3.44.7) — the single pin. `FLUTTER_VERSION` in the Makefile
+  *reads* it rather than restating it.
+- Makefile targets `mobile-pin`, `mobile-image`, `mobile-lock`, `mobile-analyze`,
+  `mobile-test`, `mobile-verify`; `mobile/pubspec.lock` committed (32 packages).
+
+**Added — application shell** (`mobile/`, 18 Dart files)
+
+- Four layers per M8 §2.1 — `features → data → domain`, with `core` beneath and `app` as the
+  composition root. **`domain/` and `core/` import no Flutter, Riverpod, Dio or Drift**, so
+  they run on a laptop; that is what makes the M9 outbox testable at all.
+- `core`: `Result`/`Failure` (failures as values, §7.3) and `Clock` (P-4 — the device clock
+  labels, it never orders or expires).
+- `domain/identity`: `Role`, `Session`, `SessionRepository` **interface**. Unknown role codes
+  are dropped rather than thrown, so a server that adds a role cannot brick an installed app.
+- `app`: Riverpod composition root, `go_router` with **one** redirect guard, and a tab shell
+  **composed from the roles array** (C-12, P-7) — a salesman who also delivers sees both.
+- Placeholder screens only. No outbox, no delivery/visit/GPS/photo, no Owner Companion Mode.
+
+**Added — the contracts, blocking from day one**
+
+`backend/tests/adversarial/test_mobile_boundary.py` — **16 tests, in Python, inside stage 7**.
+`make verify` is the only authority (N-12) and it does not run `flutter analyze`; a rule that
+lives only in `analysis_options.yaml` is advisory, which is what `mypy` was for six
+milestones. These are structural properties of imports and literals, so they need a parser,
+not a compiler.
+
+- Layering, and `features` never importing an implementation (§2.2).
+- **P-9** — no secret-shaped constant, no internal surface, no high-entropy literal in a
+  binary that `02A` §9.3 says must be assumed decompiled.
+- **P-3** (`double` on a money path) and **P-6** (`client_uuid` minted outside the outbox) —
+  **vacuous today by construction**, written now because a rule added after the code it
+  governs is a rule written to fit what already exists.
+- Anti-vacuity, and the parser refuses conditional imports rather than silently reading one
+  branch.
+- **Every one was proved able to fail** by mutating the tree, not merely observed passing.
+
+**Fixed — four infrastructure defects, each found by running it**
+
+1. **`ghcr.io/cirruslabs/flutter:3.44.7` does not exist and never will.** cirruslabs
+   *"stopped updating images starting May 1st 2026"*; Flutter 3.44.0 shipped 18 May 2026.
+   Their Docker Hub predecessor stopped at 3.7.7 in March 2023. **A pinned toolchain that
+   depends on a third party continuing to publish is borrowed, not pinned** — hence building
+   our own. A test now fails if `FLUTTER_IMAGE` points back at either registry.
+2. **`pub get` and `flutter analyze` ran in different containers.** `PUB_CACHE` is `/tmp` in a
+   `--rm` container, but `.dart_tool/package_config.json` is written to the *mounted* tree
+   with absolute paths into it — so `Got dependencies!` was followed by 51 `uri_does_not_exist`
+   errors that read like broken source. Chained into one container; a test forbids unchaining.
+3. **`flutter analyze` is not `dart analyze`** — it defaults `--fatal-infos` **on**, so three
+   `prefer_const_constructors` suggestions exited 1 before `flutter test` ever ran. Severity
+   policy is now explicit; strictness is chosen per rule in `analysis_options.yaml`.
+4. **`docker/` was not bind-mounted** into the verification container, so stage 7 reported
+   *"the Flutter pin is not stated exactly once"* when the truth was *"the container cannot
+   see the file"*. Mounted read-only, and the module now checks its own preconditions first
+   and names `compose.dev.yml` in the message.
+
+**Note**
+
+- **The pin is by version, not by bytes** — `FLUTTER_SHA256` is an optional build-arg and the
+  build prints the checksum it downloaded. `uv.lock` gives the Python side the stronger
+  guarantee; the mobile side does not have it yet (**TD-38**).
+- **`make verify` stays at 8 stages.** `mobile-verify` is not in it, so *"does the Dart
+  compile"* is ungated (**TD-37**). Adding a ~1 GB image to a `--no-cache` build would cost
+  every backend change minutes for a toolchain it does not touch — and an untested stage in
+  the only authority is worse than none.
+
+**Verified** — 8/8, **742/742**, **94.88%**, `mypy` clean over 115 files, **3 contracts kept**
+(143 files, 271 dependencies). `flutter analyze`: 0 errors, 3 infos.
+
+---
+
 ### M8 Phase 2, task 0 — `GET /reports/dashboard`
 
 **Added**

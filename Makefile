@@ -18,6 +18,53 @@ TOOLS  := $(DC) exec -T -w /app -e PYTHONPATH=/app/backend app
 UV_VERSION    := 0.4.27
 UV_LOCK_IMAGE := ghcr.io/astral-sh/uv:$(UV_VERSION)-python3.12-bookworm
 
+# The second toolchain (M8 task 1). TD-21's reasoning applies unchanged: a version range
+# is not a pin, and the resolver that writes the lock must be the one that reads it.
+#
+# **Read from the file, never restated here.** `.flutter-version` is what a developer's
+# fvm/asdf reads and this is what the container uses — two consumers of one fact, which is
+# the shape that drifts. The first draft hard-coded it here and added a test that the two
+# agreed; deriving it deletes the class instead of policing it. A test now asserts only
+# that no literal creeps back in.
+FLUTTER_VERSION := $(shell cat mobile/.flutter-version 2>/dev/null)
+# Built here, not pulled. `ghcr.io/cirruslabs/flutter` stopped publishing on 2026-05-01 —
+# before Flutter 3.44 existed — so no tag for the frozen version was ever cut. See the
+# header of docker/flutter.Dockerfile.
+FLUTTER_IMAGE := districore/flutter:$(FLUTTER_VERSION)
+# Flutter runs in a throwaway container against the working tree — it needs the sources and
+# a network, not the application or its database. Same shape as `make lock`, including
+# `--user`, so `pubspec.lock` is written owned by the developer rather than by root.
+FLUTTER_RUN := docker run --rm \
+	--user "$$(id -u):$$(id -g)" \
+	-e HOME=/tmp -e PUB_CACHE=/tmp/pub-cache \
+	-v "$(CURDIR)/mobile":/w -w /w \
+	$(FLUTTER_IMAGE)
+# **Any command that needs packages must run in the SAME container as its `pub get`.**
+#
+# `PUB_CACHE` is /tmp inside a `--rm` container, but `.dart_tool/package_config.json` — the
+# map from package name to source — is written into the *mounted* tree and records absolute
+# paths into that cache. So a second `docker run` starts with an empty /tmp and inherits a
+# package map pointing at files that no longer exist: `pub get` says "Got dependencies!"
+# and the next container reports every import as `uri_does_not_exist`.
+#
+# Chained in one container rather than sharing a named volume, deliberately: a persistent
+# cache is mutable state outside `pubspec.lock`, which is the thing TD-21 exists to remove.
+# The cost is re-fetching ~32 small pure-Dart packages per run (~10s); the SDK itself is
+# already in the image.
+FLUTTER_SH := $(FLUTTER_RUN) sh -c
+# **`flutter analyze` is not `dart analyze`.** `dart analyze` fails on errors and warnings
+# and lets infos through; the flutter tool turns `--fatal-infos` ON by default, so a single
+# `prefer_const_constructors` suggestion exits 1 and the run never reaches `flutter test`.
+#
+# The gate we want: **errors fail, warnings and infos do not.** Strictness is chosen per
+# rule in `mobile/analysis_options.yaml` under `errors:` — where `unused_import` is already
+# promoted — rather than by a blanket policy over every lint `flutter_lints` ships. A
+# blanket policy is the kind that gets switched off wholesale the first time it is noisy,
+# and this project has watched an advisory gate rot for six milestones once already (TD-2).
+#
+# Errors are always fatal; there is no flag to soften them, which is the point.
+FLUTTER_ANALYZE_SEVERITY := --no-fatal-infos --no-fatal-warnings
+
 .PHONY: help
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -129,6 +176,52 @@ test-adversarial: ## Only the adversarial suite (02 §25.2)
 .PHONY: audit
 audit: ## Dependency vulnerability scan
 	$(TOOLS) pip-audit
+
+# --- mobile (M8) ------------------------------------------------------------
+# NOT part of `make verify`, and that is a recorded decision, not an omission:
+#   * The gate's 8 stages are Python. Adding a ~1 GB Flutter image to a no-cache build
+#     would cost every backend change minutes for a toolchain it does not touch.
+#   * The M8 contracts that MUST be blocking — layering, no-secrets, P-3, P-6 — are
+#     enforced from `backend/tests/adversarial/test_mobile_boundary.py`, which reads the
+#     Dart sources and runs inside stage 7. They are structural, so they need a parser,
+#     not a compiler.
+#   * What is NOT yet gated is "does the Dart compile". Promoting `mobile-verify` to
+#     stage 9 is the right end state and is recorded as TD-37 — deliberately not done
+#     blind, because an untested stage in the only authority is worse than none.
+.PHONY: mobile-pin
+mobile-pin: ## Fail unless the Flutter pin is readable — every mobile target depends on it
+	@test -n "$(FLUTTER_VERSION)" || { \
+		echo "mobile/.flutter-version is missing or empty. It is the pin; refusing to guess."; \
+		exit 1; }
+	@echo "  Flutter $(FLUTTER_VERSION)"
+
+.PHONY: mobile-image
+mobile-image: mobile-pin ## Build the pinned Flutter toolchain image (cached after the first run)
+	docker build \
+		-f docker/flutter.Dockerfile \
+		--build-arg FLUTTER_VERSION=$(FLUTTER_VERSION) \
+		-t $(FLUTTER_IMAGE) \
+		docker/
+
+.PHONY: mobile-lock
+mobile-lock: mobile-image ## Resolve mobile/pubspec.lock in the pinned Flutter container
+	$(FLUTTER_RUN) flutter pub get
+	@echo "  pubspec.lock written. Commit it — it is the pin (TD-21)."
+
+.PHONY: mobile-analyze
+mobile-analyze: mobile-image ## Dart static analysis
+	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter analyze $(FLUTTER_ANALYZE_SEVERITY)'
+
+.PHONY: mobile-test
+mobile-test: mobile-image ## Dart unit tests (domain — no device)
+	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter test'
+
+.PHONY: mobile-verify
+mobile-verify: mobile-image ## Mobile gate: frozen install, analyze, test
+	@test -f mobile/pubspec.lock || { \
+		echo "mobile/pubspec.lock is missing. Run 'make mobile-lock' and commit it."; \
+		exit 1; }
+	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter analyze $(FLUTTER_ANALYZE_SEVERITY) && flutter test'
 
 # --- THE GATE ---------------------------------------------------------------
 .PHONY: verify

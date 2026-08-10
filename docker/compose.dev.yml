@@ -14,6 +14,18 @@ services:
       - ../backend:/app/backend      # live edit (FD-09)
       - ../pyproject.toml:/app/pyproject.toml:ro  # ruff / pytest / import-linter config
       - ../ops:/app/ops:ro
+      # M8 task 1. `test_mobile_boundary.py` reads the Dart sources, the Makefile and the
+      # toolchain Dockerfile from inside stage 7 — the mobile contracts are blocking
+      # because they run in the gate, and they cannot run against files the container
+      # cannot see. Read-only: nothing in the backend image may write to these.
+      #
+      # **This list and `REQUIRED_PATHS` in that test module are one fact in two places.**
+      # `docker/` was added here a commit after the test that reads it, and stage 7 failed
+      # on a `FileNotFoundError` rather than on anything about the mobile code. The test
+      # module now checks its own preconditions first and names this block in the message.
+      - ../mobile:/app/mobile:ro
+      - ../Makefile:/app/Makefile:ro
+      - ../docker:/app/docker:ro
       - media_data:/srv/media
       - backup_data:/srv/backups
     ports:

@@ -1,15 +1,18 @@
 # Next Task
 
-> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.2.0**, signed
+> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.3.0**, signed
 > 2026-08-10. Both ADRs approved: **Drift + SQLCipher** (§5.6), **Dio** (§7.5). Design
 > principles **P-1…P-10** frozen at §1.3.
 >
-> **Phase 2 task 0 is verified:** `GET /reports/dashboard` — 8/8, **726/726**, **94.88%**,
-> `mypy` clean, **3 contracts kept**. Contracted at `05` §9.11.1.
+> **Phase 2 tasks 0 and 1 are verified.** Task 0: `GET /reports/dashboard`, contracted at
+> `05` §9.11.1. Task 1: the Flutter shell, the four-layer structure, DI/routing, the pinned
+> toolchain and **16 blocking structural contracts** — 8/8, **742/742**, **94.88%**, `mypy`
+> clean, **3 contracts kept** (143 files, 271 dependencies).
 
 **Milestone:** M8 — Mobile app (3.0 units, `00` §19.1)
-**Phase:** **2 — Implementation. Task 0 of 10 done. Next: task 1.**
-**Flutter code written so far: none.**
+**Phase:** **2 — Implementation. Tasks 0 and 1 of 10 done. Next: task 2.**
+**`mobile/` holds 18 Dart files and no feature behaviour.** No outbox, no delivery, no GPS,
+no photo, no Owner Companion Mode — all placeholders behind contracts that already bite.
 
 ---
 
@@ -87,8 +90,8 @@ line instead of re-argued. The three that cannot be repaired after the fact:
 | # | Task | Gate |
 | --: | --- | --- |
 | ~~**0**~~ | ~~Backend: `GET /reports/dashboard`~~ | ✔ **DONE** — 8/8, 726/726, 94.88% |
-| **1** | **← NEXT.** Toolchain, shell, DI, router; **layering rule + no-secrets structural tests** | Contract tests exist **before** the first feature |
-| **2** | **Decimal codec and the API layer** (Dio, interceptors, typed failures) | Build fails on any `double` in a money path |
+| ~~**1**~~ | ~~Toolchain, shell, DI, router; layering + no-secrets tests~~ | ✔ **DONE** — 8/8, **742/742**, 94.88%. 16 contracts, each proved able to fail |
+| **2** | **← NEXT. Decimal codec and the API layer** (Dio, interceptors, typed failures) | Build fails on any `double` in a money path |
 | **3** | **Drift schema, outbox, sequencer** | Kill · restart · storage exhaustion, at **every** write boundary |
 | 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | C-7, FR-IAM-015/016 |
 | 5 | Delivery: list, detail, complete, fail | No screen touches the network to save |
@@ -106,14 +109,20 @@ sync metrics become unreachable.
 written when it had one file; that is why the contract still holds at seven. Written last,
 they are worth nothing — by then the violation *is* the code.
 
-**Task 0 was first because it is a different toolchain**, and that held: it is verified and
-commits on its own, before any Dart enters the repository. Mixing a Django change into a Dart
-milestone is how a green gate stops meaning anything.
+**Task 0 was first because it is a different toolchain**, and that held: it verified and
+committed on its own, before any Dart entered the repository.
 
-**Task 1 is now the critical one to get right.** `reporting`'s four AST tests were written
-when it had one file, and TD-36 is what the absence of such a test costs: seven endpoints
-violating a frozen clause for a whole milestone because nothing could fail. **Write the Dart
-layering and no-secrets tests before the first widget**, not after.
+**Task 1's contracts were written before the first widget, and that held too.** They are in
+**Python, inside stage 7** — not in `analysis_options.yaml`, which `make verify` never runs
+and which would therefore have been advisory from birth. Each of the 16 was proved able to
+fail by mutating the tree, because a green test that cannot go red is not evidence.
+
+> **Task 1 cost four infrastructure defects and zero application defects**: a dead image
+> registry, a pub cache that did not survive the container boundary, an analyzer whose
+> defaults differ from `dart analyze`, and a directory that was never bind-mounted. **Three
+> of the four reported the wrong layer** — a missing mount surfaced as *"the Flutter pin is
+> not stated exactly once"*. Expect task 2's surprises to be of the same kind, not in the
+> Dart.
 
 ---
 
@@ -123,10 +132,10 @@ layering and no-secrets tests before the first widget**, not after.
 | --: | --- | :-: |
 | 1 | §13 signed; both ADRs approved | ✔ |
 | 2 | §1.3 principles frozen | ✔ |
-| 3 | **TD-32 — retire the superseded `==` dev pins** | ☐ **Do before the Dart toolchain lands** |
+| 3 | **TD-32 — retire the superseded `==` dev pins** | ☐ **Missed its window.** It was to land before the Dart toolchain; the toolchain arrived first. Still owed, now without that argument |
 | 4 | **K-1 — keystore procedure agreed** | ☐ |
 | 5 | **TD-11 — DLT registration started** | ☐ **External, unbounded** |
-| 6 | **Flutter/Dart SDK pinned**, as `uv.lock` pins Python | ☐ Decide in task 1 |
+| ~~6~~ | ~~Flutter/Dart SDK pinned, as `uv.lock` pins Python~~ | ✔ **Done in task 1** — `mobile/.flutter-version` + `mobile/pubspec.lock` (32 packages). **By version, not by bytes: TD-38** |
 | ~~7~~ | ~~OI-6 — the dashboard endpoint~~ | ✔ **Built and verified** |
 | 8 | **OI-7** ("Needs attention" vs reopening M-14) and **TD-36** ruled | ☐ Task 8 only |
 
@@ -171,11 +180,13 @@ reaches the app, so read-only must be enforced by the absence of a server-side w
 
 | Item | Note |
 | --- | --- |
-| **Uncommitted** | Task 0's code and this documentation pass await the milestone commit. **`LICENSE` also shows as modified — line endings only (LF→CRLF), no content change.** `git checkout -- LICENSE` before committing so it does not ride along |
+| **Uncommitted** | Task 1's code and this documentation pass await the milestone commit. **`LICENSE` also shows as modified — line endings only (LF→CRLF), no content change.** `git checkout -- LICENSE` before committing so it does not ride along |
 | **Re-run `ops/report_performance.py`** after any change to a report or the §5A walk | Not in `make verify` and never will be — an 858-second dataset build has no place in an 8-stage gate, so **nothing else catches a regression of that class** |
 | **TD-29** | Nothing asserts a new report is wired into `REPORT_MENU`, the API router **and** the CSV path. **Task 0 adds an eighth report endpoint — this is the first time TD-29 can actually bite** |
 | **TD-31** | Clock-dependent tests. Four fixed; the class is not structurally prevented |
-| **TD-36** | **New, and on M8's path.** Money leaves the seven report endpoints as a JSON float. Fix by routing `_as_json`'s numeric cells through `money_string()` — added in task 0 for this reuse — in its own change, with its own verify run |
+| **TD-37** | **New. `mobile-verify` is not in `make verify`** — the 16 structural contracts are blocking, but *"does the Dart compile"* is not. Promote to stage 9 once the toolchain image has held for a milestone |
+| **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `make mobile-image` prints the checksum; paste it into `FLUTTER_SHA256` and the gap closes |
+| **TD-36** | **On M8's path.** Money leaves the seven report endpoints as a JSON float. Fix by routing `_as_json`'s numeric cells through `money_string()` — added in task 0 for this reuse — in its own change, with its own verify run |
 | Deferred debt | TD-32, TD-33 (DRF stubs), TD-34 (`ops/` outside mypy), TD-35 (`pip-audit \|\| true`), TD-23, TD-26, TD-28, TD-14, TD-15 |
 | **The lesson still standing** | **A design review cannot find a defect on a path the tests do not take.** Four reviews found none of M7's four defects; running the real thing found all of them. M8 runs on hardware no test rig replicates — §10 task 10 is the only place that gets checked |
 

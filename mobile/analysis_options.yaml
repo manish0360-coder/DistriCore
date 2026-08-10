@@ -1,0 +1,27 @@
+# Dart static analysis. This is the *developer-facing* half of the contract.
+#
+# The **blocking** half lives in `backend/tests/adversarial/test_mobile_boundary.py`,
+# because `make verify` is the only authority (N-12) and it does not run `flutter
+# analyze`. A rule enforced only where the gate cannot see it is advisory, which is
+# what `mypy` was for six milestones (TD-2).
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    # P-3: an implicit num->double is how money stops being exact.
+    argument_type_not_assignable: error
+    invalid_assignment: error
+    # Unused imports hide layering violations from a reader.
+    unused_import: error
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - prefer_final_locals
+    - prefer_const_constructors
+    - unawaited_futures

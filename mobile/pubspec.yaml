@@ -1,0 +1,26 @@
+name: districore
+description: DistriCore field application — one binary, three roles (DV-4).
+publish_to: none
+version: 0.1.0
+
+environment:
+  # A floor, not a pin. The pin is `.flutter-version` plus `pubspec.lock`;
+  # a range here would let CI resolve a different SDK from the developer's.
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # DI and state (M8 §6). Chosen because the app's hard state is the outbox and its
+  # truth lives in SQLite — the state layer observes it rather than owning it.
+  flutter_riverpod: ^2.5.0
+  # Declarative routing with one redirect guard (M8 §4).
+  go_router: ^14.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
