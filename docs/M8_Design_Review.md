@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.5.0** |
-| Status | **Phase 1 FROZEN. Phase 2 — tasks 0, 1 and 2 done and verified. Next: TD-39 (Django), then task 3** |
+| Version | **1.6.1** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0, 1, 2 and TD-39 done and verified. All four §14.10 gates closed. Next: task 3** |
 | Date | 2026-08-11 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
@@ -21,6 +21,8 @@
 | **1.3.0** | **2026-08-10** | **Task 1 complete and verified** — Flutter shell, four-layer structure, DI/routing, pinned toolchain, and **16 blocking structural tests**. §10 task 1 struck; §12.9 records what the milestone's four infrastructure defects have in common; TD-37 and TD-38 opened |
 | **1.4.0** | **2026-08-11** | **§14 added — Phase 2 frozen decisions**, after an independent review of the task 2 design: **D-A1/D-A2** (delivery idempotency keyed on `client_uuid`; **TD-39** opened as a separate Django commit before task 3), **D-B1** (single-flight refresh), **D-B2** (structurally isolated refresh client), **D-B3** (retry preserves operation identity). Dashboard DTO **rejected** from task 2. §7.2 and §10 task 2 point at §14. **No code changed** |
 | **1.5.0** | **2026-08-11** | **Task 2 complete and verified** — API layer, four interceptors, single-flight refresh, problem+json, the `Money` codec. §10 task 2 struck; §14.3–§14.5 marked **built**; §14.8 added (what implementing the decisions taught). `make verify` 8/8 · 743/743 · 94.88%; `make mobile-verify` 38/38 · 0 errors |
+| **1.6.0** | **2026-08-11** | **§14.9 Task 3 decisions frozen** — D-C1 (`AUTOINCREMENT` PK as the local sequence), D-C2 (`client_created_at` demoted to metadata; the `operations` array is the order — corrected in `04` T-26 and `05` §11.2 PU-1…PU-4), D-C3 (storage-full `Failure` variant at the outbox write boundary), D-C4 (`device_id` batch-level, no outbox column). **§14.10 records the Task 3 gate.** Documentation only — no code changed |
+| **1.6.1** | **2026-08-11** | **TD-39 verified — §14.10 gate 1 CLOSED.** `make verify` 8/8 · **758/758** · **94.71%** · `mypy` clean over 115 files · 3 contracts kept (144 files, 271 dependencies) · `makemigrations --check` **No changes detected**. Patch version, not minor: **no architectural decision changed** — only a gate status and its evidence |
 
 ---
 
@@ -406,7 +408,7 @@ PENDING ──sent──> IN_FLIGHT ──ack──> ACKNOWLEDGED ──> (purge
 | Property | How |
 | --- | --- |
 | Durable | Committed to disk in the same transaction as the UI's confirmation. **The user is never told "saved" before it is** (NFR-OFF-005) |
-| Ordered | Monotonic per-device sequence, not a timestamp (BR-013, FR-SYN-002). **The device clock is never on the correctness path** |
+| Ordered | Monotonic per-device sequence, not a timestamp (BR-013, FR-SYN-002). **The device clock is never on the correctness path.** Mechanism frozen at **§14.9 D-C1**; the server-side half at **D-C2** |
 | Idempotent | `client_uuid` generated **before the first attempt** and reused on every retry (C-2, AD-09) |
 | Never lost | No delete path from `REJECTED`. A malformed payload is quarantined, not dropped (FR-SYN-006) |
 | Encrypted | At rest (FR-SYN-016, NFR-SEC-008) |
@@ -623,7 +625,7 @@ so a review has something to check against.
 | ~~**0**~~ | ~~**Backend: `GET /reports/dashboard`**~~ | — | ✔ **DONE 2026-08-10** — 8/8, **726/726**, 94.88%, `mypy` clean, 3 contracts kept |
 | **1** | Toolchain, shell, DI, router; **`analysis_options.yaml` layering rule and the no-secrets structural test** | P-9, P-10 | The contract tests exist **before** the first feature |
 | ~~**2**~~ | ~~Decimal codec and the API layer~~ | — | ✔ **DONE 2026-08-11** — 8/8, **743/743**, 94.88%; `mobile-verify` **38/38**, 0 analyzer errors |
-| **3** | **Drift schema, outbox, sequencer**. **Blocked on TD-39** (§14.2) — the outbox stores a `client_uuid` the endpoints must accept | **P-2, P-5, P-6** | Kill · restart · storage exhaustion, at **every** write boundary |
+| **3** | **← NEXT. Drift schema, outbox, sequencer.** ~~Blocked on TD-39~~ — **unblocked 2026-08-11**; decisions frozen at §14.9 | **P-2, P-5, P-6** | Kill · restart · storage exhaustion, at **every** write boundary |
 | 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | P-4, P-9 | C-7, FR-IAM-015, FR-IAM-016 |
 | 5 | Delivery: list, detail, complete, fail | P-1, P-2, P-7 | No screen touches the network to save |
 | 6 | GPS and the **separate media queue** | P-2, P-5 | C-9. Media never blocks a transactional row |
@@ -976,6 +978,122 @@ principles §1.3 calls unrepairable. Fixed by snapshotting each request at the a
 `validateStatus: (_) => true` reads as tidy — every response becomes a value — but Dio then
 never enters its error path, and `RefreshInterceptor.onError` becomes code no 401 can reach.
 **D-B1 would have been implemented, documented, tested against a fake, and dead.**
+
+### 14.9 Task 3 decisions — frozen 2026-08-11
+
+Four decisions, taken before task 3 opens, after tracing the M8 → M9 → server path against
+`02`, `04` and `05`. **Task 3 remains the outbox only; the media queue is task 6** (§10),
+and **M8 still writes `PENDING` only** (§5.3).
+
+#### D-C1 — The local sequence is an `AUTOINCREMENT` integer primary key
+
+One column, serving as both row identity and queue order.
+
+**Accepted on the purge argument, not on ubiquity.** §5.3 requires `ACKNOWLEDGED` rows to be
+*"purged after N days"*. A plain `INTEGER PRIMARY KEY` assigns `max(rowid) + 1`, so deleting
+the highest row **lowers the next value and re-issues one already used** — monotonicity
+gone. `AUTOINCREMENT` is the only SQLite construct that forbids reuse.
+
+**`NumberSeries` is deliberately not the model here.** Its docstring rejects engine sequences
+*"because they are explicitly not gapless"* — correct for a statutory invoice number, where a
+gap is a question from an auditor. **The outbox needs monotonicity, not gaplessness**; gaps
+are harmless, so the locked-counter cost buys nothing. The house pattern was chosen for a
+property this table does not need.
+
+> **Invariant, and it is testable: an outbox row is never renumbered and never re-inserted.**
+> Conflating identity with order is only safe while that holds.
+
+#### D-C2 — `client_created_at` is metadata; the array is the order
+
+**Corrected in `04` T-26 and `05` §11.2 (PU-1…PU-3), not here.** `04` made a device clock the
+ordering key, which P-4 forbids and which cannot deliver BR-013: a timezone change or NTP
+correction makes the timestamp non-monotonic **within one device**.
+
+FR-SYN-002 already obliges the client to transmit in creation order, and `operations` is an
+ordered array. Applying it serially satisfies BR-013 through a channel no clock can corrupt.
+
+**No wire field is added.** Ordering correctness for *dependencies* was never the timestamp's
+job in the first place — `02` §5.3 `SC-SEQUENCE` and `05` §11.3 L-3 hold an operation whose
+dependency is not yet accepted and retry it, keyed on `client_uuid`.
+
+#### D-C3 — Storage-full is a distinct `Failure` variant at the outbox write boundary
+
+`core/failure.dart` is a **sealed** hierarchy whose members are all transport failures —
+`Offline`, `Refused`, `Unauthenticated`, `ProblemFailure`, `MalformedResponse`. Task 3 adds
+one member for storage exhaustion. Sealed means every `fold` fans out at compile time, which
+is the point.
+
+**It must not be folded into `Offline`.** The two demand opposite behaviour: `Offline` means
+*retry later and it will work*; storage-full means *retrying changes nothing until space is
+freed*.
+
+**Where it propagates:** the durable outbox write returns `Err`, and **the action fails**.
+§5.3 — *"The user is never told 'saved' before it is"* — and NFR-OFF-005 make that binding.
+No UI text is specified here.
+
+Established by: `00` §19.1 gate *"outbox survives kill, restart and storage exhaustion"*,
+`02` §18's adversarial note, NFR-OFF-004/005.
+
+#### D-C4 — `device_id` is batch-level, from the keystore
+
+**No column in the outbox. No `device_id` inside any operation payload.**
+
+`05` §11.2 carries it **once per batch**, alongside `operations`; its own `DELIVERY_COMPLETE`
+example payload contains `delivery_id`, `recipient_name`, `photo_media_id` — and no
+`device_id`. §8.4 keeps the value in the keystore, which survives restart independently of
+the database, so batch construction reads it then.
+
+> **A correction to the reasoning that produced this section.** An earlier analysis concluded
+> `device_id` was "already inside every operation payload", generalising from `05` §10.3/§10.4
+> — the **direct REST** bodies — to §11.2, a different transport. §11.2's example disproves it.
+> The sync payload is the REST body **minus the fields hoisted to batch and operation level**,
+> and `device_id` is one of them. Recorded because the conclusion was right and the evidence
+> for it was not.
+
+**Backup/restore attribution is an M9 concern, recorded not fixed.** An Android Keystore is
+hardware-bound, so a backup restored to a new handset yields a new `device_id` while carrying
+the old outbox, and operations produced on one device would be attributed to another under
+FR-IAM-009's *"every transaction it produces"*. **`02A` §13 demotes device registration and
+revocation to Edition 2**, so no Edition 1 control depends on it. It belongs to batch
+construction, not to the outbox schema — and a nullable column added later, while the outbox
+is small, is the cheaper direction than the migration AR-3 warns about.
+
+### 14.10 Task 3 implementation gate
+
+| # | Gate | State |
+| --: | --- | :-: |
+| 1 | **TD-39 verified** | ✔ **CLOSED 2026-08-11** — `make verify` 8/8, **758/758**, **94.71%** |
+| 2 | `04` T-26 and `05` §11.2 corrected (D-C2) | ✔ |
+| 3 | Storage-full variant recorded (D-C3) | ✔ |
+| 4 | Sequence invariant recorded, with its contract test named (D-C1) | ✔ |
+
+**All four gates are closed. Task 3 may open.**
+
+#### The TD-39 run
+
+| | |
+| --- | --- |
+| Stages | 8/8 · **VERIFIED** (N-12) |
+| Tests | **758 passed** (743 → 758; the 15 new cases in `test_delivery_outcome_idempotency.py`) |
+| Coverage | **94.71%** |
+| `mypy` | clean, **115 source files** |
+| `ruff` | All checks passed |
+| Contracts | **3 kept, 0 broken** — 144 files, 271 dependencies |
+| Migrations | `makemigrations --check` → **No changes detected** |
+
+> **The hand-written migration was the risk, and stage 3 retired it.** `fulfilment/0002` was
+> written by hand because `makemigrations` could not run in the authoring environment
+> (Python 3.10, no Postgres). *"No changes detected"* is Django confirming the file matches
+> what it would have generated — the cheap check that made the deviation acceptable.
+
+> **Coverage fell 0.17 points, 94.88% → 94.71%, and that is recorded rather than rounded
+> away.** Attribution from the run's per-file table: `fulfilment/services.py` **93%**
+> (11 statements uncovered, at 144 · 305–311 · 388–394) and `fulfilment/models.py` **94%**.
+> Those line ranges are the two `IntegrityError` recovery branches — the arms that fire only
+> when the unique constraint actually loses a race, which a single-threaded suite cannot
+> reach. **The uncovered lines are the concurrency guarantee itself**, which is the honest
+> shape of this milestone: the mechanism that matters most is the one a serial test cannot
+> execute.
 
 ---
 

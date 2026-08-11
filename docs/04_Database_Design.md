@@ -1211,7 +1211,7 @@ All seller/buyer snapshot and money columns are identical to `invoice`. `credit_
 | `device_id` | VARCHAR(64) | N | | |
 | `app_user_id` | BIGINT | N | | FK → `app_user` |
 | `operation_type` | VARCHAR(40) | N | | `DELIVERY_UPDATE`, `VISIT_CREATE`, `PAYMENT_CREATE`, `CUSTOMER_CREATE`, `MEDIA_UPLOAD` |
-| `client_created_at` | TIMESTAMPTZ | N | | Device time — establishes per-device order |
+| `client_created_at` | TIMESTAMPTZ | N | | Device time. **Metadata — audit and display only.** It does *not* establish application order (corrected 2026-08-11; see below) |
 | `received_at` | TIMESTAMPTZ | N | `now()` | |
 | `processed_at` | TIMESTAMPTZ | Y | | |
 | `status` | VARCHAR(20) | N | `'RECEIVED'` | `RECEIVED`, `ACCEPTED`, `DUPLICATE`, `DEFERRED`, `REJECTED` |
@@ -1228,12 +1228,18 @@ All seller/buyer snapshot and money columns are identical to `invoice`. `credit_
 - `ck_sync_operation_status` CHECK (status in the list)
 - `ck_sync_operation_rejected` CHECK (`status <> 'REJECTED' OR error_code IS NOT NULL`)
 
-**Indexes** `uq_sync_operation_client_uuid` · `ix_sync_operation_device_created` (`device_id`, `client_created_at`) — replays operations in device order (BR-013) · `ix_sync_operation_status` (partial, `WHERE status IN ('DEFERRED','REJECTED')`) — the owner's exception list
+**Indexes** `uq_sync_operation_client_uuid` · `ix_sync_operation_device_created` (`device_id`, `client_created_at`) — **retrieval and audit**: the operations one device sent, newest first. **Not the ordering mechanism** (see the corrected rule below) · `ix_sync_operation_status` (partial, `WHERE status IN ('DEFERRED','REJECTED')`) — the owner's exception list
 
 **Business rules**
 - Every device write is recorded here **before** the business operation is attempted.
 - A repeat `client_uuid` returns `DUPLICATE` and performs no work (BR-012).
-- Operations apply in `client_created_at` order per device (BR-013).
+- **Operations apply in the order they arrive in the `POST /sync/push` `operations` array, serially** (BR-013, `05` §11.2). The server neither sorts the array nor applies it concurrently.
+
+> **Correction, 2026-08-11.** This rule previously read *"Operations apply in `client_created_at` order per device (BR-013)."* That made a **device clock** the correctness key for ordering, which `M8_Design_Review` P-4 forbids — *"the device clock is never on a correctness path"* — and which cannot in fact deliver BR-013: a timezone change or an NTP correction makes `client_created_at` non-monotonic **within a single device**, so the server would apply that device's operations out of creation order using the very mechanism chosen to guarantee creation order.
+>
+> **The array already carries the guarantee.** FR-SYN-002 obliges the client to *"transmit outbox transactions in creation order per device"*, and `operations` is an ordered JSON array. Applying it serially, in order, satisfies BR-013 through a channel no clock can corrupt.
+>
+> **The wire payload does not change** — no field is added or removed. `/sync/push` is implemented in neither client nor server (M9), so this correction costs nothing today and would cost a protocol migration at any later date.
 - **Nothing is ever discarded** (BR-014). A malformed or rejected operation is stored with its payload and surfaced to the owner. This is the table that makes "no transaction is ever lost" true rather than aspirational.
 - `payload` is kept only for rejected operations — retaining every payload would multiply storage for no diagnostic value.
 

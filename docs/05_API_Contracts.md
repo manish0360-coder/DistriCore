@@ -924,6 +924,23 @@ POST /api/v1/sync/push
 
 **`202`, not `200`.** The batch was received and processed **per operation**; some may not have succeeded. A `200` would imply the whole batch succeeded, which is exactly the ambiguity that loses transactions.
 
+| Rule | Detail |
+| --- | --- |
+| **PU-1** | **The `operations` array is ordered, and the server applies it serially in array order.** It does **not** sort by `client_created_at`, and does **not** apply operations concurrently |
+| **PU-2** | The client fills the array in creation order per device (FR-SYN-002). Array position is therefore creation order, and **BR-013 is satisfied by the array, not by a timestamp** |
+| **PU-3** | `client_created_at` is **metadata** — audit, display and diagnosis. It is never an ordering key |
+| **PU-4** | `device_id` is sent **once per batch**. It is not repeated on an operation and does not appear inside `payload` |
+
+> **Added 2026-08-11.** PU-1…PU-3 close a contradiction between this document, `04` T-26 and
+> `M8_Design_Review` P-4. §11.2 was previously silent on whether array order was significant,
+> so a conforming server was free to sort by `client_created_at` — putting a **device clock**
+> on the correctness path, which P-4 forbids and which cannot deliver BR-013 anyway, because
+> a clock adjustment makes that timestamp non-monotonic **within one device**.
+>
+> **No field is added or removed.** This fixes what the existing array *means*, not what the
+> payload contains. PU-4 states what §11.2's example already shows, because it was read the
+> other way once.
+
 ### 11.3 Local reference resolution — the subtlest part of the contract
 
 A salesman offline creates a new shop, then records a visit and takes a payment against it — all before any sync. **The visit and the payment reference a customer that has no server ID.**

@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M8 — Mobile app.** Phase 2 **tasks 0, 1 and 2 of 10 done**. `make verify` **8/8, 743/743, 94.88%**, `mypy` clean over 115 files, 3 contracts kept. `make mobile-verify` **38/38, 0 analyzer errors**. **Next: TD-39 (Django), then task 3** |
+| Current milestone | **M8 — Mobile app.** Phase 2 **tasks 0, 1, 2 and TD-39 done**. `make verify` **8/8, 758/758, 94.71%**, `mypy` clean over 115 files, 3 contracts kept. `make mobile-verify` **38/38, 0 analyzer errors**. **Next: task 3 — all four §14.10 gates closed** |
 | Last closed | **M7 — Reporting**, verified 8/8, plus the identity fix, the owner bootstrap, TD-30, TD-27, TD-21 and TD-2/TD-18 |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -31,7 +31,7 @@
 | M5 | Fulfilment & Billing — delivery, dispatch, GST invoice, credit note, ledger | **Verified & tagged** — `docs/M5_Verification_Report.md` |
 | M6 | Receivables — payments, reversal, write-off, derived outstanding, statement | **Verified & tagged** — `docs/M6_Verification_Report.md` |
 | M7 | Reporting — seven reports, CSV, scoping, owner dashboard | **Verified** — `docs/M7_Verification_Report.md` |
-| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.4.0**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2: tasks 0–2 done** — the dashboard endpoint, the Flutter shell and contracts, then the API layer (Dio, four interceptors, single-flight refresh, problem+json, the `Money` codec). **Next: TD-39** (Django, §14.2), **then task 3** |
+| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.6.1**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2: tasks 0–2 and TD-39 done** — the dashboard endpoint, the Flutter shell and contracts, the API layer, then delivery-outcome idempotency. **Task 3 decisions D-C1…D-C4 frozen (§14.9) and all four §14.10 gates closed. Next: task 3 — Drift schema, outbox, sequencer** |
 | M9 | Sync | Not started |
 | M10 | Hardening | Not started |
 | M11 | Go-live | Not started |
@@ -56,9 +56,16 @@
 | **M8 task 0 — dashboard endpoint** | 8/8 | **726** | **94.88%** | 3 kept | **1** |
 | **M8 task 1 — Flutter shell + contracts** | 8/8 | **742** | **94.88%** | 3 kept | **1** |
 | **M8 task 2 — API layer** | 8/8 | **743** | **94.88%** | 3 kept | **1** |
+| **TD-39 — delivery outcome idempotency** | 8/8 | **758** | **94.71%** | 3 kept | **1** |
 
-> Coverage fell 0.18 points in M3, 0.41 in M6 and **0.02 closing TD-2**. All recorded
-> rather than rounded away. The gate is 80% and has never been moved.
+> Coverage fell 0.18 points in M3, 0.41 in M6, **0.02 closing TD-2** and **0.17 closing
+> TD-39**. All recorded rather than rounded away. The gate is 80% and has never been moved.
+>
+> **TD-39's dip is the guarantee itself.** Per-file: `fulfilment/services.py` **93%** (lines
+> 144, 305–311, 388–394) and `fulfilment/models.py` **94%**. Those ranges are the two
+> `IntegrityError` recovery branches — the arms that execute only when the unique constraint
+> actually loses a race, which a single-threaded suite cannot reach. **The uncovered lines
+> are the concurrency mechanism**, and no amount of serial testing will colour them in.
 >
 > **The TD-2 dip is structural and will not come back.** The `WithAnnotations` block in
 > `inventory/selectors.py` sits under `if TYPE_CHECKING:` — statements that **can never
@@ -92,7 +99,7 @@ introduction would move two variables at once.
 | Gate | State |
 | --- | --- |
 | `ops/check_structural_columns.py` | Satisfied since M2 — `location_id` and `lot_id` on every movement (ADR-0004, E-06) |
-| `lint-imports` — 3 contracts | Kept. **143 files, 271 dependencies**, 14 root packages *(captured from the M8 task 1 verify run; the previous 139 / 268 predates task 0)*. Has caught 4 violations across 7 milestones, all by the rule's author |
+| `lint-imports` — 3 contracts | Kept. **144 files, 271 dependencies**, 14 root packages *(captured from the TD-39 verify run; 143 / 271 was task 1's)*. Has caught 4 violations across 7 milestones, all by the rule's author |
 | **The mobile layers hold, from the first Dart file** | **17** tests in `backend/tests/adversarial/test_mobile_boundary.py`, running **inside stage 7** because `make verify` is the only authority and it does not run `flutter analyze`. They assert layering, `features` never importing an implementation, **P-9** (no secret, internal surface or high-entropy literal in a decompilable binary), **P-3**, **P-6**, and that the parser refuses constructs it cannot read. Each was **proved able to fail** by mutation |
 | **The Flutter pin is stated once** | `mobile/.flutter-version`. The Makefile reads it; `docker/flutter.Dockerfile` takes it as an `ARG` with no default. A test fails if either restates it — the first draft kept two copies and policed them with a test, which is the worse answer |
 | **The Flutter toolchain is built, not borrowed** | `ghcr.io/cirruslabs/flutter` stopped publishing 2026-05-01, before Flutter 3.44 existed. A test fails if `FLUTTER_IMAGE` points at that registry or its Docker Hub predecessor |
@@ -140,7 +147,7 @@ it can prove.**
 
 | # | Item | Due |
 | --- | --- | --- |
-| **TD-39** | **New. `/deliveries/{id}/complete` and `/fail` do not accept `client_uuid`,** which `05` §9.4 marks `Idem ✓` for both and §6 requires. **Replay is already safe** — row lock + status guard, returning the original row with `200` (I-4), covered by `test_completing_twice_is_a_no_op` and `test_failing_twice_does_not_return_the_stock_twice`. So this is a **contract-conformance gap, not a data-integrity one**: no duplicate stock movement is reachable. An independent review rated it *Severe* on a consequence the guard prevents. Scope at `M8_Design_Review` §14.2 — additive, no `sync_operation` migration (M9 owns it), plus the `05` §6 text fix that omits `/fail` | **M8, between tasks 2 and 3** |
+| ~~**TD-39**~~ | ~~`/deliveries/{id}/complete` and `/fail` do not accept `client_uuid`~~ | **CLOSED 2026-08-11.** `outcome_client_uuid` added as a *separate* key — `Delivery.client_uuid` still identifies the assignment. Savepoint + `IntegrityError`, the `record_payment` pattern; in `fail_delivery` the identity is claimed **before** the RETURN movements, so a lost race cannot leave a duplicate restock. 15 tests. Verified 8/8, **758/758**, 94.71% |
 | **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is not part of `make verify`, so *"does the Dart compile"* is ungated — and the **29 Dart cases that prove D-B1/D-B2/D-B3 are invisible to the only authority**. The 743 figure does not include them. The M8 contracts that *must* be blocking are enforced from stage 7 in Python because they are structural and need a parser, not a compiler; a Dart compile error still reaches `main`. Promote `mobile-verify` to stage 9 once the toolchain image has held for a milestone — adding an untested stage to the only authority is worse than none | M9 |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `FLUTTER_SHA256` is an optional build-arg and the build prints the checksum it downloaded; `uv.lock` gives the Python side the stronger guarantee. Closing it is one paste from a `make mobile-image` run | M8, before task 3 |
 | **TD-36** | **New, and the most consequential.** The seven report endpoints **emit money as JSON floats**, against AD-02 — whose rationale names Dart and whose client obligation is C-1. `COERCE_DECIMAL_TO_STRING` is set but reaches only `serializers.DecimalField`; `api.v1.report_views._as_json` hand-builds its dict, so DRF's encoder renders `Decimal("1180.00")` as `1180.0`. **Measured, not inferred.** The existing assertion reads `Decimal(str(...))`, and that `str()` makes it pass whichever type arrives — which is how this survived four reviews and a blocking type gate. **Breaking change to a published response type: its own change, its own verify run.** Fix by routing `_as_json`'s numeric cells through `money_string`, added in task 0 for exactly this reuse | **M8, before task 8** |

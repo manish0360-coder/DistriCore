@@ -1,6 +1,6 @@
 # Next Task
 
-> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.5.0**, signed
+> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.6.1**, signed
 > 2026-08-10. Both ADRs approved: **Drift + SQLCipher** (§5.6), **Dio** (§7.5). Design
 > principles **P-1…P-10** frozen at §1.3.
 >
@@ -8,13 +8,16 @@
 > Flutter shell, four layers, DI/routing, the pinned toolchain. Task 2: the API layer — Dio,
 > four interceptors, single-flight refresh, problem+json, the `Money` codec.
 >
-> `make verify` **8/8 · 743/743 · 94.88% · `mypy` clean over 115 files · 3 contracts kept
-> (143 files, 271 dependencies)**. `make mobile-verify` **38/38 · 0 analyzer errors · 3
-> non-fatal infos**.
+> **TD-39 is verified and closed**, and with it all four §14.10 Task 3 gates.
+>
+> `make verify` **8/8 · 758/758 · 94.71% · `mypy` clean over 115 files · 3 contracts kept
+> (144 files, 271 dependencies) · `makemigrations --check` No changes detected**.
+> `make mobile-verify` **38/38 · 0 analyzer errors · 3 non-fatal infos**.
 
 **Milestone:** M8 — Mobile app (3.0 units, `00` §19.1)
-**Phase:** **2 — Implementation. Tasks 0, 1 and 2 of 10 done.**
-**Next: TD-39 — a Django milestone, before task 3.**
+**Phase:** **2 — Implementation. Tasks 0, 1, 2 and TD-39 done.**
+**Next: task 3 — Drift schema, outbox, sequencer.** Its four architecture decisions are
+frozen at `M8_Design_Review` §14.9 (D-C1…D-C4) and all four §14.10 gates are closed.
 
 **`mobile/` holds 25 Dart files and still no feature behaviour.** No outbox, no delivery, no
 GPS, no photo, no auth screens, no offline credential store, no Owner Companion Mode. Task 2
@@ -98,8 +101,8 @@ line instead of re-argued. The three that cannot be repaired after the fact:
 | ~~**0**~~ | ~~Backend: `GET /reports/dashboard`~~ | ✔ **DONE** — 8/8, 726/726, 94.88% |
 | ~~**1**~~ | ~~Toolchain, shell, DI, router; layering + no-secrets tests~~ | ✔ **DONE** — 8/8, **742/742**, 94.88%. 16 contracts, each proved able to fail |
 | ~~**2**~~ | ~~Decimal codec and the API layer~~ | ✔ **DONE** — 8/8, **743/743**, 94.88%; `mobile-verify` **38/38**, 0 errors |
-| **TD-39** | **← NEXT. Django, between 2 and 3.** `client_uuid` on `/deliveries/{id}/complete` and `/fail` | `make verify` 8/8. Additive; **no `sync_operation` migration** |
-| **3** | **Drift schema, outbox, sequencer**. **Blocked on TD-39** | Kill · restart · storage exhaustion, at **every** write boundary |
+| ~~**TD-39**~~ | ~~`client_uuid` on `/deliveries/{id}/complete` and `/fail`~~ | ✔ **DONE** — 8/8, **758/758**, 94.71%; `makemigrations --check` clean |
+| **3** | **← NEXT. Drift schema, outbox, sequencer.** Decisions frozen at §14.9 | Kill · restart · storage exhaustion, at **every** write boundary |
 | 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | C-7, FR-IAM-015/016 |
 | 5 | Delivery: list, detail, complete, fail | No screen touches the network to save |
 | 6 | GPS and the **separate media queue** | C-9 |
