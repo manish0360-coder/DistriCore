@@ -23,3 +23,44 @@ final class Refused extends Failure {
 final class Unauthenticated extends Failure {
   const Unauthenticated() : super('Sign in again.');
 }
+
+/// A field-level validation error from `05` §5.4's `errors[]`.
+final class FieldError {
+  const FieldError({required this.field, required this.message});
+  final String field;
+  final String message;
+}
+
+/// The server answered with RFC 9457 problem+json (`05` §5).
+///
+/// **Carries `code`, and callers branch on `code` alone.** `05` says `title` and `detail`
+/// may be reworded without breaking a client, so any code that matches on prose is a client
+/// that a copy-edit can break.
+final class ProblemFailure extends Failure {
+  const ProblemFailure({
+    required this.code,
+    required this.status,
+    required String detail,
+    this.errors = const [],
+    this.requestId,
+  }) : super(detail);
+
+  final String code;
+  final int status;
+  final List<FieldError> errors;
+  final String? requestId;
+
+  /// `DUPLICATE_CLIENT_UUID` is **not an error** — `05` §5.3 lists it at status 200 and C-4
+  /// requires the client to treat it as success. A retry after a timeout is correct client
+  /// behaviour; answering it as a failure is how a delivery gets recorded twice by a person
+  /// who was told the first attempt failed.
+  bool get isReplay => code == 'DUPLICATE_CLIENT_UUID';
+}
+
+/// The server replied, but not in a shape `05` describes — a proxy error page, an HTML 502,
+/// a truncated body. Distinct from [ProblemFailure] because there is no `code` to branch on
+/// and the only safe action is to retry later.
+final class MalformedResponse extends Failure {
+  const MalformedResponse(super.message, {this.status});
+  final int? status;
+}

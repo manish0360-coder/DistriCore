@@ -1,0 +1,86 @@
+// `05` §5. The client branches on `code`; `title` and `detail` may be reworded freely.
+import 'package:dio/dio.dart';
+import 'package:districore/core/failure.dart';
+import 'package:districore/data/api/problem.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+Response<dynamic> _response(int status, Object? body) => Response<dynamic>(
+      requestOptions: RequestOptions(path: '/x'),
+      statusCode: status,
+      data: body,
+    );
+
+void main() {
+  test('maps a problem+json body to a typed failure carrying the code', () {
+    final failure = failureFromResponse(_response(409, {
+      'code': 'CREDIT_LIMIT_EXCEEDED',
+      'detail': 'Order exceeds available credit',
+      'request_id': 'req-1',
+      'errors': <dynamic>[],
+    }));
+    expect(failure, isA<ProblemFailure>());
+    final problem = failure as ProblemFailure;
+    expect(problem.code, 'CREDIT_LIMIT_EXCEEDED');
+    expect(problem.status, 409);
+    expect(problem.requestId, 'req-1');
+  });
+
+  test('branches on code alone — a reworded detail changes nothing', () {
+    Failure map(String detail) => failureFromResponse(
+          _response(409, {'code': 'CUSTOMER_INACTIVE', 'detail': detail}),
+        );
+    expect((map('Customer deactivated') as ProblemFailure).code,
+        (map('This shop is no longer active') as ProblemFailure).code);
+  });
+
+  test('flattens errors[] into fields (05 §5.4)', () {
+    final problem = failureFromResponse(_response(422, {
+      'code': 'VALIDATION_FAILED',
+      'detail': 'Invalid',
+      'errors': [
+        {'field': 'lines.0.quantity', 'message': 'must be positive'},
+      ],
+    })) as ProblemFailure;
+    expect(problem.errors.single.field, 'lines.0.quantity');
+    expect(problem.errors.single.message, 'must be positive');
+  });
+
+  test('TOKEN_INVALID and REFRESH_EXPIRED end the session, not the request', () {
+    for (final code in ['TOKEN_INVALID', 'REFRESH_EXPIRED']) {
+      expect(failureFromResponse(_response(401, {'code': code})), isA<Unauthenticated>());
+    }
+  });
+
+  test('DUPLICATE_CLIENT_UUID is flagged as a replay, not a failure to show (C-4)', () {
+    final problem =
+        failureFromResponse(_response(200, {'code': 'DUPLICATE_CLIENT_UUID'})) as ProblemFailure;
+    expect(problem.isReplay, isTrue);
+  });
+
+  test('an HTML error page is MalformedResponse, not a null code', () {
+    expect(failureFromResponse(_response(502, '<html>bad gateway</html>')),
+        isA<MalformedResponse>());
+    expect(failureFromResponse(_response(500, {'oops': true})), isA<MalformedResponse>());
+  });
+
+  test('a connection error is Offline — the normal state, not an exception', () {
+    final failure = failureFromDioException(DioException(
+      requestOptions: RequestOptions(path: '/x'),
+      type: DioExceptionType.connectionError,
+    ));
+    expect(failure, isA<Offline>());
+  });
+
+  group('isAccessTokenExpired', () {
+    test('only TOKEN_EXPIRED triggers a refresh', () {
+      DioException err(int status, String code) => DioException(
+            requestOptions: RequestOptions(path: '/x'),
+            response: _response(status, {'code': code}),
+          );
+      expect(isAccessTokenExpired(err(401, 'TOKEN_EXPIRED')), isTrue);
+      expect(isAccessTokenExpired(err(401, 'TOKEN_INVALID')), isFalse);
+      expect(isAccessTokenExpired(err(401, 'INVALID_CREDENTIALS')), isFalse);
+      expect(isAccessTokenExpired(err(403, 'TOKEN_EXPIRED')), isFalse);
+    });
+  });
+}

@@ -4,6 +4,91 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M8 Phase 2, task 2 — the API layer
+
+**No feature behaviour.** The transport every later task calls through, and the three
+semantics an independent review showed the frozen design had left unstated.
+
+**Added — `mobile/lib/core/`**
+
+- **`Money`** — P-3 / `05` AD-02 / C-1, over `package:decimal`. **Its point is what it
+  refuses:** `Money.fromJson(1180.0)` throws rather than converting, because by the time a
+  `double` exists the precision is already gone and no later check can recover it.
+- **`Money` carries the scale it arrived with.** `package:decimal` normalises —
+  `Decimal.parse('11800.00').toString()` is `'11800'` — which is correct arithmetic and
+  wrong transport. `05` declares money at 14,2 and quantity at 14,3; answering `"11800"` to
+  a server that said `"11800.00"` silently changes a field's declared scale.
+- `ProblemFailure` (code · status · `errors[]` · `request_id`) and `MalformedResponse` for
+  the HTML-502 case that carries no `code` to branch on.
+
+**Added — `mobile/lib/data/api/`**
+
+- `ApiClient` over Dio, `AuthInterceptor`, `DeviceInterceptor`, `RefreshInterceptor`,
+  problem+json → typed `Failure`, and a `TokenStore` **interface only** — task 4 implements
+  it over the keystore.
+- **D-B1 single-flight refresh.** Concurrent `401 TOKEN_EXPIRED` share one operation;
+  waiters share its result; each original request retries exactly once; a second 401 is
+  terminal. Not a style choice: the server sets `ROTATE_REFRESH_TOKENS` **and**
+  `BLACKLIST_AFTER_ROTATION`, so a parallel refresh presents a blacklisted token and reuse
+  detection treats it as an attack — three requests failing together would sign out a
+  working session.
+- **D-B2 structural isolation.** `/auth/refresh` runs on a second `Dio` carrying neither
+  auth nor refresh interceptor. An interceptor never added cannot be re-entered; a
+  re-entrancy flag is a rule someone deletes while adding a feature.
+- **D-B3 identity-preserving retry.** The original `RequestOptions` is replayed — body,
+  headers, and especially `client_uuid`. The code that retries is not the code that created
+  the operation, which is why this is the likeliest place in the client for a second
+  operation identity to appear.
+
+**Found**
+
+- **`device_id` is a body field, not a header.** M8 §7.2 says only *"device_id on every
+  write"*. Every `05` §9 example carries it inside the JSON object and the DRF serializers
+  read it from `request.data`. A header would be accepted by the transport, ignored by the
+  server, and lose the audit attribution **silently** — precisely the failure C-10 names.
+- **Offline during refresh must not sign the user out.** D-B1 covers the 401; it says
+  nothing about a refresh that never reaches the server. Clearing the keystore there would
+  end FR-IAM-016's offline window at the first tunnel. Only a 401 clears.
+
+**Fixed — four defects in this milestone's own code, each found by running it**
+
+1. **`validateStatus: (_) => true` made the refresh interceptor dead code.** A permissive
+   validator means Dio never enters its error path, so no 401 could reach `onError`.
+2. `json(...)` in the test harness collides with `dart:convert`'s top-level `JsonCodec json`.
+3. `const` interceptor constructors depend on Dio's `Interceptor` exposing a const
+   constructor — an assumption with nothing behind it.
+4. **The test harness stored live `RequestOptions`.** D-B3 replays the *same* object and
+   `AuthInterceptor` rewrites its header in place, so every recorded attempt showed the last
+   token — **and the `client_uuid` assertion was comparing an object with itself.** A test
+   that could not fail. Fixed by snapshotting each request.
+
+Plus two analyzer errors: a bare `Map` narrowing to `Map<dynamic, dynamic>`, and Dio 5.11's
+`DioExceptionType.transformTimeout`. The latter is mapped to `MalformedResponse`, **not**
+`Offline` — the request reached the server and was answered; what timed out was Dio's own
+transformer. Calling it "offline" would tell a salesman standing in signal that they have
+none. **No `default` was added**, so the compiler still fails if Dio adds a tenth case.
+
+**Verified**
+
+| Gate | Result |
+| --- | --- |
+| `make mobile-verify` | **38/38 tests**, **0 analyzer errors**, 3 non-fatal infos |
+| `make verify` | **8/8** |
+| Backend suite | **743/743** |
+| Coverage | **94.88%** |
+| `mypy` | clean, **115 source files** |
+| Import contracts | **3 kept** — 143 files, 271 dependencies |
+
+**Note**
+
+- **TD-37 remains open.** `mobile-verify` is not part of `make verify`, so the 29 new Dart
+  cases that actually prove D-B1/D-B2/D-B3 are invisible to the only authority. The 743
+  figure does not include them.
+- **TD-39 is not implemented** and remains a separate Django milestone before task 3. No
+  outbox, no auth screens or offline credential store, no dashboard DTO.
+
+---
+
 ### M8 Phase 2, task 1 — Flutter shell, layer contracts, pinned toolchain
 
 **The first code in a second language.** No feature behaviour: a shell, a composition root,

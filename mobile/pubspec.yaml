@@ -16,6 +16,14 @@ dependencies:
   flutter_riverpod: ^2.5.0
   # Declarative routing with one redirect guard (M8 §4).
   go_router: ^14.0.0
+  # HTTP client (M8 §7.5 ADR). Interceptors are the reason: C-7's refresh-once, C-10's
+  # device_id and the problem+json mapping are cross-cutting, and hand-rolling them over
+  # `http` means repeating three rules at every call site.
+  dio: ^5.7.0
+  # P-3 / `05` AD-02. Dart has no built-in exact decimal; `jsonDecode` yields `double` for
+  # any unquoted number, and one careless cast reintroduces the defect `core.fields`
+  # protects on the server. A floor, not a pin — `pubspec.lock` is the pin.
+  decimal: ^2.3.0
 
 dev_dependencies:
   flutter_test:

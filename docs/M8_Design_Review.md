@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.3.0** |
-| Status | **Phase 1 FROZEN. Phase 2 in progress — tasks 0 and 1 done, task 2 next. The shell exists; no feature behaviour** |
-| Date | 2026-08-10 |
+| Version | **1.5.0** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0, 1 and 2 done and verified. Next: TD-39 (Django), then task 3** |
+| Date | 2026-08-11 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
 | Depends on | `00` v1.0.0 · `01` · `02` v0.2.0 · `02A` v0.2.0 · `03` · `04` · `05` · M0–M7 verified |
@@ -19,6 +19,8 @@
 | **1.1.0** | **2026-08-10** | **Signed.** §3.4 "no owner role" **replaced by Owner Companion Mode** (ruling); §3.4.1 and §3.4.2 record the two corpus conflicts it creates; **§1.3 Design Principles P-1…P-10 added and frozen**; §10 rewritten as the Phase 2 plan; §11.2, §12.5, §13 updated |
 | **1.2.0** | **2026-08-10** | **Task 0 complete and verified** — `GET /reports/dashboard`, contracted at `05` §9.11.1. **§3.4.1a added: the seven report endpoints were already emitting money as JSON floats (TD-36)**, found while deciding this endpoint's encoding. §10 task 0 struck; §11.2 item 6 closed, item 8 opened; §12.8 added |
 | **1.3.0** | **2026-08-10** | **Task 1 complete and verified** — Flutter shell, four-layer structure, DI/routing, pinned toolchain, and **16 blocking structural tests**. §10 task 1 struck; §12.9 records what the milestone's four infrastructure defects have in common; TD-37 and TD-38 opened |
+| **1.4.0** | **2026-08-11** | **§14 added — Phase 2 frozen decisions**, after an independent review of the task 2 design: **D-A1/D-A2** (delivery idempotency keyed on `client_uuid`; **TD-39** opened as a separate Django commit before task 3), **D-B1** (single-flight refresh), **D-B2** (structurally isolated refresh client), **D-B3** (retry preserves operation identity). Dashboard DTO **rejected** from task 2. §7.2 and §10 task 2 point at §14. **No code changed** |
+| **1.5.0** | **2026-08-11** | **Task 2 complete and verified** — API layer, four interceptors, single-flight refresh, problem+json, the `Money` codec. §10 task 2 struck; §14.3–§14.5 marked **built**; §14.8 added (what implementing the decisions taught). `make verify` 8/8 · 743/743 · 94.88%; `make mobile-verify` 38/38 · 0 errors |
 
 ---
 
@@ -93,12 +95,19 @@ one line instead of re-argued, and so a reviewer can cite a number.
 | **P-2** | **A user action writes to the outbox, never to the network.** The network is a background consequence | §5.1, NFR-OFF-001 | A screen that awaits an HTTP call, or shows a spinner during a save |
 | **P-3** | **Money and quantity are `Decimal` end to end.** No `double` on any path that reaches a figure | `05` C-1, AD-02 | `as double`, `jsonDecode` into a numeric field, `double.parse` |
 | **P-4** | **The device clock is never on a correctness path.** It labels; it does not order or expire | §5.5, `05` C-8 | Sorting the outbox by local time; expiring a session against `DateTime.now()` |
-| **P-5** | **Nothing leaves the outbox unacknowledged, and a `REJECTED` row is never deleted by code.** | §5.3, `05` C-4, C-9 | A cleanup that deletes by age; a retry that drops after N attempts |
-| **P-6** | **`client_uuid` is generated before the first attempt and never regenerated.** | `05` C-3 | A new UUID on retry — the one bug that defeats server idempotency |
+| **P-5** | **Nothing leaves the outbox unacknowledged, and a `REJECTED` row is never deleted by code.** | §5.3, `05` **C-3**, C-11 | A cleanup that deletes by age; a retry that drops after N attempts |
+| **P-6** | **`client_uuid` is generated before the first attempt and never regenerated.** | `05` **C-2**, AD-09 | A new UUID on retry — the one bug that defeats server idempotency |
 | **P-7** | **Roles are an array. The UI composes; it never switches on a single role.** | `05` C-12, §4 | `if (role == 'DELIVERY')`; a screen unreachable by a dual-role user |
 | **P-8** | **A cached figure is always displayed with its `as_of`.** Stale is acceptable; silently stale is not | §2.3, §5.2 | A KPI or balance rendered with no timestamp |
 | **P-9** | **The binary holds no secret and no rule that the server does not independently enforce.** | `02A` §9.3, DV-4, N-06 | An API key in source; a limit checked only on the device; a hidden button as a control |
 | **P-10** | **`domain/` imports nothing.** Dependencies point inward only: `features → data → domain` | §2.1 | A Drift or Dio type appearing in `domain/` |
+
+> **Citation correction, 2026-08-11 (v1.4.0).** P-5 cited `05` C-4/C-9 and P-6 cited C-3.
+> Checked against `05` §12: **C-2** is the `client_uuid` obligation and **C-3** is the
+> never-delete-`REJECTED` obligation — the two were transposed. The principle *statements*
+> are unchanged and remain frozen; only the references were wrong. Recorded rather than
+> silently corrected because **§14.5 (D-B3) rests on P-6**, and a reader following the old
+> citation would have landed on the outbox-retention rule and concluded P-6 had no basis.
 
 **P-3, P-6 and P-9 are the three that cannot be fixed later.** P-3 corrupts figures already
 sent; P-6 defeats a server guarantee M9 depends on; P-9 is a security property of a binary
@@ -488,6 +497,9 @@ task 3).
 ApiClient (Dio)
  ├─ AuthInterceptor      attaches the access token
  ├─ RefreshInterceptor   refreshes ONCE on 401 TOKEN_EXPIRED, then re-auths (C-7)
+ │                      **single-flight, isolated client, identity-preserving retry —
+ │                      see §14.3, §14.4, §14.5. The server rotates AND blacklists
+ │                      refresh tokens, so parallel refresh logs the user out.**
  ├─ DeviceInterceptor    device_id on every write (C-10)
  └─ ProblemInterceptor   RFC 9457 problem+json -> typed failures
 ```
@@ -610,8 +622,8 @@ so a review has something to check against.
 | --: | --- | --- | --- |
 | ~~**0**~~ | ~~**Backend: `GET /reports/dashboard`**~~ | — | ✔ **DONE 2026-08-10** — 8/8, **726/726**, 94.88%, `mypy` clean, 3 contracts kept |
 | **1** | Toolchain, shell, DI, router; **`analysis_options.yaml` layering rule and the no-secrets structural test** | P-9, P-10 | The contract tests exist **before** the first feature |
-| **2** | **Decimal codec and the API layer** — Dio, interceptors, typed failures | **P-3** | A test fails the build on any `double` in a money path |
-| **3** | **Drift schema, outbox, sequencer** | **P-2, P-5, P-6** | Kill · restart · storage exhaustion, at **every** write boundary |
+| ~~**2**~~ | ~~Decimal codec and the API layer~~ | — | ✔ **DONE 2026-08-11** — 8/8, **743/743**, 94.88%; `mobile-verify` **38/38**, 0 analyzer errors |
+| **3** | **Drift schema, outbox, sequencer**. **Blocked on TD-39** (§14.2) — the outbox stores a `client_uuid` the endpoints must accept | **P-2, P-5, P-6** | Kill · restart · storage exhaustion, at **every** write boundary |
 | 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | P-4, P-9 | C-7, FR-IAM-015, FR-IAM-016 |
 | 5 | Delivery: list, detail, complete, fail | P-1, P-2, P-7 | No screen touches the network to save |
 | 6 | GPS and the **separate media queue** | P-2, P-5 | C-9. Media never blocks a transactional row |
@@ -807,4 +819,164 @@ this reason. **Tasks 1–7 are unblocked.**
 
 ---
 
-*Phase 1 is closed. No Flutter code exists. Phase 2 begins at task 0.*
+## 14. Phase 2 frozen decisions
+
+Decisions taken **during** Phase 2, after an independent review of the task 2 design. They
+bind implementation the way §1.3's principles do. Recorded here rather than in §7 because
+they were settled against evidence from the running system, not from the design.
+
+**Every claim below was checked against the repository.** Where the review that prompted
+them was wrong, the correction is recorded with it — a review's errors are as reusable as
+its findings.
+
+### 14.1 D-A1 — Delivery idempotency is keyed on `client_uuid`
+
+**Frozen.** `POST /deliveries/{id}/complete` and `POST /deliveries/{id}/fail` are
+contractually idempotent: `05` §9.4 marks both **`Idem ✓`**, §6's *"Applies to"* names
+`/complete`, and `M5_Design_Review` F-5/F-6 state *"Idempotent on `client_uuid`"*.
+
+**They do not honour that keying.** Verified in `fulfilment/services.py`: both take a row
+lock (`_lock_dispatched`) and then
+
+```python
+if locked.status != Delivery.Status.PENDING:
+    return locked        # F-5 / F-6
+```
+
+so replay is keyed on **`delivery.id` + status**, not on `client_uuid`.
+
+**What is already correct, and must not be broken by the fix:**
+
+| Guarantee | Evidence |
+| --- | --- |
+| No duplicate stock movement | `test_failing_twice_does_not_return_the_stock_twice` |
+| Completing twice is a no-op | `test_completing_twice_is_a_no_op` |
+| Replay returns the original resource, `200`, not an error | `Response(DeliverySerializer(delivery).data)` — satisfies I-4 |
+| Concurrent double-submit serialises | `SELECT … FOR UPDATE`, which is what I-6 exists to require |
+
+**Severity: a contract-conformance gap, not a data-integrity one.** The independent review
+rated it *Severe* on the ground that it could produce *"double stock movements"*. **It cannot** —
+the guard and its tests prevent exactly that. Recorded because a severity attached to an
+impossible consequence is how effort is spent in the wrong place.
+
+**Recorded as TD-39.**
+
+### 14.2 D-A2 — TD-39's scope and position
+
+**A separate Django milestone and commit, landing before task 3.**
+
+| | |
+| --- | --- |
+| **Does** | Accept `client_uuid` on `/complete` and `/fail`; on a seen key return **200 with the original resource** (I-4); leave behaviour unchanged when the field is absent |
+| **Does not** | Invent an M8-side operation store; migrate or pre-empt `sync_operation`, which is **M9's** (`04` T-26); change the `delivery` model's own `client_uuid`, which belongs to the *assignment* |
+| **Also** | Correct `05` §6's *"Applies to"* line, which lists `/complete` and **omits `/fail`** while §9.4 marks both ✓. The text is how someone later concludes `/fail` was never in scope |
+
+**Why separate from task 2.** It is a Django change inside a Dart milestone. Task 0 was kept
+separate for that reason and it held; **mixing toolchains in one commit is how a green gate
+stops meaning anything.**
+
+**Why before task 3.** The outbox schema stores a `client_uuid` per queued operation. If the
+endpoints do not accept one, task 3 either omits the column — and **AR-3** says an outbox
+schema change at M9 migrates devices holding unsent work — or persists a field the server
+ignores, which is worse than either.
+
+### 14.3 D-B1 — Refresh is single-flight  ·  **BUILT, task 2**
+
+**Frozen semantics:**
+
+> **Concurrent `401 TOKEN_EXPIRED` responses share exactly one refresh operation. Waiting
+> requests await the same result. On success each original request is retried exactly once.
+> A second `401` after that retry is terminal — sign out, never recurse.**
+
+**This is not a style preference.** `config/settings/base.py` sets
+
+```python
+"ROTATE_REFRESH_TOKENS": True,      # 05 §7.1
+"BLACKLIST_AFTER_ROTATION": True,   # reuse detection
+```
+
+Rotation **with blacklisting** is precisely the configuration under which parallel refresh is
+destructive: the first call rotates and blacklists the token, the second presents a
+blacklisted token, and **reuse detection treats it as an attack.** Three requests failing
+together can therefore log the user out of a working session. C-7's *"refresh once, then
+re-authenticate, never loop"* is the client half; this is what it means under concurrency.
+
+### 14.4 D-B2 — The refresh call is structurally isolated  ·  **BUILT, task 2**
+
+**Frozen.** `/auth/refresh` executes through a **separate `Dio` instance carrying neither
+`AuthInterceptor` nor `RefreshInterceptor`.**
+
+Isolation by construction, **not by a re-entrancy flag.** The same reasoning as
+`DashboardView` declaring only `JSONRenderer`: an absent interceptor cannot be defeated by a
+later edit, whereas a flag is a rule someone deletes while adding a feature. A refresh call
+that could itself trigger the refresh interceptor is an infinite loop reachable from one
+expired token.
+
+### 14.5 D-B3 — A retry preserves operation identity  ·  **BUILT, task 2**
+
+**Frozen.** Retrying a request replays the original request unchanged — body, request-scoped
+headers, and **especially any `client_uuid`**. **The retry must never generate a new operation
+identity.**
+
+This is **P-6** at the transport layer. `05` C-2 requires the key to be minted before the
+first attempt and reused on every retry; a refresh-and-retry path that rebuilds the request
+is the most plausible place in the whole client for a second UUID to appear, because the code
+that retries is not the code that created the operation.
+
+### 14.6 Rejected — a dashboard DTO in task 2
+
+The same review recommended a *"`TypedDict`-equivalent"* dashboard DTO with `Decimal` fields,
+to contain TD-36 on the client. **Rejected on scope and on principle.**
+
+- The dashboard is **task 8**, contracted at `05` §9.11.1. Task 2 has no caller for it.
+- `DeliverySerializer` was checked: **`/deliveries` carries no money at all**, only lat/long.
+  The DTO would have no caller in tasks 2–7 either.
+- **TD-36 is a server-side defect with a server-side fix.** Building a client-side workaround
+  now hard-codes a bug we intend to remove, and makes removing it a two-sided change.
+- *(`TypedDict` has no Dart meaning; Dart has classes and records. The recommendation carried
+  Python vocabulary into a Dart review.)*
+
+### 14.7 One thing the review got structurally wrong
+
+It cited **`M9_NEXT_TASK.md`** — a file that does not exist in this repository — and quoted it
+verbatim as the evidence for D-A1. The sentence is a restatement of an engineering note from
+the preceding session, re-presented as a citation.
+
+**The finding survived; the evidence for it did not.** Recorded because the finding was
+accepted on re-verification against the code, and would have been accepted for the wrong
+reason had nobody checked the source.
+
+### 14.8 What building §14.3–§14.5 taught
+
+**The decisions held. The thing that nearly defeated them was the test harness.**
+
+It stored live `RequestOptions`. D-B3 replays the *same* object — that is the mechanism, it
+is how the body and `client_uuid` survive — and `AuthInterceptor` then rewrites that object's
+header in place. So every recorded attempt showed the final token, and the assertion meant to
+prove P-6:
+
+```dart
+expect((writes.first.data as Map)['client_uuid'], (writes.last.data as Map)['client_uuid']);
+```
+
+was **comparing an object with itself.** A test that could not fail, guarding one of the three
+principles §1.3 calls unrepairable. Fixed by snapshotting each request at the adapter.
+
+**Two contract details the frozen text did not carry, both found by implementing it:**
+
+- **`device_id` goes in the body.** §7.2's diagram says *"device_id on every write"* and no
+  more. `05` §9's examples and the DRF serializers both read it from `request.data`; a
+  header would be accepted by the transport and ignored by the server — the silent
+  attribution loss C-10 exists to name.
+- **Offline during refresh must not sign the user out.** D-B1 specifies the 401 path and is
+  silent on a refresh that never arrives. Clearing the keystore there would end FR-IAM-016's
+  offline window at the first tunnel, so only a 401 clears.
+
+**And one framework default that would have made the whole decision inert:**
+`validateStatus: (_) => true` reads as tidy — every response becomes a value — but Dio then
+never enters its error path, and `RefreshInterceptor.onError` becomes code no 401 can reach.
+**D-B1 would have been implemented, documented, tested against a fake, and dead.**
+
+---
+
+*Phase 1 is closed. Phase 2 is at task 2; TD-39 lands between tasks 2 and 3.*

@@ -1,18 +1,24 @@
 # Next Task
 
-> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.3.0**, signed
+> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.5.0**, signed
 > 2026-08-10. Both ADRs approved: **Drift + SQLCipher** (§5.6), **Dio** (§7.5). Design
 > principles **P-1…P-10** frozen at §1.3.
 >
-> **Phase 2 tasks 0 and 1 are verified.** Task 0: `GET /reports/dashboard`, contracted at
-> `05` §9.11.1. Task 1: the Flutter shell, the four-layer structure, DI/routing, the pinned
-> toolchain and **16 blocking structural contracts** — 8/8, **742/742**, **94.88%**, `mypy`
-> clean, **3 contracts kept** (143 files, 271 dependencies).
+> **Phase 2 tasks 0, 1 and 2 are verified.** Task 0: `GET /reports/dashboard`. Task 1: the
+> Flutter shell, four layers, DI/routing, the pinned toolchain. Task 2: the API layer — Dio,
+> four interceptors, single-flight refresh, problem+json, the `Money` codec.
+>
+> `make verify` **8/8 · 743/743 · 94.88% · `mypy` clean over 115 files · 3 contracts kept
+> (143 files, 271 dependencies)**. `make mobile-verify` **38/38 · 0 analyzer errors · 3
+> non-fatal infos**.
 
 **Milestone:** M8 — Mobile app (3.0 units, `00` §19.1)
-**Phase:** **2 — Implementation. Tasks 0 and 1 of 10 done. Next: task 2.**
-**`mobile/` holds 18 Dart files and no feature behaviour.** No outbox, no delivery, no GPS,
-no photo, no Owner Companion Mode — all placeholders behind contracts that already bite.
+**Phase:** **2 — Implementation. Tasks 0, 1 and 2 of 10 done.**
+**Next: TD-39 — a Django milestone, before task 3.**
+
+**`mobile/` holds 25 Dart files and still no feature behaviour.** No outbox, no delivery, no
+GPS, no photo, no auth screens, no offline credential store, no Owner Companion Mode. Task 2
+built the transport every later task calls through, and nothing that uses it yet.
 
 ---
 
@@ -91,8 +97,9 @@ line instead of re-argued. The three that cannot be repaired after the fact:
 | --: | --- | --- |
 | ~~**0**~~ | ~~Backend: `GET /reports/dashboard`~~ | ✔ **DONE** — 8/8, 726/726, 94.88% |
 | ~~**1**~~ | ~~Toolchain, shell, DI, router; layering + no-secrets tests~~ | ✔ **DONE** — 8/8, **742/742**, 94.88%. 16 contracts, each proved able to fail |
-| **2** | **← NEXT. Decimal codec and the API layer** (Dio, interceptors, typed failures) | Build fails on any `double` in a money path |
-| **3** | **Drift schema, outbox, sequencer** | Kill · restart · storage exhaustion, at **every** write boundary |
+| ~~**2**~~ | ~~Decimal codec and the API layer~~ | ✔ **DONE** — 8/8, **743/743**, 94.88%; `mobile-verify` **38/38**, 0 errors |
+| **TD-39** | **← NEXT. Django, between 2 and 3.** `client_uuid` on `/deliveries/{id}/complete` and `/fail` | `make verify` 8/8. Additive; **no `sync_operation` migration** |
+| **3** | **Drift schema, outbox, sequencer**. **Blocked on TD-39** | Kill · restart · storage exhaustion, at **every** write boundary |
 | 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | C-7, FR-IAM-015/016 |
 | 5 | Delivery: list, detail, complete, fail | No screen touches the network to save |
 | 6 | GPS and the **separate media queue** | C-9 |
@@ -123,6 +130,43 @@ fail by mutating the tree, because a green test that cannot go red is not eviden
 > of the four reported the wrong layer** — a missing mount surfaced as *"the Flutter pin is
 > not stated exactly once"*. Expect task 2's surprises to be of the same kind, not in the
 > Dart.
+
+---
+
+## Task 2 — the frozen boundary, as built (`M8_Design_Review` §14)
+
+**Built, and nothing else:** Dio `ApiClient` · `AuthInterceptor` · **single-flight**
+`RefreshInterceptor` · `DeviceInterceptor` · problem+json → typed `Failure` · the `Money`
+codec · a `TokenStore` **interface only** · 29 Dart tests.
+
+**Held out, and still out:** the outbox (task 3) · auth screens, the keystore and the offline
+credential store (task 4) · **any dashboard DTO or dashboard-specific client code** (task 8,
+§14.6) · **TD-39** · any backend change.
+
+| # | Frozen | One line |
+| --- | --- | --- |
+| **D-B1** | Single-flight refresh | Concurrent `401`s share **one** refresh; each original request retries **exactly once**; a second `401` is terminal |
+| **D-B2** | Structural isolation | `/auth/refresh` runs on a **separate `Dio`** carrying neither auth nor refresh interceptor — not a re-entrancy flag |
+| **D-B3** | Identity-preserving retry | The retry replays the original request, **especially its `client_uuid`**. Never a new operation identity (P-6) |
+
+> **D-B1 is not a style preference.** The server sets `ROTATE_REFRESH_TOKENS: True` **and**
+> `BLACKLIST_AFTER_ROTATION: True`. Parallel refresh means the second call presents a
+> blacklisted token and **reuse detection treats it as an attack** — three requests failing
+> together can log a working session out.
+
+### What task 2 found
+
+| Finding | Where it landed |
+| --- | --- |
+| **`device_id` is a body field, not a header.** §7.2 only says *"on every write"*; `05` §9's examples and the DRF serializers both put it in `request.data`. A header would be accepted by the transport and **ignored by the server** — the exact attribution loss C-10 names | `DeviceInterceptor` injects into the body; a test asserts the header is absent |
+| **Offline during refresh must not sign the user out.** D-B1 covers the 401 and says nothing about a refresh that never reaches the server. Clearing the keystore there would end FR-IAM-016's window at the first tunnel | Only a 401 clears. Tested |
+| **`package:decimal` normalises `'11800.00'` to `'11800'`** — correct arithmetic, wrong transport, and a silent change to a field's declared scale | `Money` carries the scale it arrived with |
+
+> **The costliest defect was in the test harness, not the code.** It stored live
+> `RequestOptions`; D-B3 replays the *same* object and `AuthInterceptor` rewrites its header
+> in place, so every recorded attempt showed the last token — **and the `client_uuid`
+> assertion was comparing an object with itself.** A test that could not fail, guarding the
+> principle that cannot be repaired later. Fixed by snapshotting each request.
 
 ---
 
@@ -180,11 +224,11 @@ reaches the app, so read-only must be enforced by the absence of a server-side w
 
 | Item | Note |
 | --- | --- |
-| **Uncommitted** | Task 1's code and this documentation pass await the milestone commit. **`LICENSE` also shows as modified — line endings only (LF→CRLF), no content change.** `git checkout -- LICENSE` before committing so it does not ride along |
+| **Uncommitted** | Task 2's code and this documentation pass await the milestone commit. **`LICENSE` also shows as modified — line endings only (LF→CRLF), no content change.** `git checkout -- LICENSE` before committing so it does not ride along |
 | **Re-run `ops/report_performance.py`** after any change to a report or the §5A walk | Not in `make verify` and never will be — an 858-second dataset build has no place in an 8-stage gate, so **nothing else catches a regression of that class** |
 | **TD-29** | Nothing asserts a new report is wired into `REPORT_MENU`, the API router **and** the CSV path. **Task 0 adds an eighth report endpoint — this is the first time TD-29 can actually bite** |
 | **TD-31** | Clock-dependent tests. Four fixed; the class is not structurally prevented |
-| **TD-37** | **New. `mobile-verify` is not in `make verify`** — the 16 structural contracts are blocking, but *"does the Dart compile"* is not. Promote to stage 9 once the toolchain image has held for a milestone |
+| **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is still not in `make verify`. The 17 structural contracts are blocking, but *"does the Dart compile"* is not — and **the 29 Dart cases that prove D-B1/D-B2/D-B3 are invisible to the only authority.** The 743 figure does not include them. Promote to stage 9 once the toolchain image has held for a milestone |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `make mobile-image` prints the checksum; paste it into `FLUTTER_SHA256` and the gap closes |
 | **TD-36** | **On M8's path.** Money leaves the seven report endpoints as a JSON float. Fix by routing `_as_json`'s numeric cells through `money_string()` — added in task 0 for this reuse — in its own change, with its own verify run |
 | Deferred debt | TD-32, TD-33 (DRF stubs), TD-34 (`ops/` outside mypy), TD-35 (`pip-audit \|\| true`), TD-23, TD-26, TD-28, TD-14, TD-15 |

@@ -421,6 +421,30 @@ def test_no_flutter_command_is_separated_from_its_pub_get():
     )
 
 
+def test_the_refresh_client_carries_no_interceptors():
+    """**D-B2** — isolation is structural, not a re-entrancy flag.
+
+    `/auth/refresh` runs on a `Dio` that carries neither `AuthInterceptor` nor
+    `RefreshInterceptor`. A refresh call able to trigger the refresh interceptor is an
+    infinite loop reachable from one expired token, and a flag guarding it is a rule someone
+    deletes while adding a feature. An interceptor that was never added cannot be re-entered.
+
+    Asserted here rather than only in Dart because `make verify` is the only authority and
+    it does not run `flutter test` (TD-37).
+    """
+    client = LIB / "data" / "api" / "api_client.dart"
+    assert client.exists(), "api_client.dart is missing — this test would pass vacuously"
+    source = client.read_text(encoding="utf-8")
+
+    assert "_refreshDio.interceptors" not in source, (
+        "the refresh client was given interceptors; D-B2 requires it to carry none"
+    )
+    added = re.findall(r"(\w+)\.interceptors\s*\.\s*add", source)
+    assert set(added) <= {"_dio"}, (
+        f"only the main client may receive interceptors, found: {sorted(set(added))}"
+    )
+
+
 def test_no_mobile_check_is_silenced():
     """`|| true` is how a gate stops being one.
 
