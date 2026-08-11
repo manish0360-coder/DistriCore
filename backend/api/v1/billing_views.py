@@ -148,6 +148,7 @@ class DeliveryCompleteView(APIView):
             longitude=data.get("longitude"),
             photo_media=photo,
             device_id=data.get("device_id", ""),
+            client_uuid=data.get("client_uuid"),
         )
         return Response(DeliverySerializer(delivery).data)
 
@@ -165,6 +166,7 @@ class DeliveryFailView(APIView):
             delivery=_delivery(request, pk),
             reason=payload.validated_data["reason"],
             device_id=payload.validated_data.get("device_id", ""),
+            client_uuid=payload.validated_data.get("client_uuid"),
         )
         return Response(DeliverySerializer(delivery).data)
 

@@ -41,6 +41,10 @@ class DispatchSerializer(serializers.Serializer):
 
 
 class DeliveryCompleteSerializer(serializers.Serializer):
+    # TD-39 / `05` §6, §9.4 `Idem ✓`. **In the body**, per AD-09: the value is part of the
+    # resource — stored, queried and reported on — not a transport concern, so it is not a
+    # header. Optional: a caller that omits it gets exactly the previous behaviour.
+    client_uuid = serializers.UUIDField(required=False, allow_null=True)
     recipient_name = serializers.CharField(required=False, allow_blank=True, max_length=200)
     delivered_at = serializers.DateTimeField(required=False, allow_null=True)
     latitude = serializers.DecimalField(
@@ -64,6 +68,9 @@ class DeliveryCompleteSerializer(serializers.Serializer):
 
 
 class DeliveryFailSerializer(serializers.Serializer):
+    # TD-39. `05` §9.4 marks `/fail` `Idem ✓` alongside `/complete`; §6's "Applies to"
+    # line names only `/complete`, which is a documentation gap this milestone also closes.
+    client_uuid = serializers.UUIDField(required=False, allow_null=True)
     reason = serializers.CharField(max_length=500)
     device_id = serializers.CharField(required=False, allow_blank=True, max_length=64)
 

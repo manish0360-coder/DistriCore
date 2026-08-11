@@ -38,6 +38,19 @@ class Delivery(TimeStampedModel):
     # retried request that moved stock twice would be indistinguishable from two real
     # dispatches. The M8 app retries on a flaky rural connection by design.
     client_uuid = models.UUIDField(null=True, blank=True, unique=True)
+    # TD-39. **A second, separate key — not a reuse of the one above.**
+    #
+    # `client_uuid` identifies the *assignment*: the operation that created this row. The
+    # outcome is a different operation, captured on a different device at a different time,
+    # and `05` §9.4 marks `/complete` and `/fail` `Idem ✓` in their own right. One column
+    # cannot key two operations: a delivery assigned online and completed offline has two
+    # identities, and collapsing them would make the second replay indistinguishable from
+    # the first.
+    #
+    # Nullable because every delivery created before this migration has no outcome
+    # identity, and because a caller may still omit it (behaviour then is unchanged).
+    # `unique` because the constraint — not the service check — is the guarantee (I-6).
+    outcome_client_uuid = models.UUIDField(null=True, blank=True, unique=True)
 
     assigned_user = models.ForeignKey(
         "identity.User", on_delete=models.RESTRICT, related_name="deliveries"

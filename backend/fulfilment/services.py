@@ -27,7 +27,7 @@ import uuid as uuid_lib
 from decimal import Decimal
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from core.exceptions import ResourceNotFound, ValidationFailed
@@ -251,18 +251,29 @@ def complete_delivery(
     longitude: Decimal | None = None,
     photo_media: Any = None,
     device_id: str = "",
+    client_uuid: uuid_lib.UUID | str | None = None,
 ) -> Delivery:
     """Record a successful handover (FR-FUL-006). **Writes no stock.**
 
     The goods left at dispatch. Delivery confirms where they ended up; it does not move
     them again.
+
+    **Idempotent on ``client_uuid`` (TD-39, `05` §6 and §9.4).** The key is stored in
+    ``outcome_client_uuid``, which is *not* ``Delivery.client_uuid`` — that one identifies
+    the assignment. Omitting the key leaves every prior behaviour exactly as it was.
     """
     require_roles(actor, *Role.INTERNAL)
+
+    replay = _replay_of(client_uuid)
+    if replay is not None:
+        return replay  # I-4: the original resource, not a duplicate and not an error
+
     locked = _lock_dispatched(delivery)
 
     if locked.status != Delivery.Status.PENDING:
         return locked  # F-5: completing twice is a no-op, not a second delivery
 
+    locked.outcome_client_uuid = _as_uuid(client_uuid)
     locked.status = Delivery.Status.DELIVERED
     locked.delivered_at = delivered_at or timezone.now()
     locked.recipient_name = recipient_name[:200]
@@ -271,19 +282,33 @@ def complete_delivery(
     locked.photo_media = photo_media
     locked.device_id = device_id[:64]
     locked.synced_at = timezone.now()
-    locked.save(
-        update_fields=[
-            "status",
-            "delivered_at",
-            "recipient_name",
-            "latitude",
-            "longitude",
-            "photo_media",
-            "device_id",
-            "synced_at",
-            "updated_at",
-        ]
-    )
+    try:
+        # The savepoint matters, exactly as in `record_payment`: a check-then-write on
+        # `outcome_client_uuid` races, and `delivery_outcome_client_uuid_key` is the
+        # guarantee (I-6). Without it an IntegrityError would abort the caller's whole
+        # transaction, turning a legitimate retry into a 500 instead of the original row.
+        with transaction.atomic():
+            locked.save(
+                update_fields=[
+                    "outcome_client_uuid",
+                    "status",
+                    "delivered_at",
+                    "recipient_name",
+                    "latitude",
+                    "longitude",
+                    "photo_media",
+                    "device_id",
+                    "synced_at",
+                    "updated_at",
+                ]
+            )
+    except IntegrityError:
+        if not client_uuid:
+            raise
+        replay = _replay_of(client_uuid)
+        if replay is None:  # pragma: no cover - a different constraint fired
+            raise
+        return replay
     mark_delivered(actor=actor, order=locked.sales_order)
 
     record_audit(
@@ -303,7 +328,14 @@ def complete_delivery(
 
 
 @transaction.atomic
-def fail_delivery(*, actor: Any, delivery: Delivery, reason: str, device_id: str = "") -> Delivery:
+def fail_delivery(
+    *,
+    actor: Any,
+    delivery: Delivery,
+    reason: str,
+    device_id: str = "",
+    client_uuid: uuid_lib.UUID | str | None = None,
+) -> Delivery:
     """Record a failed handover and **bring the goods back** (M5-9, Scenario B).
 
     Writes a RETURN movement per line. It does **not** delete or edit the ISSUE: two rows
@@ -314,6 +346,11 @@ def fail_delivery(*, actor: Any, delivery: Delivery, reason: str, device_id: str
     billed for goods they never received is a separate commercial decision, taken
     separately, because the goods may simply be redelivered tomorrow. That separation is
     what makes the double-restock of Scenario F impossible.
+
+    **Idempotent on ``client_uuid`` (TD-39).** The identity is claimed *before* the RETURN
+    movements are written, not after: if the claim loses a race, the savepoint rolls back
+    and the goods are never returned twice. Writing the movements first and the key second
+    would leave a duplicate restock behind at exactly the moment the key told us not to.
     """
     require_roles(actor, *Role.INTERNAL)
     reason = (reason or "").strip()
@@ -323,10 +360,40 @@ def fail_delivery(*, actor: Any, delivery: Delivery, reason: str, device_id: str
             errors=[{"field": "reason", "code": "REQUIRED", "message": ""}],
         )
 
+    replay = _replay_of(client_uuid)
+    if replay is not None:
+        return replay  # I-4
+
     locked = _lock_dispatched(delivery)
     if locked.status != Delivery.Status.PENDING:
         return locked  # F-6: failing twice must not return the stock a second time
 
+    locked.outcome_client_uuid = _as_uuid(client_uuid)
+    locked.status = Delivery.Status.FAILED
+    locked.failure_reason = reason
+    locked.device_id = device_id[:64]
+    locked.synced_at = timezone.now()
+    try:
+        with transaction.atomic():
+            locked.save(
+                update_fields=[
+                    "outcome_client_uuid",
+                    "status",
+                    "failure_reason",
+                    "device_id",
+                    "synced_at",
+                    "updated_at",
+                ]
+            )
+    except IntegrityError:
+        if not client_uuid:
+            raise
+        replay = _replay_of(client_uuid)
+        if replay is None:  # pragma: no cover - a different constraint fired
+            raise
+        return replay
+
+    # Only now, with the outcome identity durably claimed, does stock move.
     for line in locked.sales_order.lines.select_related("product").all():
         record_movement(
             actor=actor,
@@ -336,12 +403,6 @@ def fail_delivery(*, actor: Any, delivery: Delivery, reason: str, device_id: str
             source_document=locked,
             notes=f"Failed delivery of {locked.sales_order.order_number}: {reason}"[:500],
         )
-
-    locked.status = Delivery.Status.FAILED
-    locked.failure_reason = reason
-    locked.device_id = device_id[:64]
-    locked.synced_at = timezone.now()
-    locked.save(update_fields=["status", "failure_reason", "device_id", "synced_at", "updated_at"])
 
     record_audit(
         action=AuditLog.Action.UPDATE,
@@ -354,6 +415,28 @@ def fail_delivery(*, actor: Any, delivery: Delivery, reason: str, device_id: str
     )
     logger.info("delivery_failed", extra={"delivery_id": locked.pk, "reason": reason})
     return locked
+
+
+def _as_uuid(client_uuid: uuid_lib.UUID | str | None) -> uuid_lib.UUID | None:
+    """Normalise to a UUID, or ``None``. A blank string is not an identity."""
+    if not client_uuid:
+        return None
+    if isinstance(client_uuid, uuid_lib.UUID):
+        return client_uuid
+    return uuid_lib.UUID(str(client_uuid))
+
+
+def _replay_of(client_uuid: uuid_lib.UUID | str | None) -> Delivery | None:
+    """The delivery this outcome key already belongs to, if any (TD-39, I-4).
+
+    A fast path, **not the guarantee** — two concurrent first-attempts both miss it. The
+    unique constraint is what makes the loser recoverable; this only spares the common
+    case a row lock it does not need.
+    """
+    key = _as_uuid(client_uuid)
+    if key is None:
+        return None
+    return Delivery.objects.filter(outcome_client_uuid=key).first()
 
 
 def _lock_dispatched(delivery: Delivery) -> Delivery:
