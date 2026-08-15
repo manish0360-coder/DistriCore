@@ -64,3 +64,21 @@ final class MalformedResponse extends Failure {
   const MalformedResponse(super.message, {this.status});
   final int? status;
 }
+
+/// **D-C3 — the durable write could not be made, because there is no room for it.**
+///
+/// Deliberately **not** [Offline], and the distinction is behavioural rather than tidy:
+/// `Offline` means *retry later and it will work*; this means *retrying changes nothing
+/// until space is freed*. Folding the two together produces an app that retries forever
+/// against a full disk and tells the user it is merely waiting for signal.
+///
+/// Also deliberately not an unhandled exception. §5.3 — *"the user is never told 'saved'
+/// before it is"* — and NFR-OFF-005 make a failed outbox write a **failed user action**,
+/// which is a value the UI must handle, not a crash.
+///
+/// `Failure` is sealed, so adding this member fans out at compile time across every
+/// `fold` in the app. That is the point of the sealed hierarchy, and the reason this is one
+/// new class rather than a flag on an existing one.
+final class StorageFull extends Failure {
+  const StorageFull([super.message = 'Not enough storage to save this.']);
+}

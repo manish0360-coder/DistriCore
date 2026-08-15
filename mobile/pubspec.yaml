@@ -24,11 +24,29 @@ dependencies:
   # any unquoted number, and one careless cast reintroduces the defect `core.fields`
   # protects on the server. A floor, not a pin — `pubspec.lock` is the pin.
   decimal: ^2.3.0
+  # M8 §5.6 ADR — the local database. Chosen for atomic multi-row commits, ordered reads
+  # and migration on a device that cannot be wiped (task 3).
+  drift: ^2.18.0
+  # The §5.6 ADR is Drift **with SQLCipher**: FR-SYN-016 and NFR-SEC-008 require the outbox
+  # encrypted at rest. The key comes from the keystore at task 4; task 3 opens the database
+  # through an injected key provider so the seam exists before the secret does.
+  sqlcipher_flutter_libs: ^0.6.0
+  # `data/outbox/storage_failure.dart` imports `package:sqlite3/common.dart` to read the
+  # engine's result codes (D-C3). An imported package must be a declared dependency, not a
+  # transitive one inherited from drift: relying on drift's dependency means a drift upgrade
+  # could drop sqlite3 from the graph and break an import that has nothing to do with drift.
+  sqlite3: ^3.5.1
+  path: ^1.9.0
+  path_provider: ^2.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # Drift is a code-generation package: `drift_dev` writes the `.g.dart` part files without
+  # which the schema does not compile. Run via `make mobile-codegen`.
+  drift_dev: ^2.18.0
+  build_runner: ^2.4.0
 
 flutter:
   uses-material-design: true

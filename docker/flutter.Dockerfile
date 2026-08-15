@@ -31,6 +31,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         git \
+        # Drift's `NativeDatabase` opens the system SQLite when `flutter test` runs on the
+        # Dart VM — there is no device to supply `sqlcipher_flutter_libs`. Without this the
+        # outbox tests fail on a missing `libsqlite3.so`, which reads like broken code and
+        # is broken plumbing (task 3).
+        libsqlite3-0 \
         unzip \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*

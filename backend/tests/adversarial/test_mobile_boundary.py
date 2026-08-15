@@ -482,6 +482,12 @@ def test_the_mobile_package_declares_no_floating_git_or_path_dependency():
     offenders = [
         line.strip()
         for line in pubspec.splitlines()
-        if re.match(r"^\s+(git|path):\s*\S", line) and "sdk: flutter" not in line
+        # **Four spaces, not two.** A path/git *source* is nested under a package key:
+        #     evil:
+        #       path: ../evil
+        # A top-level `  path: ^1.9.0` is the hosted pub.dev package *named* `path`, which
+        # task 3 legitimately depends on. The first version of this check flagged it, and a
+        # test that fails on a correct dependency gets deleted rather than heeded.
+        if re.match(r"^\s{4,}(git|path):\s*\S", line) and "sdk: flutter" not in line
     ]
     assert not offenders, f"non-reproducible dependency source: {offenders}"

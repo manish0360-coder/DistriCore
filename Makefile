@@ -208,6 +208,10 @@ mobile-lock: mobile-image ## Resolve mobile/pubspec.lock in the pinned Flutter c
 	$(FLUTTER_RUN) flutter pub get
 	@echo "  pubspec.lock written. Commit it — it is the pin (TD-21)."
 
+.PHONY: mobile-codegen
+mobile-codegen: mobile-image ## Drift/build_runner code generation (task 3). Commit the .g.dart output
+	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && dart run build_runner build --delete-conflicting-outputs'
+
 .PHONY: mobile-analyze
 mobile-analyze: mobile-image ## Dart static analysis
 	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter analyze $(FLUTTER_ANALYZE_SEVERITY)'
