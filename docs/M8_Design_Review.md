@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.6.1** |
+| Version | **1.6.2** |
 | Status | **Phase 1 FROZEN. Phase 2 — tasks 0, 1, 2 and TD-39 done and verified. All four §14.10 gates closed. Next: task 3** |
 | Date | 2026-08-11 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
@@ -23,6 +23,7 @@
 | **1.5.0** | **2026-08-11** | **Task 2 complete and verified** — API layer, four interceptors, single-flight refresh, problem+json, the `Money` codec. §10 task 2 struck; §14.3–§14.5 marked **built**; §14.8 added (what implementing the decisions taught). `make verify` 8/8 · 743/743 · 94.88%; `make mobile-verify` 38/38 · 0 errors |
 | **1.6.0** | **2026-08-11** | **§14.9 Task 3 decisions frozen** — D-C1 (`AUTOINCREMENT` PK as the local sequence), D-C2 (`client_created_at` demoted to metadata; the `operations` array is the order — corrected in `04` T-26 and `05` §11.2 PU-1…PU-4), D-C3 (storage-full `Failure` variant at the outbox write boundary), D-C4 (`device_id` batch-level, no outbox column). **§14.10 records the Task 3 gate.** Documentation only — no code changed |
 | **1.6.1** | **2026-08-11** | **TD-39 verified — §14.10 gate 1 CLOSED.** `make verify` 8/8 · **758/758** · **94.71%** · `mypy` clean over 115 files · 3 contracts kept (144 files, 271 dependencies) · `makemigrations --check` **No changes detected**. Patch version, not minor: **no architectural decision changed** — only a gate status and its evidence |
+| **1.6.2** | **2026-08-11** | **§14.11 — Task 3 gate contradiction resolved.** §10's task-3 Gate cell claimed *"Kill · restart · storage exhaustion, at every write boundary"*, which §9 and `00` §19.1 assign to `integration_test/` at the **M8→M9** boundary. Task 3's gate corrected to the hermetic subset. **No architectural decision changed; no code changed** |
 
 ---
 
@@ -625,7 +626,7 @@ so a review has something to check against.
 | ~~**0**~~ | ~~**Backend: `GET /reports/dashboard`**~~ | — | ✔ **DONE 2026-08-10** — 8/8, **726/726**, 94.88%, `mypy` clean, 3 contracts kept |
 | **1** | Toolchain, shell, DI, router; **`analysis_options.yaml` layering rule and the no-secrets structural test** | P-9, P-10 | The contract tests exist **before** the first feature |
 | ~~**2**~~ | ~~Decimal codec and the API layer~~ | — | ✔ **DONE 2026-08-11** — 8/8, **743/743**, 94.88%; `mobile-verify` **38/38**, 0 analyzer errors |
-| **3** | **← NEXT. Drift schema, outbox, sequencer.** ~~Blocked on TD-39~~ — **unblocked 2026-08-11**; decisions frozen at §14.9 | **P-2, P-5, P-6** | Kill · restart · storage exhaustion, at **every** write boundary |
+| **3** | **← NEXT. Drift schema, outbox, sequencer.** ~~Blocked on TD-39~~ — **unblocked 2026-08-11**; decisions frozen at §14.9 | **P-2, P-5, P-6** | Schema · sequence · PENDING-only append · **restart** durability · `StorageFull` classification. **Process-kill and real storage exhaustion are task 10's** (§14.11) |
 | 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | P-4, P-9 | C-7, FR-IAM-015, FR-IAM-016 |
 | 5 | Delivery: list, detail, complete, fail | P-1, P-2, P-7 | No screen touches the network to save |
 | 6 | GPS and the **separate media queue** | P-2, P-5 | C-9. Media never blocks a transactional row |
@@ -1094,6 +1095,51 @@ is small, is the cheaper direction than the migration AR-3 warns about.
 > reach. **The uncovered lines are the concurrency guarantee itself**, which is the honest
 > shape of this milestone: the mechanism that matters most is the one a serial test cannot
 > execute.
+
+### 14.11 Task 3's gate — the hermetic subset (ruling, 2026-08-11)
+
+**§10's task-3 Gate cell contradicted §9 and `00` §19.1, and the cell was wrong.** Recorded
+rather than quietly rewritten, because the contradiction was found by auditing a milestone
+that had already passed both gates — and a reader who finds only the corrected text learns
+nothing about how it got there.
+
+**The wording that was there:**
+
+> *Kill · restart · storage exhaustion, at **every** write boundary*
+
+**The evidence against it:**
+
+| Source | Text | Says |
+| --- | --- | --- |
+| `00` §19.1 | `\| M8 → M9 \| Outbox survives kill, restart and storage exhaustion \|` | A **milestone-boundary** gate, not a task gate |
+| §9 | `├── integration_test/    on-device: kill, restart, storage exhaustion` | The frozen folder structure puts all three **on a device** |
+| §10 task 10 | *"The 8-hour offline soak (NFR-OFF-001) and **the M8→M9 gate** … Measured on a real device, not assumed"* | Task 10 already owns that gate |
+| `02` NFR-OFF-005 | Verification method: *"Kill-test at each write boundary"* | Names the method; assigns it to no task |
+
+Three frozen sources place kill and storage exhaustion on-device at the milestone boundary.
+One table cell claimed them for task 3. **The cell loses.**
+
+**The ruling.** Task 3's gate is what can be proven hermetically, in `flutter test`, with no
+device:
+
+| In task 3's gate | Owned by task 10 |
+| --- | --- |
+| Drift schema | **Process-kill** (`kill -9` mid-write) |
+| Sequence correctness, including across purge | **Real storage exhaustion** (a genuinely full filesystem) |
+| `PENDING`-only append | The 8-hour soak (NFR-OFF-001) |
+| **Restart** durability — close, reopen, sequence continues | |
+| `StorageFull` **classification** from SQLite result codes | |
+
+**The distinction that matters:** task 3 proves the outbox *classifies* a full disk
+correctly; task 10 proves it *survives* one. The first is a mapping and needs no device; the
+second is a system property and cannot be faked without one.
+
+> **`mobile/integration_test/` does not exist**, and `make verify` cannot reach it (TD-37).
+> That is task 10's problem, and this ruling is what makes it task 10's problem rather than
+> an unstated debt inside task 3.
+
+**No architectural decision changed.** D-C1…D-C4 and §5.3 are untouched; only the table cell
+that misstated ownership.
 
 ---
 
