@@ -36,6 +36,10 @@ dependencies:
   # transitive one inherited from drift: relying on drift's dependency means a drift upgrade
   # could drop sqlite3 from the graph and break an import that has nothing to do with drift.
   sqlite3: ^3.5.1
+  # M8 §8.2 — the refresh token and device id live in the platform keystore, never in
+  # shared preferences. Wrapped behind `data/identity/secure_storage.dart` so the token
+  # store is unit-testable without a device (task 4 M1).
+  flutter_secure_storage: ^11.0.0
   path: ^1.9.0
   path_provider: ^2.1.0
 
