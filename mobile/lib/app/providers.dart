@@ -8,10 +8,14 @@ import '../data/api/tokens.dart';
 import '../data/db/app_database.dart';
 import '../data/identity/auth_service.dart';
 import '../data/identity/session_restorer.dart';
+import '../data/repositories/drift_outbox_repository.dart';
 import '../data/repositories/identity_cache.dart';
+import '../data/repositories/outbox_delivery_repository.dart';
 import '../data/repositories/token_session_repository.dart';
+import '../domain/delivery/delivery_repository.dart';
 import '../domain/identity/session.dart';
 import '../domain/identity/session_repository.dart';
+import '../domain/outbox/outbox_repository.dart';
 
 /// **The composition root.** The only place an interface is bound to an implementation.
 ///
@@ -66,6 +70,21 @@ final offlineWindowProvider = Provider<Duration>(
 
 final identityCacheProvider = Provider<IdentityCache>(
   (ref) => IdentityCache(ref.watch(appDatabaseProvider)),
+);
+
+/// The one outbox (M8 §5.3). Bound to the `domain` interface, so a screen that ever needs a
+/// queue depth asks for `OutboxRepository` and never learns Drift exists.
+final outboxRepositoryProvider = Provider<OutboxRepository>(
+  (ref) => DriftOutboxRepository(ref.watch(appDatabaseProvider)),
+);
+
+/// Deliveries: read through `ApiClient`, written through the outbox (T5, P-2).
+final deliveryRepositoryImplProvider = Provider<DeliveryRepository>(
+  (ref) => OutboxDeliveryRepository(
+    api: ref.watch(apiClientProvider),
+    outbox: ref.watch(outboxRepositoryProvider),
+    clock: ref.watch(clockProvider),
+  ),
 );
 
 final sessionRestorerProvider = Provider<SessionRestorer>(

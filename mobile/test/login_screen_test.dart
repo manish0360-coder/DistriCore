@@ -19,9 +19,12 @@ import 'package:districore/features/auth/auth_providers.dart';
 import 'package:districore/features/auth/login_controller.dart';
 import 'package:districore/features/auth/login_screen.dart';
 import 'package:districore/features/deliveries/deliveries_screen.dart';
+import 'package:districore/features/deliveries/delivery_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/empty_deliveries.dart';
 
 const _phone = '9876543210';
 const _code = '482913';
@@ -374,6 +377,12 @@ void main() {
       overrides: [
         sessionRepositoryProvider.overrideWithValue(repository),
         authenticatorProvider.overrideWithValue(FakeAuthenticator()),
+        // **Required because this test reaches the shell, not because it is about
+        // deliveries.** Landing on `/deliveries` builds `DeliveriesScreen`, whose `initState`
+        // reads the override-required delivery port. Without this the `StateError` is thrown
+        // inside a frame and reappears as a `pumpAndSettle` timeout — a failure that names
+        // the wrong layer, which this project has paid for before.
+        deliveryRepositoryProvider.overrideWithValue(const EmptyDeliveryRepository()),
       ],
     );
     addTearDown(container.dispose);

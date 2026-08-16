@@ -11,6 +11,7 @@ import '../data/db/platform_database_key.dart';
 import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
 import '../features/auth/auth_providers.dart';
+import '../features/deliveries/delivery_providers.dart';
 import 'app.dart';
 import 'config.dart';
 import 'providers.dart';
@@ -101,6 +102,11 @@ ProviderContainer buildRootContainer({
         // declared beside the screen that needs it and bound here, where both sides are
         // visible. `AuthService` already implements the port; nothing is adapted.
         authenticatorProvider.overrideWith((ref) => ref.watch(authServiceProvider)),
+        // Same crossing as `authenticatorProvider`, same reason: the delivery feature
+        // declares the port it needs and the composition root is the only place that knows
+        // which implementation satisfies it (T5).
+        deliveryRepositoryProvider
+            .overrideWith((ref) => ref.watch(deliveryRepositoryImplProvider)),
       ],
     );
 
