@@ -1,5 +1,7 @@
 import '../../core/failure.dart';
 import '../../core/result.dart';
+import '../../domain/identity/authenticator.dart';
+import '../../domain/identity/otp_challenge.dart';
 import '../../domain/identity/session.dart';
 import '../api/api_client.dart';
 import '../api/tokens.dart';
@@ -13,7 +15,10 @@ import 'user_dto.dart';
 /// Both end in the same three steps — persist the credentials, build the session, publish
 /// it once — so they share one private path. Two copies would eventually disagree about
 /// which happens first, and the ordering is the part that matters.
-final class AuthService {
+///
+/// Implements [Authenticator] so `features/` can depend on the interface without importing
+/// `data/` (M5). No method was renamed to fit the port.
+final class AuthService implements Authenticator {
   const AuthService({
     required ApiClient api,
     required TokenStore tokens,
@@ -39,12 +44,13 @@ final class AuthService {
   /// Rate limiting and validation arrive as the ordinary `05` §5 codes — `OTP_RATE_LIMITED`,
   /// `VALIDATION_FAILED` — and stay [ProblemFailure], because the client branches on `code`
   /// and inventing a bespoke failure here would hide it.
+  @override
   Future<Result<OtpChallenge>> requestOtp(String phone) async {
     try {
       return await _api.post<OtpChallenge>(
         otpRequestPath,
         body: <String, dynamic>{'phone': phone},
-        decode: OtpChallenge.fromJson,
+        decode: parseOtpChallenge,
       );
     } on AuthPayloadException catch (error) {
       return Err(MalformedResponse(error.reason));
@@ -57,6 +63,7 @@ final class AuthService {
   /// that lacks one, reading the value `SecureTokenStore` minted at first launch (C-10,
   /// §8.4) — and the server's serializer accepts it as optional precisely so one mechanism
   /// can supply it. Setting it here as well would be a second source for one fact.
+  @override
   Future<Result<Session>> verifyOtp({
     required String phone,
     required String code,
@@ -64,6 +71,7 @@ final class AuthService {
       _authenticate(otpVerifyPath, <String, dynamic>{'phone': phone, 'code': code});
 
   /// Internal fallback (§8.1). Same bundle, same handling.
+  @override
   Future<Result<Session>> loginWithPassword({
     required String phone,
     required String password,

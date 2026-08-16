@@ -1,29 +1,24 @@
+import '../../domain/identity/otp_challenge.dart';
 import 'user_dto.dart';
 
-/// The `202` from `POST /auth/otp/request` (`05` §10.1).
+/// Parse the `202` from `POST /auth/otp/request` (`05` §10.1).
 ///
-/// **Says nothing about whether the phone is registered**, and neither may any caller. The
-/// server answers the same shape either way — `05` §5.1 gives `INVALID_CREDENTIALS` the note
-/// *"never reveal which"* — so a client that branched on this would reintroduce the
-/// enumeration oracle the server is careful not to be.
-final class OtpChallenge {
-  const OtpChallenge({required this.expiresInSeconds, required this.attemptsAllowed});
-
-  factory OtpChallenge.fromJson(Object? body) {
-    if (body is! Map) throw const AuthPayloadException('not an object');
-    final expires = body['expires_in_seconds'];
-    final attempts = body['attempts_allowed'];
-    if (expires is! int) {
-      throw const AuthPayloadException('expires_in_seconds missing or not an integer');
-    }
-    if (attempts is! int) {
-      throw const AuthPayloadException('attempts_allowed missing or not an integer');
-    }
-    return OtpChallenge(expiresInSeconds: expires, attemptsAllowed: attempts);
+/// **A function rather than a `fromJson` factory**, because the type it builds now lives in
+/// `domain/` where `features/` can see it — the same split as `UserDto.toSession()`, where
+/// the wire shape stays in `data/` and the thing screens hold does not. Putting the parser
+/// on the domain class instead would drag `05`'s field names into a layer that must not know
+/// there is a wire.
+OtpChallenge parseOtpChallenge(Object? body) {
+  if (body is! Map) throw const AuthPayloadException('not an object');
+  final expires = body['expires_in_seconds'];
+  final attempts = body['attempts_allowed'];
+  if (expires is! int) {
+    throw const AuthPayloadException('expires_in_seconds missing or not an integer');
   }
-
-  final int expiresInSeconds;
-  final int attemptsAllowed;
+  if (attempts is! int) {
+    throw const AuthPayloadException('attempts_allowed missing or not an integer');
+  }
+  return OtpChallenge(expiresInSeconds: expires, attemptsAllowed: attempts);
 }
 
 /// The `200` bundle returned by **both** `/auth/otp/verify` and `/auth/login`.

@@ -7,6 +7,7 @@ import '../data/api/api_client.dart';
 import '../data/api/tokens.dart';
 import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
+import '../features/auth/auth_providers.dart';
 import 'app.dart';
 import 'config.dart';
 import 'providers.dart';
@@ -72,6 +73,11 @@ ProviderContainer buildRootContainer({
             tokens: ref.watch(tokenStoreProvider),
           ),
         ),
+        // **The only place the login feature meets its implementation** (M5).
+        // `features/` cannot import `data/` or `app/`, so `authenticatorProvider` is
+        // declared beside the screen that needs it and bound here, where both sides are
+        // visible. `AuthService` already implements the port; nothing is adapted.
+        authenticatorProvider.overrideWith((ref) => ref.watch(authServiceProvider)),
       ],
     );
 
