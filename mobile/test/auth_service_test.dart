@@ -5,6 +5,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:districore/core/clock.dart';
 import 'package:districore/core/failure.dart';
 import 'package:districore/core/result.dart';
 import 'package:districore/data/api/api_client.dart';
@@ -17,6 +18,7 @@ import 'package:districore/domain/identity/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_adapter.dart';
+import 'support/memory_database.dart';
 
 const _phone = '+919876543210';
 const _code = '482913';
@@ -50,9 +52,17 @@ Map<String, dynamic> _bundle({Map<String, dynamic>? user}) => <String, dynamic>{
     dio: Dio()..httpClientAdapter = adapter,
     refreshDio: Dio()..httpClientAdapter = adapter,
   );
+  final store = memoryIdentity();
   final sessions = TokenSessionRepository(
     tokens: tokens,
-    restorer: SessionRestorer(tokens: tokens, api: api),
+    restorer: SessionRestorer(
+      tokens: tokens,
+      api: api,
+      identity: store.identity,
+      clock: const SystemClock(),
+      offlineWindow: const Duration(days: 7),
+    ),
+    identity: store.identity,
   );
   return (
     auth: AuthService(api: api, tokens: tokens, sessions: sessions),

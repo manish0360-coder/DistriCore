@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/clock.dart';
 import '../data/api/api_client.dart';
 import '../data/api/tokens.dart';
+import '../data/db/app_database.dart';
 import '../data/identity/auth_service.dart';
 import '../data/identity/session_restorer.dart';
+import '../data/repositories/identity_cache.dart';
 import '../data/repositories/token_session_repository.dart';
 import '../domain/identity/session.dart';
 import '../domain/identity/session_repository.dart';
@@ -48,10 +50,31 @@ final apiClientProvider = Provider<ApiClient>(
   (ref) => throw StateError('apiClientProvider must be overridden at start-up'),
 );
 
+/// The encrypted local database (M6). Opened by `bootstrap`, because keying it needs the
+/// keystore and creating it needs a file path — neither of which exists at declaration time.
+final appDatabaseProvider = Provider<AppDatabase>(
+  (ref) => throw StateError('appDatabaseProvider must be overridden at start-up'),
+);
+
+/// `DISTRICORE_OFFLINE_WINDOW_DAYS` (D-D2), read from `AppConfig` by the composition root.
+///
+/// Declared here rather than reached for directly because `data/` may not import `app/` —
+/// the restorer receives a `Duration`, not a configuration object.
+final offlineWindowProvider = Provider<Duration>(
+  (ref) => throw StateError('offlineWindowProvider must be overridden at start-up'),
+);
+
+final identityCacheProvider = Provider<IdentityCache>(
+  (ref) => IdentityCache(ref.watch(appDatabaseProvider)),
+);
+
 final sessionRestorerProvider = Provider<SessionRestorer>(
   (ref) => SessionRestorer(
     tokens: ref.watch(tokenStoreProvider),
     api: ref.watch(apiClientProvider),
+    identity: ref.watch(identityCacheProvider),
+    clock: ref.watch(clockProvider),
+    offlineWindow: ref.watch(offlineWindowProvider),
   ),
 );
 
@@ -62,6 +85,7 @@ final tokenSessionRepositoryProvider = Provider<TokenSessionRepository>((ref) {
   final repository = TokenSessionRepository(
     tokens: ref.watch(tokenStoreProvider),
     restorer: ref.watch(sessionRestorerProvider),
+    identity: ref.watch(identityCacheProvider),
   );
   ref.onDispose(repository.dispose);
   return repository;

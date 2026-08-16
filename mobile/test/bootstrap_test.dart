@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_adapter.dart';
+import 'support/memory_database.dart';
 
 /// A path prefix on purpose: the API is mounted at `/api/v1/` while the client declares
 /// `/auth/me`, so a base URL without one would not reach an endpoint on a real deployment.
@@ -54,6 +55,7 @@ ResponseBody _serverError() => jsonBody(500, {
   final container = buildRootContainer(
     config: AppConfig.parse(_baseUrl),
     tokens: tokens,
+    database: memoryIdentity().db,
   );
   addTearDown(container.dispose);
 

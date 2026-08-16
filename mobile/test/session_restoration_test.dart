@@ -9,14 +9,17 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:districore/core/failure.dart';
 import 'package:districore/core/result.dart';
+import 'package:districore/core/clock.dart';
 import 'package:districore/data/api/api_client.dart';
 import 'package:districore/data/identity/session_restorer.dart';
+import 'package:districore/data/repositories/identity_cache.dart';
 import 'package:districore/data/repositories/token_session_repository.dart';
 import 'package:districore/domain/identity/role.dart';
 import 'package:districore/domain/identity/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_adapter.dart';
+import 'support/memory_database.dart';
 
 Map<String, dynamic> _user({
   List<String> roles = const ['SALESMAN', 'DELIVERY'],
@@ -31,7 +34,12 @@ Map<String, dynamic> _user({
       'customer_id': customerId,
     };
 
-({SessionRestorer restorer, FakeAdapter adapter, FakeTokens tokens}) build({
+({
+  SessionRestorer restorer,
+  FakeAdapter adapter,
+  FakeTokens tokens,
+  IdentityCache identity,
+}) build({
   required FutureOr<ResponseBody> Function(RequestOptions, int) script,
   String? refreshToken = 'refresh-1',
 }) {
@@ -44,7 +52,22 @@ Map<String, dynamic> _user({
     dio: Dio()..httpClientAdapter = adapter,
     refreshDio: Dio()..httpClientAdapter = adapter,
   );
-  return (restorer: SessionRestorer(tokens: tokens, api: api), adapter: adapter, tokens: tokens);
+  // A real in-memory database. **The M6 window logic is inert in this file on purpose**:
+  // these fakes carry `'refresh-1'`, which is not a JWT, so `RefreshClaims.tryParse` returns
+  // null and every assertion below still describes the server round-trip it always did.
+  final store = memoryIdentity();
+  return (
+    restorer: SessionRestorer(
+      tokens: tokens,
+      api: api,
+      identity: store.identity,
+      clock: const SystemClock(),
+      offlineWindow: const Duration(days: 7),
+    ),
+    adapter: adapter,
+    tokens: tokens,
+    identity: store.identity,
+  );
 }
 
 void main() {
@@ -222,9 +245,18 @@ void main() {
 
   group('TokenSessionRepository', () {
     TokenSessionRepository repositoryFor(
-      ({SessionRestorer restorer, FakeAdapter adapter, FakeTokens tokens}) env,
+      ({
+        SessionRestorer restorer,
+        FakeAdapter adapter,
+        FakeTokens tokens,
+        IdentityCache identity,
+      }) env,
     ) =>
-        TokenSessionRepository(tokens: env.tokens, restorer: env.restorer);
+        TokenSessionRepository(
+          tokens: env.tokens,
+          restorer: env.restorer,
+          identity: env.identity,
+        );
 
     test('current() before restoration is Ok(null), never a throw', () async {
       final env = build(script: (_, __) async => jsonBody(200, _user()));

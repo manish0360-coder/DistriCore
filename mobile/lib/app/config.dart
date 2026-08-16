@@ -44,11 +44,19 @@ final class ConfigurationException implements Exception {
 /// somewhere to live and the second setting does not arrive as a second parameter threaded
 /// through `bootstrap`.
 final class AppConfig {
-  const AppConfig._(this.baseUrl);
+  const AppConfig._(this.baseUrl, this.offlineWindow);
 
   /// Absolute, `https`, no trailing slash. Safe to concatenate with the leading-slash paths
   /// the API layer declares (`/auth/login`, `/auth/me`, …).
   final String baseUrl;
+
+  /// **D-D2.** The FR-IAM-016 offline window.
+  ///
+  /// Unlike [baseUrl] this one **has a default**, and the difference is not inconsistency:
+  /// a base URL is a deployment fact nobody can guess, while 7 days is a frozen product
+  /// requirement (OI-5). A build that omits it is correct; a build that omits the host is a
+  /// defect.
+  final Duration offlineWindow;
 
   /// The `--dart-define` name, stated once. `00` §9's convention: `DISTRICORE_` prefix,
   /// `SCREAMING_SNAKE_CASE`.
@@ -62,13 +70,22 @@ final class AppConfig {
   /// `String.fromEnvironment` is guaranteed to see the compile-time environment.
   static const _rawBaseUrl = String.fromEnvironment(baseUrlVariable);
 
-  /// Reads the value baked in at compile time. Throws [ConfigurationException] if the build
-  /// did not supply a usable one.
-  factory AppConfig.fromEnvironment() => AppConfig.parse(_rawBaseUrl);
+  /// **D-D2.** `00` §9's convention again: `DISTRICORE_` prefix, `SCREAMING_SNAKE_CASE`.
+  static const offlineWindowVariable = 'DISTRICORE_OFFLINE_WINDOW_DAYS';
+
+  /// OI-5. Stated once, here, and nowhere else in the codebase.
+  static const defaultOfflineWindowDays = 7;
+
+  static const _rawOfflineWindowDays = String.fromEnvironment(offlineWindowVariable);
+
+  /// Reads the values baked in at compile time. Throws [ConfigurationException] if the build
+  /// did not supply usable ones.
+  factory AppConfig.fromEnvironment() =>
+      AppConfig.parse(_rawBaseUrl, rawOfflineWindowDays: _rawOfflineWindowDays);
 
   /// The validation, separated from the environment read so that every rule below is
   /// testable without recompiling the suite once per case.
-  factory AppConfig.parse(String raw) {
+  factory AppConfig.parse(String raw, {String rawOfflineWindowDays = ''}) {
     final value = raw.trim();
 
     if (value.isEmpty) {
@@ -128,9 +145,39 @@ final class AppConfig {
     // (`config/urls.py`) while the client declares paths as `/auth/login`. Trailing slashes
     // are trimmed so that concatenation cannot produce `…/api/v1//auth/login`.
     final path = uri.path.replaceAll(_trailingSlashes, '');
-    return AppConfig._(uri.replace(path: path).toString());
+    return AppConfig._(
+      uri.replace(path: path).toString(),
+      _parseOfflineWindow(rawOfflineWindowDays),
+    );
+  }
+
+  /// **D-D2.** Absent means OI-5's 7 days. Present means it must be a usable number of days.
+  ///
+  /// Rejected **before `runApp`**, like every other configuration error here: a build that
+  /// says `0` has asked for an app that locks out instantly, and a build that says `-1` has
+  /// asked for one that never locks out at all. Neither is what anyone meant, and both would
+  /// otherwise be discovered by a salesman rather than by a build.
+  static Duration _parseOfflineWindow(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return const Duration(days: defaultOfflineWindowDays);
+
+    final days = int.tryParse(value);
+    if (days == null) {
+      throw const ConfigurationException(
+        offlineWindowVariable,
+        'is not a whole number of days',
+      );
+    }
+    if (days <= 0) {
+      throw ConfigurationException(
+        offlineWindowVariable,
+        'is $days — it must be a positive number of days',
+      );
+    }
+    return Duration(days: days);
   }
 
   @override
-  String toString() => 'AppConfig(baseUrl: $baseUrl)';
+  String toString() =>
+      'AppConfig(baseUrl: $baseUrl, offlineWindow: ${offlineWindow.inDays}d)';
 }

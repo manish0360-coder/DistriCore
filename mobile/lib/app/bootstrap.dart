@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/api/api_client.dart';
 import '../data/api/tokens.dart';
+import '../data/db/app_database.dart';
+import '../data/db/connection.dart';
+import '../data/db/platform_database_key.dart';
 import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
 import '../features/auth/auth_providers.dart';
@@ -37,8 +40,23 @@ Future<void> bootstrap() async {
   // Fails closed, before anything is constructed and long before anything is rendered.
   final config = AppConfig.fromEnvironment();
 
-  final tokens = await SecureTokenStore.open(const PlatformSecureStorage());
-  final container = buildRootContainer(config: config, tokens: tokens);
+  const storage = PlatformSecureStorage();
+  final tokens = await SecureTokenStore.open(storage);
+
+  // **The database is opened here, before the first frame, and keyed from the keystore.**
+  // Task 3 built the schema and left `DatabaseKeyProvider` unimplemented on purpose — *"a
+  // placeholder key compiled into the binary would satisfy the type system and violate
+  // P-9"*. M6 is the first milestone that reads local data at start-up, so it is the one
+  // that pays that deferral.
+  final database = AppDatabase(
+    await openDeviceDatabase(const PlatformDatabaseKey(storage)),
+  );
+
+  final container = buildRootContainer(
+    config: config,
+    tokens: tokens,
+    database: database,
+  );
 
   runApp(
     UncontrolledProviderScope(
@@ -63,10 +81,15 @@ Future<void> bootstrap() async {
 ProviderContainer buildRootContainer({
   required AppConfig config,
   required TokenStore tokens,
+  required AppDatabase database,
 }) =>
     ProviderContainer(
       overrides: [
         tokenStoreProvider.overrideWithValue(tokens),
+        appDatabaseProvider.overrideWithValue(database),
+        // `data/` may not import `app/`, so the window crosses the boundary as a plain
+        // `Duration` rather than as an `AppConfig` the restorer would have to know about.
+        offlineWindowProvider.overrideWithValue(config.offlineWindow),
         apiClientProvider.overrideWith(
           (ref) => ApiClient(
             baseUrl: config.baseUrl,

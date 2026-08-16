@@ -445,17 +445,384 @@ class OutboxOperationsCompanion extends UpdateCompanion<OutboxRow> {
   }
 }
 
+class $LocalIdentitiesTable extends LocalIdentities
+    with TableInfo<$LocalIdentitiesTable, LocalIdentityRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LocalIdentitiesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<int> userId = GeneratedColumn<int>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _fullNameMeta = const VerificationMeta(
+    'fullName',
+  );
+  @override
+  late final GeneratedColumn<String> fullName = GeneratedColumn<String>(
+    'full_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _rolesMeta = const VerificationMeta('roles');
+  @override
+  late final GeneratedColumn<String> roles = GeneratedColumn<String>(
+    'roles',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _customerIdMeta = const VerificationMeta(
+    'customerId',
+  );
+  @override
+  late final GeneratedColumn<int> customerId = GeneratedColumn<int>(
+    'customer_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    userId,
+    fullName,
+    roles,
+    customerId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'local_identity';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<LocalIdentityRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('full_name')) {
+      context.handle(
+        _fullNameMeta,
+        fullName.isAcceptableOrUnknown(data['full_name']!, _fullNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fullNameMeta);
+    }
+    if (data.containsKey('roles')) {
+      context.handle(
+        _rolesMeta,
+        roles.isAcceptableOrUnknown(data['roles']!, _rolesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_rolesMeta);
+    }
+    if (data.containsKey('customer_id')) {
+      context.handle(
+        _customerIdMeta,
+        customerId.isAcceptableOrUnknown(data['customer_id']!, _customerIdMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  LocalIdentityRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LocalIdentityRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}user_id'],
+      )!,
+      fullName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}full_name'],
+      )!,
+      roles: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}roles'],
+      )!,
+      customerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}customer_id'],
+      ),
+    );
+  }
+
+  @override
+  $LocalIdentitiesTable createAlias(String alias) {
+    return $LocalIdentitiesTable(attachedDatabase, alias);
+  }
+}
+
+class LocalIdentityRow extends DataClass
+    implements Insertable<LocalIdentityRow> {
+  /// **Always 1.** One device, one signed-in user; a second row would make "which identity?"
+  /// a question every reader has to answer.
+  final int id;
+  final int userId;
+  final String fullName;
+
+  /// A JSON array of `Role.code` strings — `["SALESMAN","DELIVERY"]`.
+  ///
+  /// **An array, because P-7 and `05` C-12 say roles are an array.** Flattening to a single
+  /// "primary role" here would reintroduce, in storage, the exact bug the tab bar was
+  /// written to avoid. Codes rather than enum indices: reordering the Dart enum must not
+  /// silently reinterpret a row already sitting on a device (the same reasoning as
+  /// `outbox_operation.status`).
+  final String roles;
+
+  /// The shop a `RETAILER` *is* (`05` AD-11). Null for internal staff.
+  final int? customerId;
+  const LocalIdentityRow({
+    required this.id,
+    required this.userId,
+    required this.fullName,
+    required this.roles,
+    this.customerId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['user_id'] = Variable<int>(userId);
+    map['full_name'] = Variable<String>(fullName);
+    map['roles'] = Variable<String>(roles);
+    if (!nullToAbsent || customerId != null) {
+      map['customer_id'] = Variable<int>(customerId);
+    }
+    return map;
+  }
+
+  LocalIdentitiesCompanion toCompanion(bool nullToAbsent) {
+    return LocalIdentitiesCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      fullName: Value(fullName),
+      roles: Value(roles),
+      customerId: customerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(customerId),
+    );
+  }
+
+  factory LocalIdentityRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LocalIdentityRow(
+      id: serializer.fromJson<int>(json['id']),
+      userId: serializer.fromJson<int>(json['userId']),
+      fullName: serializer.fromJson<String>(json['fullName']),
+      roles: serializer.fromJson<String>(json['roles']),
+      customerId: serializer.fromJson<int?>(json['customerId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'userId': serializer.toJson<int>(userId),
+      'fullName': serializer.toJson<String>(fullName),
+      'roles': serializer.toJson<String>(roles),
+      'customerId': serializer.toJson<int?>(customerId),
+    };
+  }
+
+  LocalIdentityRow copyWith({
+    int? id,
+    int? userId,
+    String? fullName,
+    String? roles,
+    Value<int?> customerId = const Value.absent(),
+  }) => LocalIdentityRow(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    fullName: fullName ?? this.fullName,
+    roles: roles ?? this.roles,
+    customerId: customerId.present ? customerId.value : this.customerId,
+  );
+  LocalIdentityRow copyWithCompanion(LocalIdentitiesCompanion data) {
+    return LocalIdentityRow(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      fullName: data.fullName.present ? data.fullName.value : this.fullName,
+      roles: data.roles.present ? data.roles.value : this.roles,
+      customerId: data.customerId.present
+          ? data.customerId.value
+          : this.customerId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LocalIdentityRow(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('fullName: $fullName, ')
+          ..write('roles: $roles, ')
+          ..write('customerId: $customerId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, userId, fullName, roles, customerId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LocalIdentityRow &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.fullName == this.fullName &&
+          other.roles == this.roles &&
+          other.customerId == this.customerId);
+}
+
+class LocalIdentitiesCompanion extends UpdateCompanion<LocalIdentityRow> {
+  final Value<int> id;
+  final Value<int> userId;
+  final Value<String> fullName;
+  final Value<String> roles;
+  final Value<int?> customerId;
+  const LocalIdentitiesCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.fullName = const Value.absent(),
+    this.roles = const Value.absent(),
+    this.customerId = const Value.absent(),
+  });
+  LocalIdentitiesCompanion.insert({
+    this.id = const Value.absent(),
+    required int userId,
+    required String fullName,
+    required String roles,
+    this.customerId = const Value.absent(),
+  }) : userId = Value(userId),
+       fullName = Value(fullName),
+       roles = Value(roles);
+  static Insertable<LocalIdentityRow> custom({
+    Expression<int>? id,
+    Expression<int>? userId,
+    Expression<String>? fullName,
+    Expression<String>? roles,
+    Expression<int>? customerId,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (fullName != null) 'full_name': fullName,
+      if (roles != null) 'roles': roles,
+      if (customerId != null) 'customer_id': customerId,
+    });
+  }
+
+  LocalIdentitiesCompanion copyWith({
+    Value<int>? id,
+    Value<int>? userId,
+    Value<String>? fullName,
+    Value<String>? roles,
+    Value<int?>? customerId,
+  }) {
+    return LocalIdentitiesCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      fullName: fullName ?? this.fullName,
+      roles: roles ?? this.roles,
+      customerId: customerId ?? this.customerId,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<int>(userId.value);
+    }
+    if (fullName.present) {
+      map['full_name'] = Variable<String>(fullName.value);
+    }
+    if (roles.present) {
+      map['roles'] = Variable<String>(roles.value);
+    }
+    if (customerId.present) {
+      map['customer_id'] = Variable<int>(customerId.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LocalIdentitiesCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('fullName: $fullName, ')
+          ..write('roles: $roles, ')
+          ..write('customerId: $customerId')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $OutboxOperationsTable outboxOperations = $OutboxOperationsTable(
     this,
   );
+  late final $LocalIdentitiesTable localIdentities = $LocalIdentitiesTable(
+    this,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [outboxOperations];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+    outboxOperations,
+    localIdentities,
+  ];
 }
 
 typedef $$OutboxOperationsTableCreateCompanionBuilder =
@@ -679,10 +1046,214 @@ typedef $$OutboxOperationsTableProcessedTableManager =
       OutboxRow,
       PrefetchHooks Function()
     >;
+typedef $$LocalIdentitiesTableCreateCompanionBuilder =
+    LocalIdentitiesCompanion Function({
+      Value<int> id,
+      required int userId,
+      required String fullName,
+      required String roles,
+      Value<int?> customerId,
+    });
+typedef $$LocalIdentitiesTableUpdateCompanionBuilder =
+    LocalIdentitiesCompanion Function({
+      Value<int> id,
+      Value<int> userId,
+      Value<String> fullName,
+      Value<String> roles,
+      Value<int?> customerId,
+    });
+
+class $$LocalIdentitiesTableFilterComposer
+    extends Composer<_$AppDatabase, $LocalIdentitiesTable> {
+  $$LocalIdentitiesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get fullName => $composableBuilder(
+    column: $table.fullName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get roles => $composableBuilder(
+    column: $table.roles,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$LocalIdentitiesTableOrderingComposer
+    extends Composer<_$AppDatabase, $LocalIdentitiesTable> {
+  $$LocalIdentitiesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get fullName => $composableBuilder(
+    column: $table.fullName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get roles => $composableBuilder(
+    column: $table.roles,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$LocalIdentitiesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $LocalIdentitiesTable> {
+  $$LocalIdentitiesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get fullName =>
+      $composableBuilder(column: $table.fullName, builder: (column) => column);
+
+  GeneratedColumn<String> get roles =>
+      $composableBuilder(column: $table.roles, builder: (column) => column);
+
+  GeneratedColumn<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => column,
+  );
+}
+
+class $$LocalIdentitiesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $LocalIdentitiesTable,
+          LocalIdentityRow,
+          $$LocalIdentitiesTableFilterComposer,
+          $$LocalIdentitiesTableOrderingComposer,
+          $$LocalIdentitiesTableAnnotationComposer,
+          $$LocalIdentitiesTableCreateCompanionBuilder,
+          $$LocalIdentitiesTableUpdateCompanionBuilder,
+          (
+            LocalIdentityRow,
+            BaseReferences<
+              _$AppDatabase,
+              $LocalIdentitiesTable,
+              LocalIdentityRow
+            >,
+          ),
+          LocalIdentityRow,
+          PrefetchHooks Function()
+        > {
+  $$LocalIdentitiesTableTableManager(
+    _$AppDatabase db,
+    $LocalIdentitiesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LocalIdentitiesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LocalIdentitiesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LocalIdentitiesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> userId = const Value.absent(),
+                Value<String> fullName = const Value.absent(),
+                Value<String> roles = const Value.absent(),
+                Value<int?> customerId = const Value.absent(),
+              }) => LocalIdentitiesCompanion(
+                id: id,
+                userId: userId,
+                fullName: fullName,
+                roles: roles,
+                customerId: customerId,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int userId,
+                required String fullName,
+                required String roles,
+                Value<int?> customerId = const Value.absent(),
+              }) => LocalIdentitiesCompanion.insert(
+                id: id,
+                userId: userId,
+                fullName: fullName,
+                roles: roles,
+                customerId: customerId,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$LocalIdentitiesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $LocalIdentitiesTable,
+      LocalIdentityRow,
+      $$LocalIdentitiesTableFilterComposer,
+      $$LocalIdentitiesTableOrderingComposer,
+      $$LocalIdentitiesTableAnnotationComposer,
+      $$LocalIdentitiesTableCreateCompanionBuilder,
+      $$LocalIdentitiesTableUpdateCompanionBuilder,
+      (
+        LocalIdentityRow,
+        BaseReferences<_$AppDatabase, $LocalIdentitiesTable, LocalIdentityRow>,
+      ),
+      LocalIdentityRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
   $AppDatabaseManager(this._db);
   $$OutboxOperationsTableTableManager get outboxOperations =>
       $$OutboxOperationsTableTableManager(_db, _db.outboxOperations);
+  $$LocalIdentitiesTableTableManager get localIdentities =>
+      $$LocalIdentitiesTableTableManager(_db, _db.localIdentities);
 }

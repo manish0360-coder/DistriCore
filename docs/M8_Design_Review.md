@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.6.2** |
-| Status | **Phase 1 FROZEN. Phase 2 — tasks 0, 1, 2 and TD-39 done and verified. All four §14.10 gates closed. Next: task 3** |
-| Date | 2026-08-11 |
+| Version | **1.7.0** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. Next: task 4 M6, frozen at §14.12, not yet implemented** |
+| Date | 2026-08-16 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
 | Depends on | `00` v1.0.0 · `01` · `02` v0.2.0 · `02A` v0.2.0 · `03` · `04` · `05` · M0–M7 verified |
@@ -23,6 +23,7 @@
 | **1.5.0** | **2026-08-11** | **Task 2 complete and verified** — API layer, four interceptors, single-flight refresh, problem+json, the `Money` codec. §10 task 2 struck; §14.3–§14.5 marked **built**; §14.8 added (what implementing the decisions taught). `make verify` 8/8 · 743/743 · 94.88%; `make mobile-verify` 38/38 · 0 errors |
 | **1.6.0** | **2026-08-11** | **§14.9 Task 3 decisions frozen** — D-C1 (`AUTOINCREMENT` PK as the local sequence), D-C2 (`client_created_at` demoted to metadata; the `operations` array is the order — corrected in `04` T-26 and `05` §11.2 PU-1…PU-4), D-C3 (storage-full `Failure` variant at the outbox write boundary), D-C4 (`device_id` batch-level, no outbox column). **§14.10 records the Task 3 gate.** Documentation only — no code changed |
 | **1.6.1** | **2026-08-11** | **TD-39 verified — §14.10 gate 1 CLOSED.** `make verify` 8/8 · **758/758** · **94.71%** · `mypy` clean over 115 files · 3 contracts kept (144 files, 271 dependencies) · `makemigrations --check` **No changes detected**. Patch version, not minor: **no architectural decision changed** — only a gate status and its evidence |
+| **1.7.0** | **2026-08-16** | **§14.12 — Task 4 / M6 offline authentication window frozen**, after an evidence audit returned *BLOCKED — MISSING CONTRACT*. **D-D1** (the refresh token's `iat` is the trusted anchor — P-4 forbids the device clock and the `server_time` §5.5 relies on does not exist on the auth response), **D-D2** (`DISTRICORE_OFFLINE_WINDOW_DAYS`, compile-time, default 7, **not** in `BusinessProfile`), **D-D3** (anchor on the most recent successful authenticated server *contact*, not last login — `03` §5.2 would force an OTP weekly on a fully connected device), **D-D4/D-D5** (a successful `/auth/refresh` is the post-expiry round trip), **D-D6** (no biometric, PIN or passcode in V1; local auth = cached identity + retained refresh token + unexpired window). **§14.12.1 records three corpus statements this supersedes**, including a §5.5 sentence that is not true of the shipped contract. Documentation only — **no code changed** |
 | **1.6.2** | **2026-08-11** | **§14.11 — Task 3 gate contradiction resolved.** §10's task-3 Gate cell claimed *"Kill · restart · storage exhaustion, at every write boundary"*, which §9 and `00` §19.1 assign to `integration_test/` at the **M8→M9** boundary. Task 3's gate corrected to the hermetic subset. **No architectural decision changed; no code changed** |
 
 ---
@@ -566,6 +567,12 @@ Beyond the window the app **stops accepting a local unlock and requires a server
 — but it must still surrender nothing: the outbox is not readable, and it is **not erased**.
 A device that locks out with three days of unsent deliveries must still be able to hand them
 over once it reaches signal.
+
+> **Frozen at §14.12 (v1.7.0).** This section states the *requirement* and left three things
+> undefined that an implementation cannot proceed without: what time is trusted, where the
+> period is configured, and what *"cached credential material"* is. D-D1…D-D6 answer them.
+> The `| Local auth material | FR-IAM-016 — §8.3 |` row in §8.2 pointed here and found nothing;
+> **D-D6 is what it now points to.**
 
 ### 8.4 Device identity
 
@@ -1143,4 +1150,163 @@ that misstated ownership.
 
 ---
 
-*Phase 1 is closed. Phase 2 is at task 2; TD-39 lands between tasks 2 and 3.*
+### 14.12 Task 4 / M6 — the offline authentication window, frozen 2026-08-16
+
+Six decisions, taken after an evidence audit found **FR-IAM-016 unimplementable as
+specified**. The audit's verdict was *BLOCKED — MISSING CONTRACT*, and this section is what
+unblocks it.
+
+> **Labelled `D-D1…D-D6` under this document's letter convention** — task 2 took `D-A*`/`D-B*`,
+> task 3 took `D-C*`, task 4 takes `D-D*`. The freeze instruction numbered them `D-1…D-6`;
+> they are the same six decisions. A bare `D-3` already means `customer.state_code` in M5 and
+> a bare `D-1` already means a M7 ruling, so the letter is not decoration.
+
+#### 14.12.0 What was established, and what is being decided
+
+The distinction is kept because the two carry different authority: a fact can be re-read from
+the corpus, a decision can only be re-opened by another ruling.
+
+| | Statement | Source |
+| --- | --- | :-- |
+| **FACT** | FR-IAM-016 bounds a *"configurable maximum **offline** period, after which sync is required to continue"* | `02` FR-IAM-016 |
+| **FACT** | OI-5 = **7 days, configurable** | `02` OI table |
+| **FACT** | *"bounded by refresh-token validity… Offline authentication grants local access only; it never authorises a server write"* | `05` §7.2 |
+| **FACT** | Refresh token = 30 days; access = 30 minutes | `05` §7.1, `settings/base.py` |
+| **FACT** | Beyond the window the app stops accepting a local unlock; the outbox is **not readable and not erased** | §8.3 |
+| **FACT** | Cached user and roles live in the **encrypted local DB**; the refresh token and `device_id` live in the **keystore** | §8.2, §8.4 |
+| **FACT** | **P-4 names *"expiring a session against `DateTime.now()`"* as its own counter-example** | §1.3 |
+| **FACT** | The auth response carries `{access_token, refresh_token, expires_in, user}` — **no `server_time`** | `05` §10.1, `auth_views._issue_tokens` |
+| **FACT** | No `BusinessProfile` field, no `AppConfig` field and no `--dart-define` exists for the window | `core/models.py`, `app/config.dart` |
+| **FACT** | Nothing in the corpus mentions a biometric, passcode or device PIN | corpus-wide search |
+| **DECISION** | Everything in D-D1…D-D6 below |
+
+#### D-D1 — The trusted time anchor is the refresh token's `iat` claim
+
+**ENGINEERING DECISION.** No frozen document specifies a time source that exists.
+
+P-4 forbids the device clock **by name**, so `Clock.nowUtc()` cannot decide expiry. §5.5
+asserts that M8 *"stores `server_time` from the login response from day one"* — and it does
+not, because there is no such field on either side (see §14.12.1). A monotonic elapsed source
+that survives a reboot does not exist in Dart without a new native dependency.
+
+The refresh token already carries server-issued `iat` and `exp` (`05` §7.1). **Both bounds
+therefore come from the same artefact**: `iat` is the anchor and `exp` is the
+refresh-validity ceiling `05` §7.2 requires. No wire field, no dependency, no clock.
+
+> **The cost, stated plainly:** the client begins decoding a JWT payload it has so far
+> treated as opaque bytes. This is safe — a JWT payload is base64, not a secret, and P-9
+> concerns what the *binary* discloses, not what it reads — but it is a new competence in the
+> client and it is recorded as a decision rather than slipped in as an implementation detail.
+
+`Clock` is **not** deleted and **not** extended. It keeps labelling; it does not expire.
+
+#### D-D2 — `DISTRICORE_OFFLINE_WINDOW_DAYS`, compile-time, default `7`
+
+**ENGINEERING DECISION**, over an EVIDENCE-SUPPORTED default.
+
+| | |
+| --- | --- |
+| Name | `DISTRICORE_OFFLINE_WINDOW_DAYS` |
+| Mechanism | `--dart-define`, read in `AppConfig` |
+| Default | **`7`** — unlike `DISTRICORE_API_BASE_URL`, this one **has** a default, because 7 days is a frozen product requirement (OI-5) rather than a deployment unknown |
+| Rejected | zero, negative, non-numeric — refused at start-up, before `runApp`, exactly as an unusable base URL is |
+| **Not** in `BusinessProfile` | `05` §7.2 already decouples the window from the only related profile field, and a server-supplied window is unreadable by a device that is offline — which is the only state in which it matters |
+
+#### D-D3 — The window anchors on the most recent successful **authenticated server contact**
+
+**ENGINEERING DECISION**, resolving a conflict inside the corpus.
+
+Qualifying events, each of which **resets** the window:
+
+1. OTP verification (`POST /auth/otp/verify`)
+2. Password login (`POST /auth/login`)
+3. **Successful token refresh** (`POST /auth/refresh`)
+
+`03` §5.2 anchors on *"last successful **login**"*. FR-IAM-016 bounds a *"maximum **offline**
+period"*. These are different quantities, and the difference is not academic: under `03`'s
+reading, **a device with perfect connectivity is forced through an OTP every seven days**,
+which is a lockout the requirement never asked for and which would be discovered by a
+salesman in a market. FR-IAM-016 is the requirement; `03` is derived from it. **The
+requirement wins** (see §14.12.1).
+
+Because refresh rotates the token on every use (`05` §7.1), the new token's `iat` *is* the
+new anchor. D-D1 and D-D3 compose: **re-anchoring requires storing nothing extra.**
+
+#### D-D4 / D-D5 — A successful `/auth/refresh` is the post-expiry round trip
+
+**ENGINEERING DECISION.** §8.3 requires *"a server round-trip"*; `03` §5.2 and `05` §7.2 say
+*"re-authentication is forced"*. The narrower reading would force a full OTP after every
+lockout even though the device still holds a credential the server would honour.
+
+A refresh that **succeeds** re-anchors and restores local access. A refresh that is
+**rejected** falls through to behaviour that already ships:
+
+| Outcome | Behaviour | Already built |
+| --- | --- | :-: |
+| `401 TOKEN_INVALID` / `REFRESH_EXPIRED` | `Unauthenticated`, keystore cleared, `device_id` kept | `problem.dart`, `SessionRestorer`, `SecureTokenStore.clear()` |
+| `Offline` | **Credentials are not cleared** — §17 is explicit that clearing on a failed-to-arrive refresh *"would end FR-IAM-016's offline window at the first tunnel"* | `SessionRestorer` |
+| Window expired | `Unauthenticated`. **The refresh token is retained**: expiry ends local unlock, it does not revoke a credential | — |
+
+#### D-D6 — No new user-presented local factor in V1
+
+**ENGINEERING DECISION**, closing the gap §8.2 opened and §8.3 never filled.
+
+§8.2's storage table reads `| Local auth material | FR-IAM-016 — §8.3 |`, and §8.3 defines no
+such material. `03` §5.2's *"a hash of the last successful login"* is the only other
+statement, and it does not say a hash **of what** — nor could it describe the field path,
+since OTP is the field default and an OTP user has no password to hash.
+
+**"Authenticate locally" for V1 means exactly three conditions, all of which must hold:**
+
+1. cached encrypted user/session identity is present and readable,
+2. the refresh token is still in the keystore,
+3. the offline window is unexpired.
+
+No biometric, no PIN, no passcode, no locally minted credential. **The device stores no
+secret the server did not issue.**
+
+#### 14.12.1 Three corpus statements this freeze supersedes
+
+Recorded rather than silently overwritten, in the pattern §3.4.1 established — a reader who
+finds only the corrected text learns nothing about how it got there.
+
+| Where | Text | Status |
+| --- | --- | --- |
+| §5.5 | *"M8 does not pull yet, but it stores `server_time` from the login response from day one"* | **Not true of the shipped contract.** `05` §10.1 does not specify `server_time` on any auth response, `_issue_tokens` does not emit it, and `AuthBundle` does not parse it. **Superseded by D-D1.** M9's sync path still uses `server_time` as `05` P-2 requires; this correction is confined to the *auth* response |
+| `03` §5.2 | *"stores the user profile and a hash of the last successful login"* | **Superseded by D-D6.** Amend `03` when M6 lands |
+| `03` §5.2, `05` §7.2 | *"re-authentication is forced"* after the window | **Refined by D-D4/D-D5:** a successful refresh satisfies it. Amend `05` §7.2 when M6 lands |
+
+#### 14.12.2 Window semantics
+
+Let `A` = `iat` of the currently held refresh token, `W` = `DISTRICORE_OFFLINE_WINDOW_DAYS`,
+`X` = `exp` of that token.
+
+| Condition | Behaviour |
+| --- | --- |
+| Elapsed `< min(W, X − A)` | Local unlock permitted. Reads served from cache. Writes go to the outbox (P-2). **No server write is authorised** (`05` §7.2) |
+| Elapsed `== W` exactly | **DENIED.** The predicate is `<`, not `<=` — a boundary that admits equality is a boundary chosen by accident |
+| Elapsed `> W` | Denied. No session published. The existing router redirect sends every route to `/login` |
+| No network | Irrelevant to the predicate. The window is elapsed time, not reachability |
+| Network after expiry | A successful refresh re-anchors (D-D4/D-D5) |
+| Token present after expiry | Retained, not cleared |
+
+At defaults 7 < 30, so the window binds and the token ceiling does not. **If
+`DISTRICORE_REFRESH_TOKEN_DAYS` is ever lowered below the window, the token ceiling binds
+first** — which is why the ceiling is in the predicate rather than assumed away.
+
+#### 14.12.3 What M6 must not touch
+
+| Untouched | Why it is named here |
+| --- | --- |
+| `outbox_operation` table and its schema | §8.3: the outbox is neither readable nor erased at lockout. **M6 adds no `DELETE` against it**, and that absence is the enforcement |
+| `TokenStore` interface | Frozen since M1 |
+| `RefreshInterceptor` | D-B1/D-B2/D-B3 built and verified |
+| `AuthService` | Implements `Authenticator`; the port is M5's |
+| `Session` | The anchor is repository-owned persistence state, not identity. Putting a timestamp on the entity every screen holds is how P-4 erodes |
+| `Clock` | Keeps labelling. Never expires |
+
+---
+
+*Phase 1 is closed. Phase 2 is at task 4: M1–M5 are verified and pushed (`af9a1ca`,
+152/152, 0 analyzer errors); M6 — the offline authentication window — is frozen at §14.12 and
+not yet implemented.*

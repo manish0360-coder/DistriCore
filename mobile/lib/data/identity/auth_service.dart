@@ -109,7 +109,10 @@ final class AuthService implements Authenticator {
     );
 
     final session = bundle.user.toSession();
-    _sessions.adopt(session);
+    // **Awaited since M6.** `adopt` now writes the cached identity before it publishes, so
+    // this `await` is what makes "persist, then announce" true of the identity as well as
+    // of the tokens (§14.12 item 10). It is the only line M6 changes in this file.
+    await _sessions.adopt(session);
     return Ok(session);
   }
 }
