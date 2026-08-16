@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/clock.dart';
@@ -5,7 +7,6 @@ import '../data/api/api_client.dart';
 import '../data/api/tokens.dart';
 import '../data/identity/auth_service.dart';
 import '../data/identity/session_restorer.dart';
-import '../data/repositories/in_memory_session_repository.dart';
 import '../data/repositories/token_session_repository.dart';
 import '../domain/identity/session.dart';
 import '../domain/identity/session_repository.dart';
@@ -13,28 +14,32 @@ import '../domain/identity/session_repository.dart';
 /// **The composition root.** The only place an interface is bound to an implementation.
 ///
 /// This is why `features/` may import `domain/` and never `data/` (M8 §2.2): a screen asks
-/// for a `SessionRepository` and receives whatever is wired here. Task 4 swaps the stub for
-/// the real one by changing one line in this file and nothing else — which is the entire
-/// point of the seam, and the reason the layering test forbids the shortcut.
+/// for a `SessionRepository` and receives whatever is wired here. M4 swapped the stub for
+/// the real one by changing one binding in this file and nothing else — no screen, no
+/// feature, no domain type moved — which is what the seam was for and the reason the
+/// layering test forbids the shortcut.
 final clockProvider = Provider<Clock>((ref) => const SystemClock());
 
-final sessionRepositoryProvider = Provider<SessionRepository>((ref) {
-  final repository = InMemorySessionRepository();
-  ref.onDispose(repository.dispose);
-  return repository;
-});
-
-/// The session as the UI sees it: a value that changes, not a thing to be polled.
+/// **The real repository, bound (M4).**
 ///
-/// The current value is yielded **before** subscribing. On a cold start after a night
-/// offline there may never be a stream event, and a shell that waits for one would show a
-/// spinner to a user who is already signed in.
+/// It delegates rather than constructing, so [tokenSessionRepositoryProvider] and this
+/// provider are the *same object*. Constructing a second `TokenSessionRepository` here would
+/// compile, pass every existing test, and produce an app in which `bootstrap` restores one
+/// repository while the UI watches another — a session that is never seen.
+///
+/// `InMemorySessionRepository` is no longer wired, and is kept as a test double: a fake in
+/// `lib/` that the app also runs is how a stub survives into production.
+final sessionRepositoryProvider = Provider<SessionRepository>(
+  (ref) => ref.watch(tokenSessionRepositoryProvider),
+);
+
 /// Supplied at start-up, not constructed here.
 ///
-/// `SecureTokenStore.open()` is asynchronous and `ApiClient` needs a base URL that **no
-/// configuration source in this repository provides yet**. Rather than invent one, these
-/// two are declared as overrides: a `ProviderScope` that forgets to supply them fails
-/// immediately and by name, instead of reaching a device with a plausible wrong host.
+/// `SecureTokenStore.open()` is asynchronous and `ApiClient` needs the validated base URL
+/// from `AppConfig`, which only exists once the process has read its compile-time
+/// environment. Rather than let this file guess, both are declared as overrides: a
+/// `ProviderScope` that forgets to supply them fails immediately and by name, instead of
+/// reaching a device with a plausible wrong host.
 final tokenStoreProvider = Provider<TokenStore>(
   (ref) => throw StateError('tokenStoreProvider must be overridden at start-up'),
 );
@@ -50,12 +55,9 @@ final sessionRestorerProvider = Provider<SessionRestorer>(
   ),
 );
 
-/// The real repository, **declared but not yet bound** to [sessionRepositoryProvider].
-///
-/// Binding it needs the two overrides above, which need start-up configuration that does
-/// not exist. Until then `InMemorySessionRepository` remains the seam, exactly as task 1
-/// left it — a provider swapped before the values behind it exist would fail at the first
-/// frame rather than at the wiring.
+/// The owner of the session. [sessionRepositoryProvider] is a view onto this one instance,
+/// and `bootstrap` reads it directly to call `restore()` — which the read-only domain
+/// interface deliberately does not expose.
 final tokenSessionRepositoryProvider = Provider<TokenSessionRepository>((ref) {
   final repository = TokenSessionRepository(
     tokens: ref.watch(tokenStoreProvider),
@@ -75,8 +77,40 @@ final authServiceProvider = Provider<AuthService>(
   ),
 );
 
-final sessionProvider = StreamProvider<Session?>((ref) async* {
+/// The session as the UI sees it: a value that changes, not a thing to be polled.
+///
+/// **Subscribed synchronously, and that is the whole reason this is not an `async*` body.**
+/// `changes()` is a broadcast stream with no replay, and M4 moved restoration to *after*
+/// `runApp` so the shell can render offline. An `async*` generator only reaches
+/// `yield* changes()` a microtask or two after the provider is created, so any emission in
+/// that window is dropped — and the observable symptom is a device sitting on the login
+/// screen while holding a perfectly valid refresh token. `onListen` runs inside
+/// `container.read`, which closes the window rather than relying on restoration always
+/// being slower than the event loop.
+///
+/// The current value is delivered **first**. On a cold start after a night offline there may
+/// never be a stream event at all, and a shell that waited for one would show a spinner to a
+/// user who is already signed in.
+final sessionProvider = StreamProvider<Session?>((ref) {
   final repository = ref.watch(sessionRepositoryProvider);
-  yield repository.current().fold((session) => session, (_) => null);
-  yield* repository.changes();
+
+  late final StreamController<Session?> controller;
+  StreamSubscription<Session?>? subscription;
+
+  controller = StreamController<Session?>(
+    onListen: () {
+      controller.add(repository.current().fold((session) => session, (_) => null));
+      subscription = repository.changes().listen(
+            controller.add,
+            onError: controller.addError,
+          );
+    },
+    onCancel: () async {
+      await subscription?.cancel();
+      subscription = null;
+    },
+  );
+
+  ref.onDispose(controller.close);
+  return controller.stream;
 });

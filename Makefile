@@ -64,6 +64,19 @@ FLUTTER_SH := $(FLUTTER_RUN) sh -c
 #
 # Errors are always fatal; there is no flag to soften them, which is the point.
 FLUTTER_ANALYZE_SEVERITY := --no-fatal-infos --no-fatal-warnings
+# **The API base URL has no application default** (M8 task 4 M4). `00` §9's rule — *"secrets
+# and production endpoints have no default and must fail"* — applied to the second
+# toolchain: `AppConfig.fromEnvironment()` throws before `runApp` when this define is absent,
+# so an unconfigured build cannot reach a device pointing at a plausible wrong host.
+#
+# `api.test` is a **verification-only** value and lives here, in the gate, precisely so that
+# it cannot become a fallback in `lib/`. It is not resolvable and every request through it
+# fails loudly, which is the property wanted: if it ever ships, it is obvious immediately.
+# The production hostname does not exist yet — `00` §6 A-04 buys the domain before M11 — and
+# is supplied by the release build, not by this file.
+#
+# `flutter analyze` does not need it: nothing is evaluated at analysis time.
+MOBILE_DART_DEFINES := --dart-define=DISTRICORE_API_BASE_URL=https://api.test
 
 .PHONY: help
 help: ## Show this help
@@ -218,14 +231,14 @@ mobile-analyze: mobile-image ## Dart static analysis
 
 .PHONY: mobile-test
 mobile-test: mobile-image ## Dart unit tests (domain — no device)
-	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter test'
+	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter test $(MOBILE_DART_DEFINES)'
 
 .PHONY: mobile-verify
 mobile-verify: mobile-image ## Mobile gate: frozen install, analyze, test
 	@test -f mobile/pubspec.lock || { \
 		echo "mobile/pubspec.lock is missing. Run 'make mobile-lock' and commit it."; \
 		exit 1; }
-	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter analyze $(FLUTTER_ANALYZE_SEVERITY) && flutter test'
+	$(FLUTTER_SH) 'flutter pub get --enforce-lockfile && flutter analyze $(FLUTTER_ANALYZE_SEVERITY) && flutter test $(MOBILE_DART_DEFINES)'
 
 # --- THE GATE ---------------------------------------------------------------
 .PHONY: verify

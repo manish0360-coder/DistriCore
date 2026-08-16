@@ -8,8 +8,9 @@ import '../identity/session_restorer.dart';
 
 /// The real [SessionRepository]: session state owned here, restored from the keystore.
 ///
-/// Replaces nothing yet. `InMemorySessionRepository` stays as the task-1 DI seam until this
-/// one is wired and proven on a device.
+/// **Bound in M4.** `sessionRepositoryProvider` now delegates to this one instance, and
+/// `bootstrap` holds the concrete type so it can call [restore] — which the read-only domain
+/// interface deliberately does not expose.
 final class TokenSessionRepository implements SessionRepository {
   TokenSessionRepository({
     required TokenStore tokens,
