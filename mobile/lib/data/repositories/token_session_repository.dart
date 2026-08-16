@@ -44,6 +44,20 @@ final class TokenSessionRepository implements SessionRepository {
     return result;
   }
 
+  /// Publish a freshly authenticated session (M3).
+  ///
+  /// **Implementation-level on purpose.** The domain `SessionRepository` stays read-only —
+  /// `current()` and `changes()` and nothing else — so no screen can install a session, and
+  /// there is still exactly one source of truth for who is signed in. Only `AuthService`,
+  /// which holds the concrete type, can call this.
+  ///
+  /// The caller must have persisted the credentials **before** calling: a listener rebuilds
+  /// on this emission and will immediately make requests.
+  void adopt(Session session) {
+    _session = session;
+    _controller.add(session);
+  }
+
   /// Sign out (C-7): drop the credentials, then tell the app.
   ///
   /// The order matters — emitting first would let a listener rebuild a screen that then

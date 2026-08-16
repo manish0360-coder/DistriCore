@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/clock.dart';
 import '../data/api/api_client.dart';
 import '../data/api/tokens.dart';
+import '../data/identity/auth_service.dart';
 import '../data/identity/session_restorer.dart';
 import '../data/repositories/in_memory_session_repository.dart';
 import '../data/repositories/token_session_repository.dart';
@@ -63,6 +64,16 @@ final tokenSessionRepositoryProvider = Provider<TokenSessionRepository>((ref) {
   ref.onDispose(repository.dispose);
   return repository;
 });
+
+/// The two sign-in paths (§8.1). Depends on the concrete [TokenSessionRepository], because
+/// publishing a session is implementation-level: the domain interface stays read-only.
+final authServiceProvider = Provider<AuthService>(
+  (ref) => AuthService(
+    api: ref.watch(apiClientProvider),
+    tokens: ref.watch(tokenStoreProvider),
+    sessions: ref.watch(tokenSessionRepositoryProvider),
+  ),
+);
 
 final sessionProvider = StreamProvider<Session?>((ref) async* {
   final repository = ref.watch(sessionRepositoryProvider);
