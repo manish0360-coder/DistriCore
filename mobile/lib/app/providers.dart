@@ -10,8 +10,10 @@ import '../data/identity/auth_service.dart';
 import '../data/identity/session_restorer.dart';
 import '../data/repositories/drift_outbox_repository.dart';
 import '../data/repositories/identity_cache.dart';
+import '../data/repositories/outbox_customer_repository.dart';
 import '../data/repositories/outbox_delivery_repository.dart';
 import '../data/repositories/token_session_repository.dart';
+import '../domain/customer/customer_repository.dart';
 import '../domain/delivery/delivery_repository.dart';
 import '../domain/identity/session.dart';
 import '../domain/identity/session_repository.dart';
@@ -76,6 +78,15 @@ final identityCacheProvider = Provider<IdentityCache>(
 /// queue depth asks for `OutboxRepository` and never learns Drift exists.
 final outboxRepositoryProvider = Provider<OutboxRepository>(
   (ref) => DriftOutboxRepository(ref.watch(appDatabaseProvider)),
+);
+
+/// Customers: read through `ApiClient`, visits written through the outbox (T6, P-2).
+final customerRepositoryImplProvider = Provider<CustomerRepository>(
+  (ref) => OutboxCustomerRepository(
+    api: ref.watch(apiClientProvider),
+    outbox: ref.watch(outboxRepositoryProvider),
+    clock: ref.watch(clockProvider),
+  ),
 );
 
 /// Deliveries: read through `ApiClient`, written through the outbox (T5, P-2).

@@ -11,6 +11,7 @@ import '../data/db/platform_database_key.dart';
 import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
 import '../features/auth/auth_providers.dart';
+import '../features/customers/customer_providers.dart';
 import '../features/deliveries/delivery_providers.dart';
 import 'app.dart';
 import 'config.dart';
@@ -107,6 +108,8 @@ ProviderContainer buildRootContainer({
         // which implementation satisfies it (T5).
         deliveryRepositoryProvider
             .overrideWith((ref) => ref.watch(deliveryRepositoryImplProvider)),
+        customerRepositoryProvider
+            .overrideWith((ref) => ref.watch(customerRepositoryImplProvider)),
       ],
     );
 
