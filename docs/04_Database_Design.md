@@ -1210,7 +1210,7 @@ All seller/buyer snapshot and money columns are identical to `invoice`. `credit_
 | `client_uuid` | UUID | N | | **The idempotency key** |
 | `device_id` | VARCHAR(64) | N | | |
 | `app_user_id` | BIGINT | N | | FK → `app_user` |
-| `operation_type` | VARCHAR(40) | N | | `DELIVERY_UPDATE`, `VISIT_CREATE`, `PAYMENT_CREATE`, `CUSTOMER_CREATE`, `MEDIA_UPLOAD` |
+| `operation_type` | VARCHAR(40) | N | | `DELIVERY_COMPLETE`, `VISIT_CREATE`, `PAYMENT_CREATE`, `CUSTOMER_CREATE`, `MEDIA_UPLOAD` — **corrected 2026-08-16, see below** |
 | `client_created_at` | TIMESTAMPTZ | N | | Device time. **Metadata — audit and display only.** It does *not* establish application order (corrected 2026-08-11; see below) |
 | `received_at` | TIMESTAMPTZ | N | `now()` | |
 | `processed_at` | TIMESTAMPTZ | Y | | |
@@ -1238,6 +1238,23 @@ All seller/buyer snapshot and money columns are identical to `invoice`. `credit_
 > **Correction, 2026-08-11.** This rule previously read *"Operations apply in `client_created_at` order per device (BR-013)."* That made a **device clock** the correctness key for ordering, which `M8_Design_Review` P-4 forbids — *"the device clock is never on a correctness path"* — and which cannot in fact deliver BR-013: a timezone change or an NTP correction makes `client_created_at` non-monotonic **within a single device**, so the server would apply that device's operations out of creation order using the very mechanism chosen to guarantee creation order.
 >
 > **The array already carries the guarantee.** FR-SYN-002 obliges the client to *"transmit outbox transactions in creation order per device"*, and `operations` is an ordered JSON array. Applying it serially, in order, satisfies BR-013 through a channel no clock can corrupt.
+
+> **Correction, 2026-08-16 (D-M9.1-1).** The `operation_type` list above previously read
+> **`DELIVERY_UPDATE`**. `05` §11.2 — the authoritative wire contract — has always used
+> **`DELIVERY_COMPLETE`**, in the worked example a server implementer reads, and the M8
+> mobile client shipped and verified that string (`OutboxDeliveryRepository.operationType`,
+> 232/232). Two spellings of one operation type is a dispatch table that rejects every
+> delivery a device has queued.
+>
+> **`05` wins, and this list was the stale one.** The column has no
+> `ck_sync_operation_operation_type`; unlike `status`, this list is documentation of a
+> vocabulary rather than a constraint, which is precisely why it could drift unnoticed for
+> five milestones. Found while auditing M9 against the shipped client, and recorded rather
+> than quietly amended — the same treatment PU-1…PU-3 received above, and for the same
+> reason: a reader who finds only the corrected text learns nothing about how it got there.
+>
+> **No column, constraint or index changes.** `PAYMENT_CREATE`, `CUSTOMER_CREATE` and
+> `MEDIA_UPLOAD` remain unimplemented vocabulary for later milestones.
 >
 > **The wire payload does not change** — no field is added or removed. `/sync/push` is implemented in neither client nor server (M9), so this correction costs nothing today and would cost a protocol migration at any later date.
 - **Nothing is ever discarded** (BR-014). A malformed or rejected operation is stored with its payload and surfaced to the owner. This is the table that makes "no transaction is ever lost" true rather than aspirational.

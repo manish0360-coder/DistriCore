@@ -188,8 +188,8 @@ show_missing = true
 [tool.importlinter]
 root_packages = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "billing", "receivables", "reporting",
-    "api", "webadmin",
+    "pricing", "orders", "fulfilment", "field", "billing", "receivables",
+    "reporting", "sync", "api", "webadmin",
 ]
 include_external_packages = false
 
@@ -202,6 +202,7 @@ forbidden_modules = [
     "catalogue.models", "customers.models", "inventory.models",
     "ledger.models", "pricing.models", "orders.models",
     "fulfilment.models", "billing.models", "receivables.models",
+    "field.models", "sync.models",
 ]
 # Direct imports only: reaching models THROUGH a service is the required path.
 allow_indirect_imports = true
@@ -211,7 +212,8 @@ name = "N-01: domain modules must not import a delivery layer"
 type = "forbidden"
 source_modules = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "billing", "receivables", "reporting",
+    "pricing", "orders", "fulfilment", "field", "billing", "receivables",
+    "reporting", "sync",
 ]
 forbidden_modules = ["api", "webadmin"]
 allow_indirect_imports = true
@@ -242,12 +244,29 @@ type = "layers"
 # it. Being highest is what makes that safe: nothing can depend on a report, so a report
 # cannot become an input to a business rule. The same structural test asserts it imports
 # no `*.services` and no `*.models` at all (M7 §8.1, M7-5).
+#
+# M9.1 (D-M9.1-2): `sync` is a SIBLING of `reporting`, and `field` a sibling of
+# `fulfilment`.
+#
+#   sync -> field | fulfilment -> customers | identity | core
+#
+# `sync` sits at the top of the domain for the same reason `reporting` does: nothing may
+# depend on it. It is driven by the API layer alone, coordinates dispatch into the domain
+# and owns no business rule — a module that imported `sync` would be a business rule
+# reaching up into a transport concern. Siblings cannot import each other, so `reporting`
+# and `sync` stay independent.
+#
+# `field` (T-23 `visit`) is a sibling of `fulfilment` rather than a member of `customers`:
+# a visit is an append-only OBSERVATION about a customer, the same relationship
+# `stock_movement` has to `catalogue` and `customer_ledger_entry` has to `customers`
+# (ADR-0008). It reads `customers` and `identity` and writes only its own table, and being
+# a sibling of `fulfilment` means neither can reach into the other.
 layers = [
     "api | webadmin",
-    "reporting",
+    "reporting | sync",
     "receivables",
     "billing",
-    "fulfilment",
+    "fulfilment | field",
     "orders",
     "pricing",
     "inventory | ledger",

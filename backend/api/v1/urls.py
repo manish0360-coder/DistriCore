@@ -14,6 +14,7 @@ from api.v1 import (
     receivables_views,
     report_views,
     stock_views,
+    sync_views,
 )
 
 app_name = "v1"
@@ -25,6 +26,8 @@ urlpatterns = [
     path("auth/refresh", auth_views.RefreshView.as_view(), name="refresh"),
     path("auth/logout", auth_views.LogoutView.as_view(), name="logout"),
     path("auth/me", auth_views.MeView.as_view(), name="me"),
+    # --- synchronisation (M9.1) ---
+    path("sync/push", sync_views.SyncPushView.as_view(), name="sync-push"),
     # --- master data (M1) ---
     path("products", master_views.ProductListView.as_view(), name="product-list"),
     path("products/<int:pk>", master_views.ProductDetailView.as_view(), name="product-detail"),
