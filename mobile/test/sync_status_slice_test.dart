@@ -266,4 +266,19 @@ final class _BrokenOutbox implements OutboxRepository {
   @override
   Future<Result<int>> purgeAcknowledgedBefore(DateTime before) async =>
       const Err(StorageFull());
+
+  // The M9.2 drain methods. **Every method on this fake fails the same way** — that is its
+  // entire contract, and the status screen never calls these. Returning a plausible success
+  // would be inventing sync behaviour inside a double built to prove one thing: that a queue
+  // which cannot be read is never reported as a queue with nothing in it.
+  @override
+  Future<Result<List<OutboxOperation>>> claimBatch({int limit = 200}) async =>
+      const Err(StorageFull());
+
+  @override
+  Future<Result<int>> reclaimInFlight() async => const Err(StorageFull());
+
+  @override
+  Future<Result<int>> settle(Map<String, OutboxStatus> byClientUuid) async =>
+      const Err(StorageFull());
 }

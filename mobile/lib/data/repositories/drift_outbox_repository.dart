@@ -86,6 +86,68 @@ final class DriftOutboxRepository implements OutboxRepository {
   }
 
   @override
+  Future<Result<List<OutboxOperation>>> claimBatch({int limit = 200}) async {
+    try {
+      final claimed = await _db.transaction(() async {
+        final rows = await (_db.select(_db.outboxOperations)
+              ..where((row) => row.status.equals(OutboxStatus.pending.code))
+              // D-C1: the primary key IS the queue order. FR-SYN-002 obliges the client to
+              // transmit in creation order, and PU-1 makes the array position significant.
+              ..orderBy([(row) => OrderingTerm.asc(row.sequence)])
+              ..limit(limit))
+            .get();
+        if (rows.isEmpty) return rows;
+        await (_db.update(_db.outboxOperations)
+              ..where((row) => row.sequence.isIn([for (final r in rows) r.sequence])))
+            .write(OutboxOperationsCompanion(
+          status: Value(OutboxStatus.inFlight.code),
+        ));
+        return rows;
+      });
+      return Ok([for (final row in claimed) _toDomain(row)]);
+    } catch (error) {
+      final failure = storageFailureFor(error);
+      if (failure != null) return Err(failure);
+      rethrow; // D-C3: only storage exhaustion is StorageFull. Everything else is itself.
+    }
+  }
+
+  @override
+  Future<Result<int>> reclaimInFlight() async {
+    try {
+      final moved = await (_db.update(_db.outboxOperations)
+            ..where((row) => row.status.equals(OutboxStatus.inFlight.code)))
+          .write(OutboxOperationsCompanion(status: Value(OutboxStatus.pending.code)));
+      return Ok(moved);
+    } catch (error) {
+      final failure = storageFailureFor(error);
+      if (failure != null) return Err(failure);
+      rethrow; // D-C3: only storage exhaustion is StorageFull. Everything else is itself.
+    }
+  }
+
+  @override
+  Future<Result<int>> settle(Map<String, OutboxStatus> byClientUuid) async {
+    if (byClientUuid.isEmpty) return const Ok(0);
+    try {
+      final applied = await _db.transaction(() async {
+        var count = 0;
+        for (final entry in byClientUuid.entries) {
+          count += await (_db.update(_db.outboxOperations)
+                ..where((row) => row.clientUuid.equals(entry.key)))
+              .write(OutboxOperationsCompanion(status: Value(entry.value.code)));
+        }
+        return count;
+      });
+      return Ok(applied);
+    } catch (error) {
+      final failure = storageFailureFor(error);
+      if (failure != null) return Err(failure);
+      rethrow; // D-C3: only storage exhaustion is StorageFull. Everything else is itself.
+    }
+  }
+
+  @override
   Future<Result<int>> purgeAcknowledgedBefore(DateTime before) async {
     // **Only ACKNOWLEDGED.** `REJECTED` has no delete path at all (C-3, FR-SYN-006, P-5)
     // and `PENDING` is unsent work. Deleting rows is safe for ordering only because D-C1

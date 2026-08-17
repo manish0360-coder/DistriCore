@@ -69,6 +69,7 @@ Future<void> bootstrap() async {
   );
 
   startSessionRestoration(container);
+  startSync(container);
 }
 
 /// The composition root's two runtime values, bound.
@@ -128,4 +129,20 @@ ProviderContainer buildRootContainer({
 void startSessionRestoration(ProviderContainer container) {
   container.read(sessionProvider);
   unawaited(container.read(tokenSessionRepositoryProvider).restore());
+}
+
+/// Drain the outbox once per launch (M9.2).
+///
+/// **Fire-and-forget, exactly like restoration**, and for the same reason: a device with no
+/// signal must reach its delivery list without waiting on a request that will time out.
+/// Failure is not reported here — nothing is lost, the rows stay `PENDING`, and the
+/// sync-status screen shows the depth.
+///
+/// **This is not FR-SYN-010 and is not claimed to be (TD-41).** The requirement is
+/// *"within 2 minutes of reconnection"*, and the frozen mobile stack has no
+/// connectivity-state mechanism to detect one. A launch is when a device reconnects in
+/// practice, not by guarantee. The trigger moves; `SyncEngine.sync()` does not — its
+/// single-flight guard already makes a burst of connectivity events safe.
+void startSync(ProviderContainer container) {
+  unawaited(container.read(syncEngineProvider).sync());
 }

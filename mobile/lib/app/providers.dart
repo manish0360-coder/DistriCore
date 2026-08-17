@@ -13,6 +13,7 @@ import '../data/repositories/identity_cache.dart';
 import '../data/repositories/outbox_customer_repository.dart';
 import '../data/repositories/outbox_delivery_repository.dart';
 import '../data/repositories/token_session_repository.dart';
+import '../data/sync/sync_engine.dart';
 import '../domain/customer/customer_repository.dart';
 import '../domain/delivery/delivery_repository.dart';
 import '../domain/identity/session.dart';
@@ -78,6 +79,16 @@ final identityCacheProvider = Provider<IdentityCache>(
 /// queue depth asks for `OutboxRepository` and never learns Drift exists.
 final outboxRepositoryProvider = Provider<OutboxRepository>(
   (ref) => DriftOutboxRepository(ref.watch(appDatabaseProvider)),
+);
+
+/// The outbox drain (M9.2). One instance, because its single-flight guard is per-object:
+/// two engines would be two guards and two pushes.
+final syncEngineProvider = Provider<SyncEngine>(
+  (ref) => SyncEngine(
+    api: ref.watch(apiClientProvider),
+    outbox: ref.watch(outboxRepositoryProvider),
+    tokens: ref.watch(tokenStoreProvider),
+  ),
 );
 
 /// Customers: read through `ApiClient`, visits written through the outbox (T6, P-2).

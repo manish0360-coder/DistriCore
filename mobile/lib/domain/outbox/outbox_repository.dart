@@ -1,5 +1,6 @@
 import '../../core/result.dart';
 import 'outbox_operation.dart';
+import 'outbox_status.dart';
 
 /// What the app may ask of the outbox (M8 §5.3, §9).
 ///
@@ -36,6 +37,33 @@ abstract interface class OutboxRepository {
 
   /// How many operations are waiting — FR-SYN-008's depth, without loading them.
   Future<Result<int>> depth();
+
+  /// **M9: claim the next batch.** Moves up to [limit] `PENDING` rows to
+  /// [OutboxStatus.inFlight] in sequence order and returns them.
+  ///
+  /// **One transaction, so a row cannot be sent twice.** Claiming is what makes the
+  /// single-flight guard a convenience rather than the guarantee — two engines racing would
+  /// still each get a disjoint set.
+  Future<Result<List<OutboxOperation>>> claimBatch({int limit});
+
+  /// **M9: recover an interrupted push.** Moves every [OutboxStatus.inFlight] row back to
+  /// [OutboxStatus.pending] and returns how many.
+  ///
+  /// Safe to resend: `client_uuid` makes a replay `DUPLICATE` on the server (I-4), so the
+  /// worst case of an ambiguous outcome is an acknowledgement one sync later. Losing the
+  /// row instead is the outcome FR-SYN-004 forbids.
+  Future<Result<int>> reclaimInFlight();
+
+  /// **M9: apply the server's per-operation verdicts**, keyed by `client_uuid`.
+  ///
+  /// `ACCEPTED` and `DUPLICATE` both arrive here as [OutboxStatus.acknowledged] — `05`
+  /// §11.2's *"delete from the outbox"* is eventual lifecycle removal, performed by
+  /// [purgeAcknowledgedBefore] after the retention window. Deleting on acknowledgement
+  /// would make D-C1's `AUTOINCREMENT`-and-purge design meaningless.
+  ///
+  /// `DEFERRED` arrives as [OutboxStatus.pending]: the local enum has four states and
+  /// deferral is a server-side condition, so retaining the row *is* the retry.
+  Future<Result<int>> settle(Map<String, OutboxStatus> byClientUuid);
 
   /// Delete acknowledged operations older than [before], and **only** those.
   ///
