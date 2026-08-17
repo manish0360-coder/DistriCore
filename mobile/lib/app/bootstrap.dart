@@ -13,6 +13,7 @@ import '../data/identity/secure_token_store.dart';
 import '../features/auth/auth_providers.dart';
 import '../features/customers/customer_providers.dart';
 import '../features/deliveries/delivery_providers.dart';
+import '../features/sync_status/sync_providers.dart';
 import 'app.dart';
 import 'config.dart';
 import 'providers.dart';
@@ -110,6 +111,10 @@ ProviderContainer buildRootContainer({
             .overrideWith((ref) => ref.watch(deliveryRepositoryImplProvider)),
         customerRepositoryProvider
             .overrideWith((ref) => ref.watch(customerRepositoryImplProvider)),
+        // The sync-status screen reads the same queue everything else writes to (T7).
+        outboxPortProvider.overrideWith((ref) => ref.watch(outboxRepositoryProvider)),
+        // One clock in the running app, even though the feature can default its own.
+        syncClockProvider.overrideWith((ref) => ref.watch(clockProvider)),
       ],
     );
 
