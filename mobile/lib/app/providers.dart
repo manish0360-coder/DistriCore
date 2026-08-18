@@ -13,12 +13,14 @@ import '../data/repositories/identity_cache.dart';
 import '../data/repositories/outbox_customer_repository.dart';
 import '../data/repositories/outbox_delivery_repository.dart';
 import '../data/repositories/token_session_repository.dart';
+import '../data/sync/api_sync_status_repository.dart';
 import '../data/sync/sync_engine.dart';
 import '../domain/customer/customer_repository.dart';
 import '../domain/delivery/delivery_repository.dart';
 import '../domain/identity/session.dart';
 import '../domain/identity/session_repository.dart';
 import '../domain/outbox/outbox_repository.dart';
+import '../domain/sync/sync_status_repository.dart';
 
 /// **The composition root.** The only place an interface is bound to an implementation.
 ///
@@ -89,6 +91,11 @@ final syncEngineProvider = Provider<SyncEngine>(
     outbox: ref.watch(outboxRepositoryProvider),
     tokens: ref.watch(tokenStoreProvider),
   ),
+);
+
+/// `GET /sync/status` (M9.3). Read-only: it observes the server, it never asks it to act.
+final syncStatusRepositoryProvider = Provider<SyncStatusRepository>(
+  (ref) => ApiSyncStatusRepository(ref.watch(apiClientProvider)),
 );
 
 /// Customers: read through `ApiClient`, visits written through the outbox (T6, P-2).

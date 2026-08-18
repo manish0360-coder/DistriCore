@@ -990,6 +990,39 @@ A salesman offline creates a new shop, then records a visit and takes a payment 
 
 Nothing fails silently (FR-SYN-008/009). The device shows its own outbox depth; this endpoint shows the **server's** view, so a disagreement between the two is visible rather than assumed away.
 
+| Field | Meaning |
+| --- | --- |
+| `device_id` | Taken from the authenticated JWT claim, **never from the request** (D-M9.3-1) |
+| `last_sync_at` | `MAX(sync_operation.received_at)` for that device. `null` if it has never pushed |
+| `pending_count` | `sync_operation.status = 'RECEIVED'` — recorded by the server, business processing not completed |
+| `deferred_count` | `status = 'DEFERRED'` |
+| `rejected_count` | `status = 'REJECTED'` |
+| `rejected[]` | `client_uuid`, `operation_type`, `error_code`, `client_created_at` — **and nothing else** (D-M9.3-2) |
+
+> **Clarification, 2026-08-16 (D-M9.3-1, D-M9.3-2).** The field table above is added; **no
+> field is added, removed or renamed**, and the JSON example is unchanged.
+>
+> **`pending_count` was undefined in prose**, and the four lines that mention it corpus-wide
+> — this example and FR-SYN-008/009 — do not say whose "pending" it is. That matters because
+> the two sides use different vocabularies: the device's `PENDING` means *not yet
+> transmitted*, which a server cannot observe, while `04` T-26's `RECEIVED` means *recorded
+> before the business operation was attempted*. **The example itself settles the rest**:
+> `pending_count: 0` alongside `deferred_count: 1` proves the two are disjoint, which rules
+> out any reading where `pending_count` is a superset of unresolved work.
+>
+> **A non-zero `pending_count` is therefore an alarm, not a queue depth.** The receiver
+> records an operation and completes it in the same request, so `RECEIVED` survives only if
+> processing was interrupted after receipt — a killed worker, a lost connection mid-handler.
+> That is precisely the "nothing fails silently" this section exists for.
+>
+> **Recovery of orphaned `RECEIVED` rows is not specified and is not built.** Nothing retries,
+> escalates or purges them, so the count only grows once it is non-zero. Deferred to
+> M9.4/M10 by ruling; recorded here so it is not mistaken for an oversight.
+>
+> `rejected[]` carries four fields and omits `payload` and `error_detail` deliberately:
+> `payload` is business data the device already holds, and `error_detail` is prose §5 permits
+> rewording, so no client may branch on it.
+
 ---
 
 ## 12. Client Obligations

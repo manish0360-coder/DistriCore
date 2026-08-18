@@ -13,6 +13,8 @@ import 'package:districore/data/repositories/drift_outbox_repository.dart';
 import 'package:districore/domain/outbox/outbox_operation.dart';
 import 'package:districore/domain/outbox/outbox_repository.dart';
 import 'package:districore/domain/outbox/outbox_status.dart';
+import 'package:districore/domain/sync/server_sync_status.dart';
+import 'package:districore/domain/sync/sync_status_repository.dart';
 import 'package:districore/features/sync_status/sync_controller.dart';
 import 'package:districore/features/sync_status/sync_providers.dart';
 import 'package:districore/features/sync_status/sync_status_screen.dart';
@@ -60,11 +62,17 @@ Future<ProviderContainer> pump(
   WidgetTester tester,
   OutboxRepository outbox, {
   Clock? clock,
+  SyncStatusRepository? server,
 }) async {
   final container = ProviderContainer(
     overrides: [
       outboxPortProvider.overrideWithValue(outbox),
       syncClockProvider.overrideWithValue(clock ?? FixedClock(_now)),
+      // **Defaults to unreachable**, which is what every pre-M9.3 assertion in this file was
+      // written against: no server, local counts only. The port is override-required, so
+      // without this line `load()` would throw `StateError` inside a frame and surface much
+      // later as a `pumpAndSettle` timeout.
+      syncStatusPortProvider.overrideWithValue(server ?? _UnreachableServer()),
     ],
   );
   addTearDown(container.dispose);
@@ -109,10 +117,14 @@ void main() {
       // the whole queue, the list is the oldest few.
       final env = wire();
       await seed(env.outbox, deliveries: kOldestSample + 4);
+      // This is the one test that builds its container inline rather than through `pump()`,
+      // so it needs the same three overrides by hand. M9.3 made the status port
+      // override-required; unreachable is what every pre-M9.3 assertion here assumes.
       final container = ProviderContainer(
         overrides: [
           outboxPortProvider.overrideWithValue(env.outbox),
           syncClockProvider.overrideWithValue(FixedClock(_now)),
+          syncStatusPortProvider.overrideWithValue(_UnreachableServer()),
         ],
       );
       addTearDown(container.dispose);
@@ -223,6 +235,134 @@ void main() {
     });
   });
 
+  // ------------------------------------------------------ M9.3 — the server's view
+  group('M9.3 server sync status', () {
+    ServerSyncStatus healthy({int pending = 0, int deferred = 0, int rejected = 0}) =>
+        ServerSyncStatus(
+          deviceId: 'a3f9c1d2e4b6a8c0',
+          lastSyncAt: _now.subtract(const Duration(minutes: 12)),
+          pending: pending,
+          deferred: deferred,
+          rejected: rejected,
+        );
+
+    testWidgets('1. the server view renders separately from the local queue', (tester) async {
+      // §11.5's whole purpose: *"a disagreement between the two is visible rather than
+      // assumed away."* Three unsent locally, zero unfinished on the server — two different
+      // numbers, both on screen, neither replacing the other.
+      final env = wire();
+      await seed(env.outbox, deliveries: 3);
+
+      await pump(tester, env.outbox, server: const _ServerSays(
+        ServerSyncStatus(deviceId: 'a3f9c1d2e4b6a8c0', pending: 0),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.pending'))).data,
+        '3 waiting to sync',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.server.pending'))).data,
+        '0 unfinished on the server',
+      );
+    });
+
+    testWidgets('2. pending, deferred and rejected counts render', (tester) async {
+      final env = wire();
+
+      final container = await pump(
+        tester,
+        env.outbox,
+        server: _ServerSays(healthy(pending: 2, deferred: 4, rejected: 5)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.server.pending'))).data,
+        '2 unfinished on the server',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.conflicts'))).data,
+        '5 refused by the server',
+      );
+      // `deferred` is carried in the model and **deliberately not drawn**: it is unreachable
+      // in V1, because its only trigger is L-3 and local reference resolution is Edition 2.
+      // Asserted so the omission reads as a decision rather than as an oversight.
+      expect(find.byKey(const Key('sync.server.deferred')), findsNothing);
+      expect(container.read(syncStatusProvider).server!.deferred, 4);
+    });
+
+    testWidgets('3. a failed server call leaves the local queue state intact', (tester) async {
+      // A phone with no signal still knows exactly what it is holding. Hiding the local
+      // counts because the server was unreachable would suppress the more important number.
+      final env = wire();
+      await seed(env.outbox, deliveries: 2, visits: 1);
+
+      await pump(tester, env.outbox); // defaults to unreachable
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.pending'))).data,
+        '3 waiting to sync',
+      );
+      expect(find.byKey(const Key('sync.operation.1')), findsOneWidget);
+      expect(find.byKey(const Key('sync.asOf')), findsOneWidget);
+    });
+
+    testWidgets('4. no manual control appears once the server view exists', (tester) async {
+      // M9.3 adds visibility and nothing else. The same assertion T7 makes, re-made with a
+      // reachable server — because that is when a "Sync now" button becomes tempting.
+      final env = wire();
+      await seed(env.outbox, deliveries: 2);
+
+      await pump(tester, env.outbox, server: _ServerSays(healthy(rejected: 1)));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byType(ElevatedButton), findsNothing);
+      expect(find.byType(TextButton), findsNothing);
+      expect(find.textContaining('Retry'), findsNothing);
+      expect(find.textContaining('Sync now'), findsNothing);
+    });
+
+    testWidgets('5. the T7 fields survive when server status is present', (tester) async {
+      final env = wire();
+      await seed(env.outbox, visits: 1);
+
+      await pump(tester, env.outbox, server: _ServerSays(healthy()));
+      await tester.pumpAndSettle();
+
+      // FR-SYN-008's three answers, all still on screen — now sourced from the server.
+      expect(find.byKey(const Key('sync.lastSync')), findsOneWidget);
+      expect(find.byKey(const Key('sync.conflicts')), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.asOf'))).data,
+        'Counted at 14:05 UTC',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.lastSync'))).data,
+        'Last synced 13:53 UTC',
+      );
+    });
+
+    testWidgets('6. an unreachable server leaves the state null and says so', (tester) async {
+      final env = wire();
+
+      final container = await pump(tester, env.outbox);
+      await tester.pumpAndSettle();
+
+      expect(container.read(syncStatusProvider).server, isNull);
+      // "Not synced yet" rather than a zero nobody measured.
+      expect(
+        tester.widget<Text>(find.byKey(const Key('sync.lastSync'))).data,
+        'Not synced yet',
+      );
+      expect(find.byKey(const Key('sync.server.pending')), findsNothing);
+      expect(find.byKey(const Key('sync.conflicts')), findsOneWidget);
+    });
+  });
+
   group('failure', () {
     test('a queue that cannot be read never reports zero', () async {
       // Reporting zero is the single worst answer available: it is the one that says
@@ -243,6 +383,23 @@ void main() {
       expect(state.loading, isFalse);
     });
   });
+}
+
+/// The server, unreachable. The default, because a field device usually is.
+final class _UnreachableServer implements SyncStatusRepository {
+  @override
+  Future<Result<ServerSyncStatus>> fetch() async => const Err(Offline());
+}
+
+/// The server, answering. Records nothing — the endpoint is read-only, so there is nothing
+/// to observe beyond what it returns.
+final class _ServerSays implements SyncStatusRepository {
+  const _ServerSays(this.status);
+
+  final ServerSyncStatus status;
+
+  @override
+  Future<Result<ServerSyncStatus>> fetch() async => Ok(status);
 }
 
 /// An outbox whose reads fail — the D-C3 storage path, from the reader's side.

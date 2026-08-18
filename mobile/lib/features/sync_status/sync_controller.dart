@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/failure.dart';
 import '../../domain/outbox/outbox_operation.dart';
+import '../../domain/sync/server_sync_status.dart';
 import 'sync_providers.dart';
 
 final syncStatusProvider =
@@ -23,7 +24,16 @@ final class SyncStatusState {
     this.oldest = const [],
     this.asOf,
     this.message,
+    this.server,
   });
+
+  /// The server's answer, or `null` if it could not be reached (M9.3).
+  ///
+  /// **Held separately from [pending] on purpose.** `05` §11.5 exists so a disagreement
+  /// between the local queue and the server's view is visible; merging them would delete the
+  /// only information the endpoint carries. A failed fetch leaves this `null` and the local
+  /// counts intact — the device still knows what it is holding.
+  final ServerSyncStatus? server;
 
   final bool loading;
 
@@ -49,6 +59,8 @@ final class SyncStatusState {
     DateTime? asOf,
     String? message,
     bool clearMessage = false,
+    ServerSyncStatus? server,
+    bool clearServer = false,
   }) =>
       SyncStatusState(
         loading: loading ?? this.loading,
@@ -56,6 +68,7 @@ final class SyncStatusState {
         oldest: oldest ?? this.oldest,
         asOf: asOf ?? this.asOf,
         message: clearMessage ? null : (message ?? this.message),
+        server: clearServer ? null : (server ?? this.server),
       );
 }
 
@@ -85,12 +98,19 @@ final class SyncStatusController extends Notifier<SyncStatusState> {
       return;
     }
 
+    // **The server is asked last, and its failure is not the screen's failure.** A phone with
+    // no signal still knows exactly what it is holding; refusing to show the local counts
+    // because the server was unreachable would hide the more important of the two numbers.
+    final server = await ref.read(syncStatusPortProvider).fetch();
+
     state = state.copyWith(
       loading: false,
       pending: depth.fold((count) => count, (_) => 0),
       oldest: oldest.fold((operations) => operations, (_) => const []),
       asOf: now,
       clearMessage: true,
+      server: server.fold((status) => status, (_) => null),
+      clearServer: !server.isOk,
     );
   }
 

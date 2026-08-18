@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.v1.sync_serializers import SyncPushSerializer
+from sync import selectors as sync_selectors
 from sync import services as sync_services
 
 
@@ -49,3 +50,24 @@ class SyncPushView(APIView):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class SyncStatusView(APIView):
+    """`GET /sync/status` (05 §11.5, M9.3).
+
+    **The device is identified by the JWT `device_id` claim, never by the request**
+    (D-M9.3-1). FR-SYN-011 requires sync to authenticate *both user and device*, and a
+    client-supplied identifier would let any device ask about any other. Taking it from the
+    token makes isolation a property of authentication rather than of a filter.
+
+    Read-only: nothing here mutates an operation, a status or a retention state.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        # `request.auth` is the validated token. A session minted without a `device_id` —
+        # both auth serializers default it to `""` — yields the empty string rather than a
+        # missing claim, which reports zeroes instead of raising.
+        device_id = request.auth.get("device_id", "") if request.auth else ""
+        return Response(sync_selectors.device_status(device_id=device_id))

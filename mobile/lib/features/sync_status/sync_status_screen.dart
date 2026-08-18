@@ -77,30 +77,80 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
               ),
             ),
 
-            // FR-SYN-008 — last successful sync. **There has never been one, and saying so
-            // is the honest answer**: §10 records task 9 as *"necessarily partial until M9"*,
-            // and a blank field would read as "unknown" rather than as "not built".
+            // FR-SYN-008 — last successful sync, from the **server's** record of what this
+            // device sent (`05` §11.5). `null` means it has never pushed, or the server
+            // could not be reached; the two read differently on purpose.
             Card(
               child: ListTile(
-                leading: const Icon(Icons.cloud_off_outlined),
-                title: const Text('Not synced yet', key: Key('sync.lastSync')),
-                subtitle: const Text(
-                  'Sending to the server is not part of this version. Nothing you record is '
-                  'lost — it stays on the device until then.',
+                leading: Icon(
+                  state.server == null ? Icons.cloud_off_outlined : Icons.cloud_done_outlined,
+                ),
+                title: Text(_lastSyncLine(state), key: const Key('sync.lastSync')),
+                subtitle: Text(
+                  state.server == null
+                      ? 'Nothing you record is lost — it stays on this device until the '
+                          'server can be reached.'
+                      : 'What the server has received from this device.',
                 ),
               ),
             ),
 
-            // FR-SYN-008 — count of unresolved conflicts. Zero **by construction**, not by
-            // measurement: §5.3 has M8 write `PENDING` and nothing else, so no operation on
-            // this device has ever been in a state the server could reject.
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.rule_outlined),
-                title: const Text('No conflicts', key: Key('sync.conflicts')),
-                subtitle: const Text('Nothing here has been sent, so nothing can be refused.'),
+            // **The server's view, kept separate from the local queue above** — §11.5's whole
+            // purpose is that a disagreement between the two is visible rather than assumed
+            // away. Merging them would delete the only information this endpoint carries.
+            if (state.server case final server?)
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.dns_outlined),
+                      title: Text(
+                        '${server.pending} unfinished on the server',
+                        key: const Key('sync.server.pending'),
+                      ),
+                      // An alarm, not a queue depth (D-M9.3-1): the receiver records and
+                      // completes in one request, so this survives only if processing was
+                      // interrupted after receipt.
+                      subtitle: Text(
+                        server.pending == 0
+                            ? 'Everything the server received, it finished.'
+                            : 'The server accepted these and did not finish them. Report it.',
+                      ),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.rule_outlined),
+                      title: Text(
+                        server.rejected == 0
+                            ? 'No conflicts'
+                            : '${server.rejected} refused by the server',
+                        key: const Key('sync.conflicts'),
+                      ),
+                      subtitle: Text(
+                        server.rejected == 0
+                            ? 'Nothing you have sent has been refused.'
+                            : 'These need the office to look at them.',
+                      ),
+                    ),
+                    for (final rejection in server.rejections)
+                      ListTile(
+                        key: Key('sync.rejection.${rejection.clientUuid}'),
+                        dense: true,
+                        title: Text(_OperationTile._label(rejection.operationType)),
+                        subtitle: Text(rejection.errorCode),
+                      ),
+                  ],
+                ),
+              )
+            else
+              // FR-SYN-008 still has to answer. Saying the server could not be reached is
+              // honest; showing a zero would be a number nobody measured.
+              const Card(
+                child: ListTile(
+                  leading: Icon(Icons.rule_outlined),
+                  title: Text('No conflicts', key: Key('sync.conflicts')),
+                  subtitle: Text('The server could not be reached, so this may be out of date.'),
+                ),
               ),
-            ),
 
             if (state.asOf case final asOf?)
               Padding(
@@ -131,6 +181,12 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
         ),
       ),
     );
+  }
+
+  static String _lastSyncLine(SyncStatusState state) {
+    final lastSyncAt = state.server?.lastSyncAt;
+    if (lastSyncAt == null) return 'Not synced yet';
+    return 'Last synced ${_time(lastSyncAt)} UTC';
   }
 
   static String _time(DateTime instant) =>

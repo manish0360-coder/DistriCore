@@ -116,6 +116,9 @@ ProviderContainer buildRootContainer({
         outboxPortProvider.overrideWith((ref) => ref.watch(outboxRepositoryProvider)),
         // One clock in the running app, even though the feature can default its own.
         syncClockProvider.overrideWith((ref) => ref.watch(clockProvider)),
+        // `05` §11.5 — the server's view of this device, beside the local queue (M9.3).
+        syncStatusPortProvider
+            .overrideWith((ref) => ref.watch(syncStatusRepositoryProvider)),
       ],
     );
 
