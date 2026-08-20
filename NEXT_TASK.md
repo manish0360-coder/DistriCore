@@ -1,27 +1,55 @@
 # Next Task
 
+## The immediate next action
+
+**Resolve roadmap / gating / open-decision state before selecting the next implementation
+milestone.**
+
+That is the whole of it. **No milestone number is proposed here, and none should be invented.**
+`docs/00_Engineering_Foundation.md` §19.1 defines **M9 = Sync** and **M10 = Hardening** and
+defines no sub-milestones; `M9.1`–`M9.4` are working labels for four commits, not roadmap
+entries. There is no M9.5.
+
+The next milestone cannot be selected yet because **eight items are open and five of them are
+questions no engineer may answer alone** — two are direct contradictions between frozen
+documents, and two are gates the corpus says must run and which have not. They are listed in
+`PROJECT_STATE.md` under *Open at M9*, unresolved and deliberately so.
+
+**What needs a decision, before any code:**
+
+| # | Question | Who |
+| --: | --- | --- |
+| 1 | **FR-SYN-005/013/014 vs `05` §11.4.** `02` requires a `SyncConflict` in `PENDING_RESOLUTION`; `05` says *"no conflict resolution console is built, because none is needed"*. `SyncConflict` exists in no schema and no contract | Product Architect |
+| 2 | **FR-SYN-009.** `05` §11.5 claims coverage that **D-M9.3-1** makes unreachable — the endpoint reads `device_id` from the JWT and can only ever describe the caller's own device | Product Architect |
+| 3 | **FR-RPT-009 sync health report.** Placed *at M9* by ruling **A-5** and `M7_Design_Review` §C-4. Unbuilt, and unspecified in `05` | Product Architect |
+| 4 | **M8 → M9 gate** (M8 task 10) — **no recorded evidence of this gate was found in the repository**, and `M8_Design_Review` §10.1 says this one **cannot** slip. M8 tasks 6 and 8 also have no commit | Engineering + Product |
+| 5 | **M9 → M10 gate** — no adversarial sync suite exists | Engineering |
+| 6 | **FR-SYN-007 remainder / stock snapshot** — D-M9.4-1's recorded CONTRACT GAP | Product Architect |
+| 7 | **Orphaned `RECEIVED` recovery** — deferred by `05` §11.5 *"to M9.4/M10"*; M9.4 has passed, so it landed on M10 by default | Engineering |
+| 8 | **TD-41 / FR-SYN-010** — launch-only trigger, no connectivity mechanism | Engineering |
+
+> **Why this is a task and not a preamble.** Until 2026-08-21 this file said *"Next: task 3"*
+> and `PROJECT_STATE.md` said *"M9 — Not started"*, while fourteen commits had landed past
+> both. The corpus is the single source of truth; a corpus six milestones behind the tree
+> cannot answer *"what is next"*, and picking a milestone anyway means picking it from memory.
+
+---
+
 > **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.6.1**, signed
 > 2026-08-10. Both ADRs approved: **Drift + SQLCipher** (§5.6), **Dio** (§7.5). Design
 > principles **P-1…P-10** frozen at §1.3.
 >
-> **Phase 2 tasks 0, 1 and 2 are verified.** Task 0: `GET /reports/dashboard`. Task 1: the
-> Flutter shell, four layers, DI/routing, the pinned toolchain. Task 2: the API layer — Dio,
-> four interceptors, single-flight refresh, problem+json, the `Money` codec.
+> **M8 Phase 2 tasks 0–5, 7 and 9 are committed**, plus TD-39; **tasks 6, 8 and 10 are not.**
+> **M9 has four committed increments** (M9.1–M9.4) and is **not closed**. Commit-by-commit
+> history and the open items are in `PROJECT_STATE.md`.
 >
-> **TD-39 is verified and closed**, and with it all four §14.10 Task 3 gates.
->
-> `make verify` **8/8 · 758/758 · 94.71% · `mypy` clean over 115 files · 3 contracts kept
-> (144 files, 271 dependencies) · `makemigrations --check` No changes detected**.
-> `make mobile-verify` **38/38 · 0 analyzer errors · 3 non-fatal infos**.
+> The pre-commit working tree passed the full mobile verification suite (**305 tests**)
+> immediately before commit `bf94b8e`. Backend
+> `make verify` figures for the M9 increments were not captured in the state documents and
+> are **not restated here from memory**.
 
-**Milestone:** M8 — Mobile app (3.0 units, `00` §19.1)
-**Phase:** **2 — Implementation. Tasks 0, 1, 2 and TD-39 done.**
-**Next: task 3 — Drift schema, outbox, sequencer.** Its four architecture decisions are
-frozen at `M8_Design_Review` §14.9 (D-C1…D-C4) and all four §14.10 gates are closed.
-
-**`mobile/` holds 25 Dart files and still no feature behaviour.** No outbox, no delivery, no
-GPS, no photo, no auth screens, no offline credential store, no Owner Companion Mode. Task 2
-built the transport every later task calls through, and nothing that uses it yet.
+**Milestone:** M9 — Sync (2.0 units, `00` §19.1). M8 remains open on tasks 6, 8 and 10.
+**Next:** see *The immediate next action* above.
 
 ---
 
@@ -102,18 +130,23 @@ line instead of re-argued. The three that cannot be repaired after the fact:
 | ~~**1**~~ | ~~Toolchain, shell, DI, router; layering + no-secrets tests~~ | ✔ **DONE** — 8/8, **742/742**, 94.88%. 16 contracts, each proved able to fail |
 | ~~**2**~~ | ~~Decimal codec and the API layer~~ | ✔ **DONE** — 8/8, **743/743**, 94.88%; `mobile-verify` **38/38**, 0 errors |
 | ~~**TD-39**~~ | ~~`client_uuid` on `/deliveries/{id}/complete` and `/fail`~~ | ✔ **DONE** — 8/8, **758/758**, 94.71%; `makemigrations --check` clean |
-| **3** | **← NEXT. Drift schema, outbox, sequencer.** Decisions frozen at §14.9 | Kill · restart · storage exhaustion, at **every** write boundary |
-| 4 | Auth: OTP, password, keystore, refresh-once, device id, offline window | C-7, FR-IAM-015/016 |
-| 5 | Delivery: list, detail, complete, fail | No screen touches the network to save |
-| 6 | GPS and the **separate media queue** | C-9 |
-| 7 | Customers, visits | — |
-| 8 | **Owner Companion Mode** | Read-only; every figure carries `as_of`; **blocked on OI-7 and TD-36** |
-| 9 | Sync-status screen | FR-SYN-008, partial until M9 |
-| 10 | **8-hour offline soak** (NFR-OFF-001) and the M8→M9 gate | **Measured on a real device** |
+| ~~**3**~~ | ~~Drift schema, outbox, sequencer~~ | ✔ **COMMITTED** — `3009e3b`. **The kill and real-storage-exhaustion halves were deferred to task 10 by §14.11, and no recorded evidence of them was found in the repository** |
+| ~~4~~ | ~~Auth: OTP, password, keystore, refresh-once, device id, offline window~~ | ✔ **COMMITTED** — `1014c88`, `cea3e84`, `5b0f035`, `1ebbe43`, `af9a1ca`, `b9d4eb4` |
+| ~~5~~ | ~~Delivery: list, detail, complete, fail~~ | ✔ **COMMITTED** — `b3f738c` |
+| **6** | **GPS and the separate media queue** | C-9. **No commit.** No GPS, media or photo code exists under `mobile/lib/` |
+| ~~7~~ | ~~Customers, visits~~ | ✔ **COMMITTED** — `11bb370` |
+| **8** | **Owner Companion Mode** | Read-only; every figure carries `as_of`. **No commit.** Still **blocked on OI-7 and TD-36** |
+| ~~9~~ | ~~Sync-status screen~~ | ✔ **COMMITTED** — `feeb85d`, extended by M9.3 (`e26aa87`) |
+| **10** | **8-hour offline soak** (NFR-OFF-001) and the **M8→M9 gate** | **Measured on a real device. No commit, and no recorded evidence of this gate was found in the repository** |
 
-**Task 3 is the milestone.** Everything else is screens over an API that already exists and
-is already verified. If task 3 is wrong, M9 inherits a corrupt queue and both non-negotiable
-sync metrics become unreachable.
+**Tasks 6, 8 and 10 remain.** §10.1 is explicit that of the three, only task 8 could ever
+move: *"task 8 is the first thing that can move to M8.1 without breaking the milestone gate —
+**task 10 cannot**."* Task 10 carries the M8→M9 gate condition from `00` §19.2 — *"outbox
+survives kill, restart and storage exhaustion"* — and §14.11 assigned it the two halves of
+task 3's durability proof that task 3 itself did not make. **No recorded evidence of this gate
+was found in the repository** — which is an absence of an artefact, not proof that nothing was
+run. A soak measured on a device leaves no trace here unless someone writes it down. This
+document records the absence; it does not rule on it.
 
 **Tasks 1 and 2 precede every feature deliberately.** `reporting`'s four AST tests were
 written when it had one file; that is why the contract still holds at seven. Written last,

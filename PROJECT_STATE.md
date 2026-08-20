@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M8 — Mobile app.** Phase 2 **tasks 0, 1, 2 and TD-39 done**. `make verify` **8/8, 758/758, 94.71%**, `mypy` clean over 115 files, 3 contracts kept. `make mobile-verify` **38/38, 0 analyzer errors**. **Next: task 3 — all four §14.10 gates closed** |
+| Current milestone | **M9 — Sync.** Four increments committed (M9.1–M9.4, below); HEAD is `bf94b8e`. The pre-commit working tree passed the full mobile verification suite (**305 tests**) immediately before commit `bf94b8e`. **M9 is not closed:** several FR-SYN requirements are unbuilt, no recorded evidence was found for two documented gates, and two corpus contradictions are open — see *Open at M9*. **The next action is a decision, not an implementation** (`NEXT_TASK.md`) |
 | Last closed | **M7 — Reporting**, verified 8/8, plus the identity fix, the owner bootstrap, TD-30, TD-27, TD-21 and TD-2/TD-18 |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -31,11 +31,82 @@
 | M5 | Fulfilment & Billing — delivery, dispatch, GST invoice, credit note, ledger | **Verified & tagged** — `docs/M5_Verification_Report.md` |
 | M6 | Receivables — payments, reversal, write-off, derived outstanding, statement | **Verified & tagged** — `docs/M6_Verification_Report.md` |
 | M7 | Reporting — seven reports, CSV, scoping, owner dashboard | **Verified** — `docs/M7_Verification_Report.md` |
-| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.6.1**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2: tasks 0–2 and TD-39 done** — the dashboard endpoint, the Flutter shell and contracts, the API layer, then delivery-outcome idempotency. **Task 3 decisions D-C1…D-C4 frozen (§14.9) and all four §14.10 gates closed. Next: task 3 — Drift schema, outbox, sequencer** |
-| M9 | Sync | Not started |
+| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.6.1**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2 tasks 0–5, 7 and 9 committed** plus TD-39 (see the commit history below). **Tasks 6, 8 and 10 have no commit** — GPS and the separate media queue, Owner Companion Mode, and the 8-hour offline soak. `mobile/lib/features/` contains `auth`, `customers`, `deliveries`, `settings`, `sync_status` and nothing else |
+| M9 | Sync | **In progress.** Four increments committed — M9.1 push receiver, M9.2 mobile drain, M9.3 server status, M9.4 pull and cache. **Not closed:** see *Open at M9* |
 | M10 | Hardening | Not started |
 | M11 | Go-live | Not started |
 | M12 | Retailer role (Edition 1b) | Not started |
+
+### The canonical roadmap
+
+`docs/00_Engineering_Foundation.md` §19.1 defines **M9 = Sync** and **M10 = Hardening**, and
+**defines no sub-milestones**. `M9.1`–`M9.4` below are *working labels for four commits*, not
+roadmap entries. There is no M9.5 and none is proposed here.
+
+Gates, from `00` §19.2, verbatim:
+
+| Gate | Condition |
+| --- | --- |
+| M8 → M9 | *"Outbox survives kill, restart and storage exhaustion"* |
+| M9 → M10 | *"Adversarial sync suite passes: zero loss, zero duplicates"* |
+
+## Committed implementation history — M8 Phase 2 and M9
+
+Read from `.git/logs/HEAD`. **Subjects are verbatim.** The *Task* column maps each commit to
+`M8_Design_Review` §10 and is an **inference from the commit subject**, not a statement any
+document makes.
+
+| Commit | Subject (verbatim) | Task *(inferred)* |
+| --- | --- | --- |
+| `3009e3b` | `feat(mobile): implement durable outbox` | M8 task 3 |
+| `1014c88` | `feat(mobile): add secure token store` | M8 task 4 |
+| `cea3e84` | `feat(mobile): restore session from secure token store` | M8 task 4 |
+| `5b0f035` | `feat(mobile): add authentication engine` | M8 task 4 |
+| `1ebbe43` | `feat(mobile): wire production bootstrap` | M8 task 4 |
+| `af9a1ca` | `feat(mobile): add V1 login experience` | M8 task 4 |
+| `b9d4eb4` | `feat(mobile): add offline authentication window` | M8 task 4 |
+| `b3f738c` | `feat(mobile): add delivery workflow` | M8 task 5 |
+| `11bb370` | `feat(mobile): add customer visit workflow` | M8 task 7 |
+| `feeb85d` | `feat(mobile): add sync status visibility` | M8 task 9 |
+| **`1a26781`** | `feat(sync): add backend sync receiver` | **M9.1** |
+| **`ffd2702`** | `feat(mobile): add sync engine` | **M9.2** |
+| **`e26aa87`** | `feat(sync): add server sync status` | **M9.3** |
+| **`bf94b8e`** | `feat(sync): add offline pull and cache` | **M9.4 — HEAD** |
+
+| Increment | Delivered | Contract |
+| --- | --- | --- |
+| **M9.1** | `POST /sync/push` receiver; `sync_operation` (`04` T-26); `field` app; five-value server status vocabulary | `05` §11.2, PU-1…PU-4 |
+| **M9.2** | Mobile `SyncEngine` — single-flight drain, batch claim/settle, launch-time trigger | `05` §11.2, §11.4 |
+| **M9.3** | `GET /sync/status`; server view rendered beside the local queue | `05` §11.5, D-M9.3-1/2 |
+| **M9.4** | `GET /sync/pull` with opaque `page_token`; Drift v2→v3 cache; `PullService`; cache-first delivery and customer rounds; ordered start-up chain | `05` §11.1, D-M9.4-1…8 |
+
+> **Not recorded in the verification-history table below.** That table records `make verify`
+> stage/test/coverage figures for backend milestones. These four increments were verified by a
+> mixture of `make verify` and `make mobile-verify` runs whose figures are not captured here;
+> recording numbers that were not observed at the time would be worse than recording none.
+
+## Open at M9 — carried, not decided
+
+**Nothing in this section is resolved by this document.** Each item is either unbuilt, or a
+place where two frozen documents disagree. They are listed so that the next milestone is
+chosen with them in view, not so that they are quietly closed.
+
+> **Three different statements, kept apart on purpose.** *"The suite does not exist"* is an
+> observed absence in the tree. *"No recorded evidence was found"* is an absence of a
+> verification artefact, and says nothing about what was or was not executed. **Neither is
+> proof that something was never run**, and this document makes no such claim anywhere — a
+> measurement taken on a device leaves no trace in a repository unless someone records it.
+
+| # | Item | State |
+| --: | --- | --- |
+| 1 | **FR-RPT-009 — sync health report** (FR-SYN-015). `02:737` ruling **A-5** and `M7_Design_Review` §C-4 both place it *at M9*. No implementation in `backend/reporting`; **no endpoint in `05`** | **Open** |
+| 2 | **FR-SYN-009 — `SALESMGR`/`ADMIN` per-device view.** `05` §11.5 is captioned *"(FR-SYN-008/009)"*, but **D-M9.3-1** freezes `device_id` as taken from the JWT *"never from the request"*, so the endpoint can only ever show the caller's own device. No other surface exists | **Open — apparent contradiction inside `05` §11.5** |
+| 3 | **Orphaned `RECEIVED` recovery.** `05` §11.5: *"not specified and is not built … Deferred to M9.4/M10 by ruling."* M9.4 shipped without it, so it has arrived at M10 by default rather than by decision | **Open** |
+| 4 | **FR-SYN-007 remainder / stock.** `02` requires *"customers on assigned routes, products, prices, schemes and stock snapshot"*. **D-M9.4-2** implements customers and deliveries only; **D-M9.4-1** records the stock snapshot as an unclosed **CONTRACT GAP** against `04` N-03/E-01 and ADR-008 | **Open — recorded gap** |
+| 5 | **FR-SYN-005 / 013 / 014 — conflict console.** `02` FR-SYN-005: *"MUST … persist it as a `SyncConflict` in `PENDING_RESOLUTION`"* (also BR-014). `05` §11.4: *"**No conflict resolution console is built, because none is needed**"*. `SyncConflict` occurs **only in `02`** — no table in `04`, no endpoint in `05`, no model in `backend/sync` | **Open — direct contradiction between `02` and `05`** |
+| 6 | **M9 → M10 gate.** `backend/tests/adversarial/` holds 13 suites and **none is a sync suite** | **The suite does not exist** — observed absence of the artefact the gate names |
+| 7 | **M8 → M9 gate.** Assigned to M8 task 10 (`M8_Design_Review` §10), which §14.11 also carries process-kill and real storage exhaustion for. §10.1: *"task 8 is the first thing that can move to M8.1 without breaking the milestone gate — **task 10 cannot**."* No commit | **No recorded evidence of this gate was found in the repository** — no commit, and no `M8_Verification_Report.md` where M0–M7 each have one |
+| 8 | **FR-SYN-010 / NFR-PER-004 — TD-41** | **Open** (below) |
 
 ## Verification history
 
@@ -148,6 +219,7 @@ it can prove.**
 | # | Item | Due |
 | --- | --- | --- |
 | ~~**TD-39**~~ | ~~`/deliveries/{id}/complete` and `/fail` do not accept `client_uuid`~~ | **CLOSED 2026-08-11.** `outcome_client_uuid` added as a *separate* key — `Delivery.client_uuid` still identifies the assignment. Savepoint + `IntegrityError`, the `record_payment` pattern; in `fail_delivery` the identity is claimed **before** the RETURN movements, so a lost race cannot leave a duplicate restock. 15 tests. Verified 8/8, **758/758**, 94.71% |
+| **TD-41** | **New. Sync is triggered at launch only, which does not satisfy FR-SYN-010.** The requirement is *"within 2 minutes of reconnection at the DR-8 envelope"* (NFR-PER-004); the frozen mobile stack carries **no connectivity-state mechanism**, so no reconnection can be detected. A launch is when a device reconnects in practice, not by guarantee. Cited in three places in the repository — `mobile/lib/app/bootstrap.dart`, `mobile/test/startup_refresh_race_test.dart` and `docs/05_API_Contracts.md` §11.1 (D-M9.4-7) — each stating that the launch trigger **is not claimed** to be FR-SYN-010. `SyncEngine.sync()` and the D-M9.4-7 chain do not change when the trigger is built; its single-flight guard already makes a burst of connectivity events safe | **Open — M9** |
 | **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is not part of `make verify`, so *"does the Dart compile"* is ungated — and the **29 Dart cases that prove D-B1/D-B2/D-B3 are invisible to the only authority**. The 743 figure does not include them. The M8 contracts that *must* be blocking are enforced from stage 7 in Python because they are structural and need a parser, not a compiler; a Dart compile error still reaches `main`. Promote `mobile-verify` to stage 9 once the toolchain image has held for a milestone — adding an untested stage to the only authority is worse than none | M9 |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `FLUTTER_SHA256` is an optional build-arg and the build prints the checksum it downloaded; `uv.lock` gives the Python side the stronger guarantee. Closing it is one paste from a `make mobile-image` run | M8, before task 3 |
 | **TD-36** | **New, and the most consequential.** The seven report endpoints **emit money as JSON floats**, against AD-02 — whose rationale names Dart and whose client obligation is C-1. `COERCE_DECIMAL_TO_STRING` is set but reaches only `serializers.DecimalField`; `api.v1.report_views._as_json` hand-builds its dict, so DRF's encoder renders `Decimal("1180.00")` as `1180.0`. **Measured, not inferred.** The existing assertion reads `Decimal(str(...))`, and that `str()` makes it pass whichever type arrives — which is how this survived four reviews and a blocking type gate. **Breaking change to a published response type: its own change, its own verify run.** Fix by routing `_as_json`'s numeric cells through `money_string`, added in task 0 for exactly this reuse | **M8, before task 8** |

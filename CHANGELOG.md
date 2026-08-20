@@ -4,6 +4,125 @@ Generated from Conventional Commits (`00` §6.2). Versions follow SemVer (FD-18)
 
 ## [Unreleased]
 
+### M9.4 — offline pull and cache (`bf94b8e`)
+
+`GET /sync/pull` and the device-side cache it fills. `05` §11.1; decisions D-M9.4-1…D-M9.4-8.
+
+**Added — backend**
+
+- `GET /sync/pull?since=&page_token=` — `api/v1/sync_views.SyncPullView`, `sync_serializers`,
+  `sync.selectors.pull`. Keyset traversal ordered `(updated_at, id)`; `server_time` sampled
+  once at request start.
+- **D-M9.4-8 — an opaque `page_token`.** P-5 as originally written was unimplementable: with
+  no page-position field a repeat request carrying the same `since` is byte-identical to the
+  first, so `has_more` never becomes false. `05` §11.1 amended; `since` is unchanged across
+  every page and only the token moves.
+- **D-M9.4-4** — the cursor comparison is `updated_at >= since`. A lost row is silent and
+  unrecoverable; a resent row is visible and harmless, provided the client upserts by the
+  server's immutable `id`.
+- **D-M9.4-2** — `customers` and `deliveries` only. `products`, `offers`, `zones`,
+  `reason_codes` and `orders` are absent from an M9.4 response, **not declared out of V1**.
+- **D-M9.4-1** — the FR-SYN-007 stock snapshot is recorded as an **unclosed contract gap**,
+  not implemented and not invented.
+
+**Added — mobile**
+
+- Drift schema **v2 → v3**: `cached_customer`, `cached_delivery`, `sync_cursor`. Additive
+  only — the migration that adds a cache must not be able to disturb the outbox.
+- `PullService` — one transaction per page, never across a request; **the cursor advances
+  once, after the final page is durably applied**. Advancing per page would let a crash skip
+  every page not yet fetched, permanently.
+- **Cache-first delivery and customer rounds.** Neither repository holds an `ApiClient` any
+  more; a driver starting the day with no signal has their round. `CachedRound<T>` carries
+  one `as_of` per round (**D-M9.4-6**), and `null` means *no pull has ever completed*.
+- **D-M9.4-7 — one ordered start-up chain**: session restore → push → pull. `Ok(null)` and
+  `Err` from restoration both stop it; an `Unauthenticated` push stops before the pull; any
+  other push failure does not.
+
+**Found**
+
+- **A backend that passed 17 focused tests could not reach a second page.** The suite verified
+  the pieces and never the traversal — the same shape as the M7 and task-2 defects.
+- **A structurally invalid `page_token` decoded as valid JSON** and silently restarted the
+  pull with HTTP 200. Now validated by shape, type and parseability.
+- **`sync.services` bypassed authorization**, filtering `Delivery.objects` directly instead of
+  going through `fulfilment.selectors.get_delivery_for(actor, id)` — sync had weaker scoping
+  than the endpoint beside it.
+- **The `SyncEngine` drain could loop forever.** A full batch producing no terminal verdict
+  left the queue byte-identical, so `batch.length < maxBatch` never became true. Bounded by
+  requiring progress.
+
+**Note**
+
+- **TD-41 opened.** Sync is triggered at launch only; FR-SYN-010 requires *"within 2 minutes
+  of reconnection"* and the frozen mobile stack has no connectivity mechanism. Stated in the
+  source and in `05` §11.1 rather than claimed.
+- **D-M9.4-6 and D-M9.4-7 were cited in shipped source before they existed in any document**,
+  and were recorded in `05` §11.1 on 2026-08-21 after a pre-commit audit found the dangling
+  references.
+
+---
+
+### M9.3 — server sync status (`e26aa87`)
+
+**Added**
+
+- **`GET /sync/status`** (`05` §11.5) — the server's view of a device, rendered beside the
+  local outbox depth so a disagreement between the two is visible rather than assumed away.
+- **D-M9.3-1** — `device_id` is taken from the authenticated JWT claim, **never from the
+  request**. Proven against the existing token flow before implementation.
+- **D-M9.3-2** — `rejected[]` carries `client_uuid`, `operation_type`, `error_code` and
+  `client_created_at`, and nothing else.
+
+**Found**
+
+- **`pending_count` was undefined in prose.** The two sides use different vocabularies: the
+  device's `PENDING` means *not yet transmitted*, which a server cannot observe, while `04`
+  T-26's `RECEIVED` means *recorded before the business operation was attempted*. Settled by
+  the example in `05` §11.5 itself and recorded there.
+- **A non-zero `pending_count` is an alarm, not a queue depth** — and **recovery of orphaned
+  `RECEIVED` rows is not specified and is not built.** Recorded in `05` §11.5 so it is not
+  mistaken for an oversight.
+
+---
+
+### M9.2 — mobile sync engine (`ffd2702`)
+
+**Added**
+
+- `SyncEngine` — the outbox drain. **Single-flight**, batch-claimed, settled from the server's
+  verdicts verbatim. It owns no business rule: it decides *when* to send and *what becomes of
+  the row*, never whether an operation was valid.
+- **Recovery before sending.** A push killed mid-flight leaves rows `IN_FLIGHT`; they are
+  unsent work, and resending is safe because a replay is `DUPLICATE` (I-4).
+- The five-value wire vocabulary mapped to the four local states: `ACCEPTED`/`DUPLICATE` →
+  acknowledged, `DEFERRED` → pending, `REJECTED` → rejected, `RECEIVED` unmapped.
+- **Anything the server did not mention returns to `PENDING`** rather than being assumed
+  accepted — the one assumption that would lose a delivery.
+
+**Note**
+
+- **The trigger is launch-time only, and is not claimed to be FR-SYN-010** (TD-41).
+
+---
+
+### M9.1 — backend sync receiver (`1a26781`)
+
+**Added**
+
+- **`POST /sync/push`** (`05` §11.2, PU-1…PU-4) and `sync_operation` (`04` T-26) — the
+  server-side record of every operation a device sends, written **before** the business
+  operation is attempted. `01` §10.3's two non-negotiable metrics are enforced by
+  `uq_sync_operation_client_uuid`, a constraint rather than a service check.
+- A dedicated **`field`** app for device-originated operations (**D-M9.1-2**).
+- **D-M9.1-1** — `DELIVERY_COMPLETE` is the canonical `operation_type`. `04` T-26 corrected in
+  place with the correction dated beside it; `05` §11.2 is the wire contract and the shipped
+  M8 client already emits it.
+- An operation of an unknown or unimplemented type is **REJECTED, never silently accepted**,
+  and a rejection with no reason is refused by a database CHECK (BR-014).
+
+---
+
 ### M8 Phase 2, task 2 — the API layer
 
 **No feature behaviour.** The transport every later task calls through, and the three
