@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/as_of.dart';
 import '../../domain/customer/customer.dart';
 import '../../domain/visit/visit_outcome.dart';
 import 'customer_controller.dart';
@@ -62,6 +63,17 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: CircularProgressIndicator(key: Key('customers.loading')),
+              ),
+            // **P-8: stale is acceptable, silently stale is not.** Absent before the first
+            // pull — "never synced" is not the same claim as a timestamp.
+            if (state.asOf case final asOf?)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Text(
+                  'Round as of ${asOfLabel(asOf)} UTC',
+                  key: const Key('customers.asOf'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ),
             Expanded(
               child: state.customers.isEmpty && !state.loading

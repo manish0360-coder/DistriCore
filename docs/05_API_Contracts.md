@@ -861,10 +861,207 @@ GET /api/v1/sync/pull?since=2026-08-05T04:00:00Z
 | P-2 | The client stores `server_time` and sends it as the next `since`. **It never uses its own clock** — device clocks drift, and a fast clock silently skips records |
 | P-3 | Scoped by role and assignment: a salesman receives customers in their zones and orders assigned to them (FR-SYN-012, NFR-SEC minimisation) |
 | P-4 | `deactivated_ids` is sent separately because a deactivated row may no longer appear in `updated` under scoping, and the client must remove it rather than keep a stale copy |
-| P-5 | `has_more: true` means the payload was capped; the client pulls again with the **same** `since` until it is false, then advances |
+| P-5 | `has_more: true` means the payload was capped; the client pulls again with the **same** `since` **and the returned `next_page_token`** until it is false, then advances the cursor (amended — D-M9.4-8) |
+| P-7 | `page_token` is an **opaque** continuation position *within one pull*. It is **never** persisted as the device's sync cursor; `server_time` is (D-M9.4-8) |
 | P-6 | Pull is read-only, safe to repeat, and never mutates server state |
 
 **Why `server_time` rather than the client's clock.** A device whose clock is five minutes fast would send a `since` in the future and permanently skip every record written in that window. Those records are not resent, and the loss is silent. Returning the server's own time removes the client's clock from the correctness path entirely.
+
+> **Implementation rulings, 2026-08-16 (D-M9.4-1 … D-M9.4-3).** **No field is added, removed
+> or renamed, and the envelope above is unchanged.** These record which parts of it M9.4
+> builds and which remain unbuilt, so that a reader does not mistake an unimplemented
+> collection for an absent contract.
+>
+> **D-M9.4-1 — the stock snapshot is a CONTRACT GAP, and M9.4 does not close it.**
+> FR-SYN-007 requires sync to deliver *"customers on assigned routes, products, prices,
+> schemes and **stock snapshot**"*. **This envelope has no stock collection**, `04` has no
+> stock table, and the architecture is emphatic that none may exist: `04` N-03/E-01 —
+> *"**no `quantity_on_hand` … exists anywhere**"*; ADR-008 — *"stock derived from movements,
+> no cache"*; M2-3, signed — *"there never will be"*. `M8_Design_Review` §2 adds that **no
+> stock decision is computed on the device**.
+>
+> Nothing here is therefore merely missing: three frozen documents and one requirement do not
+> share a reading, and a `stock_levels` field invented to bridge them would be a new contract
+> written by an implementer. **Deferred to a formal amendment.** M9.4 ships no stock.
+>
+> **D-M9.4-2 — M9.4 implements `customers` and `deliveries` only.** These are the two
+> collections with verified shipped consumers: T6's customer round and T5's delivery
+> workflow. `products`, `offers`, `zones`, `reason_codes` and `orders` are **not implemented
+> in M9.4 and are not thereby declared out of V1** — FR-SYN-007 names several of them and
+> their consumer mapping is a later ruling. A response from an M9.4 server simply omits them.
+>
+> **`schemes` resolves to `offer`**, confirmed against `04` T-24: *"`02A` §13 splits this:
+> **V1 shows an owner-posted offer; automatic scheme calculation is Edition 2.** This table
+> is the V1 half."* Recorded because the mapping was not obvious; it does not put `offer`
+> into M9.4.
+>
+> **D-M9.4-3 — `deactivated_ids` is the only removal mechanism, and absence is not deletion.**
+> A cached record **must not** be deleted because it did not appear in a pull. Under P-5 a
+> delta pull returns only what changed since `since`, so "absent" describes almost every
+> record the device holds; deleting on absence would erase the cache on the first incremental
+> pull. It is coherent only for a full bootstrap, and only if every page of an unbounded
+> `has_more` sequence is held before deciding — on a phone.
+>
+> **The consequence is recorded rather than solved.** A customer *reassigned out of a user's
+> zone* is not deactivated and will simply stop appearing in `updated`; the device keeps it.
+> P-4 explains deactivation and is silent on rescoping. That is a **CONTRACT GAP with an
+> FR-SYN-012 dimension** — a device retaining records it may no longer be authorised to hold
+> — and it is deferred to a later amendment rather than closed by inference. Bounded
+> over-retention is recoverable; mass deletion on a device carrying unsent work is not.
+>
+> **D-M9.4-4 — the cursor comparison is `updated_at >= since`.**
+>
+> `>` and `>=` are not symmetric in cost. `>` can permanently miss a row stamped in the same
+> microsecond as the `server_time` that became the next `since`; `>=` can resend one. **A
+> lost row is silent and unrecoverable; a resent row is visible and harmless** — provided the
+> client upserts by the server's immutable `id`, which D-M9.4-4 therefore also requires of
+> the device. Inserting blindly would turn the safe failure into duplicate rows.
+>
+> This is the position §6 already takes on replay — *"a retry after a timeout is the **correct**
+> client behaviour"*, and I-4 makes a duplicate a success rather than an error.
+>
+> **Both collections can share one cursor.** `Customer` and `Delivery` both inherit
+> `updated_at` from `TimeStampedModel` (`auto_now`, `timestamptz`, UTC per N-08), and every
+> write path in `customers/services.py` and `fulfilment/services.py` — including
+> **deactivation** and **`complete_delivery`** — carries `updated_at` in its `update_fields`.
+> That was checked rather than assumed: Django fires `auto_now` only for fields actually being
+> written, so one `save(update_fields=[…])` omitting it would leave a completed delivery
+> invisible to every subsequent pull, and nothing would report the loss.
+>
+> **Ordering must be `(updated_at, id)`.** `timestamptz` is microsecond-resolution but not
+> unique — one transaction can stamp two rows identically — and a tie split across a page
+> boundary drops or repeats a row.
+>
+> **D-M9.4-5 — the pull page size is deliberately NOT a wire-contract number.**
+>
+> §4 separates the two mechanisms explicitly: *"Lists use `?page=&page_size=` with a default
+> of 25 and a maximum of 100. **Sync pull uses `?since=…`**"* — so pull never inherited the
+> list numbers, and §13's `sync/push` cap of 200 counts *operations a device sends*, not rows
+> a server returns across heterogeneous collections. P-5 asserts a cap exists and states no
+> value. **It is left unstated on purpose.**
+>
+> A server MAY bound a page however it needs to; `has_more` is the contract, the number is
+> not. A client MUST NOT depend on any particular page size, and MUST follow `has_more`
+> rather than counting rows.
+>
+> **The paging protocol, stated once so an implementer does not re-derive it:**
+>
+> | Rule | Detail |
+> | --- | --- |
+> | `server_time` is sampled **once, at request start** | Sampling it after the query would drop every row written in between — the same silent skip §11.1 describes for client clocks |
+> | Every page of one pull uses the **same `since`** | P-5 |
+> | The client advances its persisted cursor **only after the final page is durably applied** | `has_more: false` **and** committed |
+> | The cursor is **never** advanced page by page | A crash mid-sequence would otherwise skip every page not yet fetched, permanently (FR-SYN-004, FR-SYN-017) |
+>
+> **Correction to D-M9.4-5, 2026-08-16.** The clause above previously read *"the pull page
+> size is deliberately not a wire-contract number"* and cited its absence from the corpus.
+> **That was wrong.** **O-5 defines it: 500 records per collection.** It was missed because
+> the audit grepped for *"page size"* and O-5 says *"page cap"*. What survives is the client
+> obligation, which O-5 does not weaken: **a client MUST follow `has_more` and
+> `next_page_token` and MUST NOT depend on the numeric page size.** A server may cap below
+> 500; the contract is the flag, and 500 is the ceiling.
+>
+> ---
+>
+> **D-M9.4-8 — opaque continuation token (amendment, 2026-08-16).**
+>
+> **P-5 as originally written was unimplementable.** With no page-position field, a repeat
+> request carrying the same `since` is byte-identical to the first: the server returns the
+> same page, `has_more` never becomes false, and a client following the rule literally loops
+> forever without ever writing its cursor. **Found while building the client against a
+> backend that had already passed 17 focused tests** — none of which asserted that a *second*
+> page could be reached. The suite verified the pieces and never the traversal.
+>
+> **Two frozen statements also could not both hold.** AD-10 chose *"a `since` cursor for
+> sync"* and rejected offset explicitly — *"offset pagination silently skips rows when the
+> underlying set changes mid-pagination, precisely the failure that loses a transaction
+> (BR-014)"* — while P-5 required `since` to stay fixed. A cursor that never moves is not a
+> cursor.
+>
+> **And one scalar could not serve two collections.** §11.1 returns `customers` and
+> `deliveries` in one envelope. If both are capped at different `updated_at` positions, a
+> single `since` cannot express both, so no rewording of P-5 could have fixed it. That is a
+> shape problem, and it is what forced a token rather than a redefinition.
+>
+> | Rule | Detail |
+> | --- | --- |
+> | Request | `?since=<ISO-8601>&page_token=<opaque>` — both optional |
+> | Response | `next_page_token` **MUST** be present when `has_more: true`, and **MUST** be absent when it is false |
+> | Meaning | Position **within the current pull**, across **both** collections, so each can advance independently |
+> | Encoding | **Deliberately unspecified.** A client that parsed it would couple itself to a server internal; opacity is the guarantee |
+> | Lifetime | **Transient.** Held for the duration of one pull and discarded. The device persists `server_time` and nothing else |
+> | `since` | **Unchanged across every page of one pull.** `updated_at >= since` is untouched (D-M9.4-4) |
+>
+> **The persisted-cursor model does not change.** `server_time` still advances once, after the
+> final page is durably applied. The token exists precisely so that rule can survive: without
+> it there was no final page.
+>
+> ---
+>
+> **D-M9.4-6 and D-M9.4-7 — client obligations, recorded 2026-08-21.**
+>
+> **Recorded late, and that is the finding.** Both were frozen during M9.4 mobile
+> implementation and cited by identifier in shipped source —
+> `mobile/lib/domain/sync/cached_round.dart` cites D-M9.4-6, `mobile/lib/app/bootstrap.dart`
+> cites D-M9.4-7 — while existing in no document. The pre-commit audit found the dangling
+> references. **Neither changes the wire contract**; both govern how a client consumes §11.1,
+> which is why they belong beside it rather than in a mobile-only note.
+>
+> **D-M9.4-6 — `as_of` is a property of the pull, not of the record.**
+>
+> A cached read returns `CachedRound<T>`: the rows, and **one** `asOf` for the round. The
+> value is the **server-provided `server_time`** of the last completed pull, persisted
+> verbatim — the same string P-2 sends back as the next `since`, never a re-rendered or
+> re-parsed copy of it, and never the device's clock (P-4).
+>
+> **One timestamp per round rather than one per entity**, because that is what actually
+> happened: a pull is a snapshot, every row in it was true at the same server instant, and a
+> per-entity copy would be the same value repeated N times with N chances to diverge. It also
+> answers the question P-8 asks — *"how old is what I am looking at?"* — which is a question
+> about the round, not about a row.
+>
+> `asOf == null` means **no pull has ever completed**, which a screen must render differently
+> from an empty round pulled this morning. An empty list with a timestamp is a salesman with
+> no calls today; an empty list without one is a device that has never synced.
+>
+> **D-M9.4-7 — start-up background synchronization is ordered, and stops on no session.**
+>
+> ```
+> session restore → push → pull
+> ```
+>
+> | Step | Outcome | Then |
+> | --- | --- | --- |
+> | restore | `Err` — restoration failed | **stop.** No push, no pull |
+> | restore | `Ok(null)` — succeeded, no authenticated session | **stop.** No push, no pull |
+> | restore | `Ok(session)` | push |
+> | push | `Unauthenticated` | **stop.** No pull |
+> | push | any other failure (`Offline`, storage, server) | **pull proceeds** |
+> | push | success | pull |
+>
+> **Ordered, not concurrent.** Local durable writes must reach the server before a pull
+> overwrites the cache describing them. Run together, a pull that wins the race lands the
+> server's stale view over work the device has already recorded; the outbox overlay would
+> still mask it on screen, but the ordering must be a decision rather than whatever the event
+> loop chose.
+>
+> **`Ok(null)` and `Err` stop for the same reason and are not the same event.** `Ok(null)` is
+> restoration *succeeding* and finding no credential — a fresh install, or a signed-out
+> device — and §8.2 makes it the state that lets the shell render a login screen without
+> waiting on a timeout. `Err` is restoration *failing*. Neither produces an authenticated
+> session, and neither can produce a useful request: a push would meet a guaranteed 401 and a
+> pull would return an empty scope. Both would look like work and be neither.
+>
+> **A non-auth push failure must not block the pull.** The rows stay `PENDING`, nothing is
+> lost (P-5 of §11.2), and the connection may have recovered between the two calls. Treating
+> every push failure as terminal would leave a device whose depot Wi-Fi hiccuped on
+> yesterday's round for the rest of the day.
+>
+> **This is not FR-SYN-010 and is not claimed to be (TD-41).** The requirement is *"within 2
+> minutes of reconnection"*; the frozen mobile stack has no connectivity-state mechanism to
+> detect one, so the trigger is launch. A launch is when a device reconnects in practice, not
+> by guarantee. When the real trigger is built it calls this same chain — the ordering above
+> is the contract, the trigger is not.
 
 ### 11.2 Push
 

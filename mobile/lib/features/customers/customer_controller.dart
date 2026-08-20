@@ -16,7 +16,11 @@ final class CustomerListState {
     this.customers = const [],
     this.message,
     this.busyId,
+    this.asOf,
   });
+
+  /// **P-8.** When the server produced this round. `null` means no pull has ever completed.
+  final DateTime? asOf;
 
   final bool loading;
   final List<Customer> customers;
@@ -35,12 +39,15 @@ final class CustomerListState {
     bool clearMessage = false,
     int? busyId,
     bool clearBusy = false,
+    DateTime? asOf,
+    bool clearAsOf = false,
   }) =>
       CustomerListState(
         loading: loading ?? this.loading,
         customers: customers ?? this.customers,
         message: clearMessage ? null : (message ?? this.message),
         busyId: clearBusy ? null : (busyId ?? this.busyId),
+        asOf: clearAsOf ? null : (asOf ?? this.asOf),
       );
 }
 
@@ -55,8 +62,13 @@ final class CustomerListController extends Notifier<CustomerListState> {
     final result = await ref.read(customerRepositoryProvider).customers();
 
     state = result.fold(
-      (customers) =>
-          state.copyWith(loading: false, customers: customers, clearMessage: true),
+      (round) => state.copyWith(
+        loading: false,
+        customers: round.rows,
+        clearMessage: true,
+        asOf: round.asOf,
+        clearAsOf: round.asOf == null,
+      ),
       (failure) => state.copyWith(loading: false, message: _messageFor(failure)),
     );
   }

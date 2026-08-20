@@ -1,23 +1,28 @@
-// M8 T6 — the customer round and visit capture.
+// M8 T6 — the customer round and visit capture, **cache-first since M9.4**.
 //
-// Same two levels as the delivery slice: the repository against a **real in-memory SQLite
-// outbox** and a real `ApiClient`, the screen against the `CustomerRepository` port with a
-// hand-written fake. One `wire()` per test — `wire` registers `addTearDown(db.close)`, so a
-// second call in one test would leave two live `AppDatabase` objects.
+// Same two levels as the delivery slice: the repository against a real in-memory SQLite
+// cache and outbox, the screen against the `CustomerRepository` port with a hand-written
+// fake. One `wire()` per test — it registers `addTearDown(db.close)`, so a second call in one
+// test would leave two live `AppDatabase` objects.
+//
+// **The network is gone from this file**, because it is gone from the repository. Fetching,
+// parsing and payload validation moved to `PullService` (`pull_slice_test.dart`). What stays
+// here is what T6 still owns: the visit overlay, `client_uuid` behaviour, and the screen.
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:districore/core/clock.dart';
 import 'package:districore/core/failure.dart';
 import 'package:districore/core/result.dart';
-import 'package:districore/data/api/api_client.dart';
 import 'package:districore/data/db/app_database.dart';
+import 'package:districore/data/repositories/customer_cache.dart';
 import 'package:districore/data/repositories/drift_outbox_repository.dart';
 import 'package:districore/data/repositories/outbox_customer_repository.dart';
+import 'package:districore/data/repositories/sync_cursor_store.dart';
 import 'package:districore/domain/customer/customer.dart';
 import 'package:districore/domain/customer/customer_repository.dart';
 import 'package:districore/domain/outbox/outbox_repository.dart';
 import 'package:districore/domain/outbox/outbox_status.dart';
+import 'package:districore/domain/sync/cached_round.dart';
 import 'package:districore/domain/visit/visit_outcome.dart';
 import 'package:districore/features/customers/customer_controller.dart';
 import 'package:districore/features/customers/customer_providers.dart';
@@ -27,91 +32,79 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/fake_adapter.dart';
-
 final _now = DateTime.utc(2026, 8, 16, 11);
+const _pulledAt = '2026-08-16T08:00:00.000000Z';
 
-Map<String, dynamic> _row({int id = 142}) => <String, dynamic>{
-      'id': id,
-      'code': 'CUS-000$id',
-      'shop_name': 'Sharma Kirana',
-      'owner_name': 'Ramesh Sharma',
-      'phone': '+919876543210',
-      'zone': <String, dynamic>{'id': 7, 'name': 'Patna East'},
-      // Money on the wire (AD-02). It must reach no Dart field — P-3.
-      'credit_limit_amount': '25000.00',
-      'is_active': true,
-    };
-
-const _customer = Customer(id: 142, code: 'CUS-000142', shopName: 'Sharma Kirana');
+const _customer = Customer(
+  id: 142,
+  code: 'CUS-000142',
+  shopName: 'Sharma Kirana',
+  ownerName: 'Ramesh Sharma',
+  phone: '+919876543210',
+  zoneName: 'Patna East',
+);
 
 typedef Env = ({
   CustomerRepository customers,
   OutboxRepository outbox,
+  CustomerCache cache,
+  SyncCursorStore cursor,
   AppDatabase db,
-  FakeAdapter adapter,
 });
 
-Env wire({FutureOr<ResponseBody> Function(RequestOptions, int)? script}) {
-  final adapter =
-      FakeAdapter(script ?? (_, __) async => jsonBody(200, {'results': [_row()]}));
+Env wire() {
   final db = AppDatabase(NativeDatabase.memory());
   addTearDown(db.close);
   final outbox = DriftOutboxRepository(db);
+  final cache = CustomerCache(db);
+  final cursor = SyncCursorStore(db, FixedClock(_now));
   return (
     customers: OutboxCustomerRepository(
-      api: ApiClient(
-        baseUrl: 'https://api.test',
-        tokens: FakeTokens(),
-        dio: Dio()..httpClientAdapter = adapter,
-        refreshDio: Dio()..httpClientAdapter = adapter,
-      ),
+      cache: cache,
       outbox: outbox,
+      cursor: cursor,
       clock: FixedClock(_now),
     ),
     outbox: outbox,
+    cache: cache,
+    cursor: cursor,
     db: db,
-    adapter: adapter,
   );
 }
 
 T ok<T>(Result<T> result) => result.fold((v) => v, (f) => fail('expected Ok, got $f'));
 
 void main() {
-  group('reading the round', () {
-    test('parses the list and asks the server for active shops only', () async {
+  group('cache-first reads (M9.4)', () {
+    test('the round comes from the cache, with no network anywhere', () async {
+      final env = wire();
+      await env.cache.save([_customer]);
+      await env.cursor.write(_pulledAt);
+
+      final round = ok(await env.customers.customers());
+
+      expect(round.rows.single.id, 142);
+      expect(round.rows.single.shopName, 'Sharma Kirana');
+      expect(round.rows.single.zoneName, 'Patna East');
+      expect(round.rows.single.visitedThisRound, isFalse);
+    });
+
+    test('asOf is the server_time of the last completed pull', () async {
+      final env = wire();
+      await env.cache.save([_customer]);
+      await env.cursor.write(_pulledAt);
+
+      expect(ok(await env.customers.customers()).asOf, DateTime.utc(2026, 8, 16, 8));
+    });
+
+    test('asOf is null before the first pull, and the round is simply empty', () async {
+      // `null` means *never synced* — a different claim from a round taken this morning.
       final env = wire();
 
-      final list = ok(await env.customers.customers());
+      final round = ok(await env.customers.customers());
 
-      expect(list.single.id, 142);
-      expect(list.single.shopName, 'Sharma Kirana');
-      expect(list.single.zoneName, 'Patna East');
-      expect(list.single.visitedThisRound, isFalse);
-      expect(env.adapter.requests.single.path, '/customers');
-    });
-
-    test('a row without shop_name is refused — it is not a shop anyone can find', () async {
-      final env = wire(
-        script: (_, __) async => jsonBody(200, {
-          'results': [
-            {'id': 1, 'code': 'C1'},
-          ],
-        }),
-      );
-
-      expect(await env.customers.customers(), isA<Err<List<Customer>>>());
-    });
-
-    test('an offline read is Err — an empty round would be a lie', () async {
-      final env = wire(
-        script: (_, __) => throw DioException.connectionError(
-          requestOptions: RequestOptions(),
-          reason: 'no signal',
-        ),
-      );
-
-      expect((await env.customers.customers() as Err<List<Customer>>).failure, isA<Offline>());
+      expect(round.asOf, isNull);
+      expect(round.rows, isEmpty);
     });
   });
 
@@ -155,13 +148,10 @@ void main() {
       expect(payload['outcome'], 'SHOP_CLOSED');
     });
 
-    test('the action succeeds with no network at all', () async {
-      final env = wire(
-        script: (_, __) => throw DioException.connectionError(
-          requestOptions: RequestOptions(),
-          reason: 'no signal',
-        ),
-      );
+    test('the action needs no network at all', () async {
+      // Structural since M9.4: this repository holds no HTTP client, so there is nothing a
+      // visit could await.
+      final env = wire();
 
       final result = await env.customers.recordVisit(
         customer: _customer,
@@ -169,8 +159,7 @@ void main() {
       );
 
       expect(result, isA<Ok<Customer>>());
-      expect(ok(await env.outbox.depth()), 1);
-      expect(env.adapter.requests, isEmpty, reason: 'P-2 — a user action never posts');
+      expect(ok(await env.outbox.depth()), 1, reason: 'on disk before it returns (§5.3)');
     });
 
     test('two calls on one shop are TWO visits, not a replay', () async {
@@ -202,44 +191,52 @@ void main() {
   });
 
   group('the local result is what the salesman sees', () {
-    test('a queued visit is overlaid on the server list', () async {
+    test('a queued visit is overlaid on the cached round', () async {
       final env = wire();
+      await env.cache.save([_customer]);
       await env.customers.recordVisit(customer: _customer, outcome: VisitOutcome.orderTaken);
 
-      final list = ok(await env.customers.customers());
+      final round = ok(await env.customers.customers());
 
-      expect(list.single.visitedThisRound, isTrue);
-      expect(list.single.lastOutcome, VisitOutcome.orderTaken);
-      expect(list.single.visitedAt, _now);
+      expect(round.rows.single.visitedThisRound, isTrue);
+      expect(round.rows.single.lastOutcome, VisitOutcome.orderTaken);
+      expect(round.rows.single.visitedAt, _now);
+    });
+
+    test('the overlay leaves the cache itself untouched', () async {
+      // A read-time projection, not a write. The cache keeps holding the server's facts.
+      final env = wire();
+      await env.cache.save([_customer]);
+      await env.customers.recordVisit(customer: _customer, outcome: VisitOutcome.orderTaken);
+
+      expect((await env.cache.read()).single.visitedThisRound, isFalse);
     });
 
     test('the latest visit wins the overlay, and it survives a restart', () async {
       final env = wire();
+      await env.cache.save([_customer]);
       await env.customers.recordVisit(customer: _customer, outcome: VisitOutcome.shopClosed);
       await env.customers.recordVisit(customer: _customer, outcome: VisitOutcome.orderTaken);
 
       // A fresh repository over the same database — the app killed and relaunched.
       final relaunched = OutboxCustomerRepository(
-        api: ApiClient(
-          baseUrl: 'https://api.test',
-          tokens: FakeTokens(),
-          dio: Dio()..httpClientAdapter = env.adapter,
-          refreshDio: Dio()..httpClientAdapter = env.adapter,
-        ),
+        cache: CustomerCache(env.db),
         outbox: DriftOutboxRepository(env.db),
+        cursor: SyncCursorStore(env.db, FixedClock(_now)),
         clock: FixedClock(_now.add(const Duration(hours: 3))),
       );
 
-      final list = ok(await relaunched.customers());
+      final round = ok(await relaunched.customers());
 
-      expect(list.single.lastOutcome, VisitOutcome.orderTaken,
+      expect(round.rows.single.lastOutcome, VisitOutcome.orderTaken,
           reason: 'sequence order (D-C2) decides, not the clock');
-      expect(list.single.visitedAt, _now);
+      expect(round.rows.single.visitedAt, _now);
     });
 
     test('a delivery queued alongside does not appear as a visit', () async {
       // One outbox, several operation types. The overlay must read only its own.
       final env = wire();
+      await env.cache.save([_customer]);
       await env.outbox.append(
         clientUuid: '11111111-2222-4333-8444-555555555555',
         operationType: 'DELIVERY_COMPLETE',
@@ -247,9 +244,9 @@ void main() {
         payload: <String, Object?>{'delivery_id': 3312, 'recipient_name': 'Sharma ji'},
       );
 
-      final list = ok(await env.customers.customers());
+      final round = ok(await env.customers.customers());
 
-      expect(list.single.visitedThisRound, isFalse);
+      expect(round.rows.single.visitedThisRound, isFalse);
     });
   });
 
@@ -262,6 +259,23 @@ void main() {
       expect(find.text('Sharma Kirana'), findsOneWidget);
       expect(find.byKey(const Key('customer.visit.142')), findsOneWidget);
       expect(find.byKey(const Key('customers.empty')), findsNothing);
+    });
+
+    testWidgets('the as_of line appears when the round has one', (tester) async {
+      await _pump(tester, _FakeCustomers(asOf: DateTime.utc(2026, 8, 16, 8, 5)));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('customers.asOf'))).data,
+        'Round as of 2026-08-16 08:05 UTC',
+      );
+    });
+
+    testWidgets('there is no as_of line before the first pull', (tester) async {
+      await _pump(tester, _FakeCustomers());
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('customers.asOf')), findsNothing);
     });
 
     testWidgets('logging a visit reaches the port with the chosen outcome', (tester) async {
@@ -293,6 +307,8 @@ void main() {
     });
 
     testWidgets('a failed load explains itself in our words', (tester) async {
+      // The port may still fail — a cache read can fail on a full or corrupt disk — so the
+      // screen's message path is still live even though the network is gone.
       await _pump(tester, _FakeCustomers(listResult: const Err(Offline())));
       await tester.pumpAndSettle();
 
@@ -340,15 +356,17 @@ Future<ProviderContainer> _pump(WidgetTester tester, _FakeCustomers fake) async 
 
 /// A hand-written [CustomerRepository] that records what was asked of it.
 final class _FakeCustomers implements CustomerRepository {
-  _FakeCustomers({this.listResult, this.hold});
+  _FakeCustomers({this.listResult, this.hold, this.asOf});
 
-  final Result<List<Customer>>? listResult;
+  final Result<CachedRound<Customer>>? listResult;
   final Completer<void>? hold;
+  final DateTime? asOf;
 
   final List<(int, VisitOutcome)> visits = [];
 
   @override
-  Future<Result<List<Customer>>> customers() async => listResult ?? const Ok([_customer]);
+  Future<Result<CachedRound<Customer>>> customers() async =>
+      listResult ?? Ok(CachedRound<Customer>(rows: const [_customer], asOf: asOf));
 
   @override
   Future<Result<Customer>> recordVisit({

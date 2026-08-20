@@ -16,7 +16,13 @@ final class DeliveryListState {
     this.deliveries = const [],
     this.message,
     this.busyId,
+    this.asOf,
   });
+
+  /// **P-8.** When the server produced this round. `null` means no pull has ever completed —
+  /// which a screen must show differently from a round taken this morning, because *"stale
+  /// is acceptable; silently stale is not."*
+  final DateTime? asOf;
 
   final bool loading;
   final List<Delivery> deliveries;
@@ -38,12 +44,15 @@ final class DeliveryListState {
     bool clearMessage = false,
     int? busyId,
     bool clearBusy = false,
+    DateTime? asOf,
+    bool clearAsOf = false,
   }) =>
       DeliveryListState(
         loading: loading ?? this.loading,
         deliveries: deliveries ?? this.deliveries,
         message: clearMessage ? null : (message ?? this.message),
         busyId: clearBusy ? null : (busyId ?? this.busyId),
+        asOf: clearAsOf ? null : (asOf ?? this.asOf),
       );
 }
 
@@ -59,10 +68,14 @@ final class DeliveryListController extends Notifier<DeliveryListState> {
     final result = await ref.read(deliveryRepositoryProvider).assignedToMe();
 
     state = result.fold(
-      (deliveries) => state.copyWith(
+      (round) => state.copyWith(
         loading: false,
-        deliveries: deliveries,
+        deliveries: round.rows,
         clearMessage: true,
+        asOf: round.asOf,
+        // `null` from the cache means *never pulled*, and it must not be masked by a value
+        // left over from an earlier state.
+        clearAsOf: round.asOf == null,
       ),
       (failure) => state.copyWith(loading: false, message: _messageFor(failure)),
     );

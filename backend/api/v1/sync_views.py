@@ -13,7 +13,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.v1.sync_serializers import SyncPushSerializer
+from api.v1.billing_serializers import DeliverySerializer
+from api.v1.master_serializers import CustomerSerializer
+from api.v1.sync_serializers import SyncPullSerializer, SyncPushSerializer
 from sync import selectors as sync_selectors
 from sync import services as sync_services
 
@@ -50,6 +52,58 @@ class SyncPushView(APIView):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class SyncPullView(APIView):
+    """`GET /sync/pull?since=` (05 §11.1, M9.4).
+
+    **Read-only, repeatable, and it never mutates server state** (P-6). Scope comes from the
+    actor through the established selectors — `visible_customers` and `visible_deliveries` —
+    never from a request parameter (AD-11): the binary is public, so a parameter a client can
+    send is one an attacker can change.
+
+    **Only `customers` and `deliveries` are returned** (D-M9.4-2). The other collections in
+    §11.1's envelope are unimplemented, not empty.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        payload = SyncPullSerializer(data=request.query_params)
+        payload.is_valid(raise_exception=True)
+
+        page = sync_selectors.pull(
+            actor=request.user,
+            since=payload.validated_data["since"],
+            # P-5: the client repeats with the **same** `since` and this token. `since` is
+            # never rewritten mid-pull.
+            page_token=payload.validated_data["page_token"] or None,
+        )
+
+        body = {
+            # P-2 / C-5: the client stores this and sends it as the next `since`. It never
+            # uses its own clock.
+            "server_time": page["server_time"],
+            "since": page["since"],
+            "has_more": page["has_more"],
+            "customers": {
+                # The frozen representations, reused rather than restated. A pull that
+                # shaped customers differently from `GET /customers` would be a second
+                # contract for one resource.
+                "updated": CustomerSerializer(page["customers"]["updated"], many=True).data,
+                "deactivated_ids": page["customers"]["deactivated_ids"],
+            },
+            "deliveries": {
+                "updated": DeliverySerializer(page["deliveries"]["updated"], many=True).data,
+            },
+        }
+
+        # **Present exactly when `has_more`, absent otherwise** (D-M9.4-8). A token on a
+        # final page would invite a client to fetch one more time and receive nothing.
+        if page["next_page_token"] is not None:
+            body["next_page_token"] = page["next_page_token"]
+
+        return Response(body)
 
 
 class SyncStatusView(APIView):

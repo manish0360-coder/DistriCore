@@ -8,17 +8,15 @@ import '../../domain/delivery/delivery.dart';
 final class DeliveryDto {
   const DeliveryDto._();
 
-  /// The list envelope. `05` §4 paginates with `{results: [...]}`; a bare array is accepted
-  /// too, because the tests and the server should not disagree about which one this is
-  /// without the disagreement being visible.
+  /// **A bare list — `05` §11.1's `deliveries.updated`.**
+  ///
+  /// This once also accepted AD-05's `{results: [...]}` envelope, because T5 read
+  /// `GET /deliveries` directly. Since M9.4 the only caller is `PullService`, which always
+  /// hands over `collection['updated']`; the envelope branch became unreachable from
+  /// production, and a branch nothing can call is a branch nothing can test.
   static List<Delivery> listFromJson(Object? body) {
-    final items = switch (body) {
-      final List<dynamic> list => list,
-      final Map<dynamic, dynamic> map when map['results'] is List =>
-        map['results'] as List<dynamic>,
-      _ => throw const DeliveryPayloadException('not a list or a paginated envelope'),
-    };
-    return [for (final item in items) fromJson(item)];
+    if (body is! List) throw const DeliveryPayloadException('not a list');
+    return [for (final item in body) fromJson(item)];
   }
 
   static Delivery fromJson(Object? body) {

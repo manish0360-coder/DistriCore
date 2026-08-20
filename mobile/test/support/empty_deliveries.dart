@@ -1,6 +1,7 @@
 import 'package:districore/core/result.dart';
 import 'package:districore/domain/delivery/delivery.dart';
 import 'package:districore/domain/delivery/delivery_repository.dart';
+import 'package:districore/domain/sync/cached_round.dart';
 
 /// A [DeliveryRepository] for tests that are **not about deliveries**.
 ///
@@ -18,7 +19,9 @@ final class EmptyDeliveryRepository implements DeliveryRepository {
   const EmptyDeliveryRepository();
 
   @override
-  Future<Result<List<Delivery>>> assignedToMe() async => const Ok<List<Delivery>>([]);
+  Future<Result<CachedRound<Delivery>>> assignedToMe() async =>
+      // `asOf: null` — a stand-in has never pulled, and that is the honest value.
+      const Ok<CachedRound<Delivery>>(CachedRound<Delivery>(rows: []));
 
   @override
   Future<Result<Delivery>> complete({

@@ -8,14 +8,15 @@ import '../../domain/customer/customer.dart';
 final class CustomerDto {
   const CustomerDto._();
 
+  /// **A bare list — `05` §11.1's `customers.updated`.**
+  ///
+  /// This once also accepted AD-05's `{results: [...]}` envelope, because T6 read
+  /// `GET /customers` directly. Since M9.4 the only caller is `PullService`, which always
+  /// hands over `collection['updated']`; the envelope branch became unreachable from
+  /// production, and a branch nothing can call is a branch nothing can test.
   static List<Customer> listFromJson(Object? body) {
-    final items = switch (body) {
-      final List<dynamic> list => list,
-      final Map<dynamic, dynamic> map when map['results'] is List =>
-        map['results'] as List<dynamic>,
-      _ => throw const CustomerPayloadException('not a list or a paginated envelope'),
-    };
-    return [for (final item in items) fromJson(item)];
+    if (body is! List) throw const CustomerPayloadException('not a list');
+    return [for (final item in body) fromJson(item)];
   }
 
   static Customer fromJson(Object? body) {

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/failure.dart';
+import '../core/result.dart';
 import '../data/api/api_client.dart';
 import '../data/api/tokens.dart';
 import '../data/db/app_database.dart';
@@ -10,6 +12,8 @@ import '../data/db/connection.dart';
 import '../data/db/platform_database_key.dart';
 import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
+import '../data/sync/sync_engine.dart';
+import '../domain/identity/session.dart';
 import '../features/auth/auth_providers.dart';
 import '../features/customers/customer_providers.dart';
 import '../features/deliveries/delivery_providers.dart';
@@ -29,7 +33,7 @@ import 'providers.dart';
 ///    finish before anything can hold the store (§8.2).
 /// 3. Wire the container.
 /// 4. `runApp` — **before** any network call.
-/// 5. *Then* start restoration.
+/// 5. *Then* start the background chain: restore → push → pull.
 ///
 /// Step 4 before step 5 is the correction M4 makes to task 1's comment, which claimed
 /// restoration should precede the first frame. `SessionRestorer` calls `/auth/me`, and on a
@@ -68,8 +72,10 @@ Future<void> bootstrap() async {
     ),
   );
 
-  startSessionRestoration(container);
-  startSync(container);
+  // **One call, one order.** M9.2 and M9.4 each added a start-up task; started
+  // independently they raced, and a pull that won could overwrite the cache describing
+  // writes the push had not yet delivered.
+  startBackgroundSync(container);
 }
 
 /// The composition root's two runtime values, bound.
@@ -122,30 +128,69 @@ ProviderContainer buildRootContainer({
       ],
     );
 
-/// Kick off cold-start restoration. **Returns immediately, by design** — see [bootstrap].
+/// Cold-start restoration. **The `read` of [sessionProvider] happens synchronously**, before
+/// anything is awaited — see [bootstrap].
 ///
-/// The `read` of [sessionProvider] is not a stray expression: it forces the provider to
-/// exist, and therefore to subscribe to the repository, *before* [restore] can emit. That
-/// ordering is the reason `sessionProvider` builds its stream synchronously; without one of
-/// the two, a restoration that completes without real I/O publishes into a stream nobody is
-/// listening to yet and the event is gone.
-void startSessionRestoration(ProviderContainer container) {
+/// That read is not a stray expression: it forces the provider to exist, and therefore to
+/// subscribe to the repository, *before* `restore()` can emit. That ordering is the reason
+/// `sessionProvider` builds its stream synchronously; without one of the two, a restoration
+/// that completes without real I/O publishes into a stream nobody is listening to yet and
+/// the event is gone.
+///
+/// Returns the outcome rather than swallowing it, because M9.4's orchestration has to know
+/// whether there is a session before it tries to sync one.
+Future<Result<Session?>> startSessionRestoration(ProviderContainer container) {
   container.read(sessionProvider);
-  unawaited(container.read(tokenSessionRepositoryProvider).restore());
+  return container.read(tokenSessionRepositoryProvider).restore();
 }
 
-/// Drain the outbox once per launch (M9.2).
+/// **The one background chain, in one order** (M9.4, D-M9.4-7):
 ///
-/// **Fire-and-forget, exactly like restoration**, and for the same reason: a device with no
-/// signal must reach its delivery list without waiting on a request that will time out.
-/// Failure is not reported here — nothing is lost, the rows stay `PENDING`, and the
-/// sync-status screen shows the depth.
+/// ```
+/// restore session → push the outbox → pull server state
+/// ```
 ///
-/// **This is not FR-SYN-010 and is not claimed to be (TD-41).** The requirement is
-/// *"within 2 minutes of reconnection"*, and the frozen mobile stack has no
-/// connectivity-state mechanism to detect one. A launch is when a device reconnects in
-/// practice, not by guarantee. The trigger moves; `SyncEngine.sync()` does not — its
-/// single-flight guard already makes a burst of connectivity events safe.
-void startSync(ProviderContainer container) {
-  unawaited(container.read(syncEngineProvider).sync());
+/// **Ordered, not concurrent, and the order is the design.** Local durable writes must reach
+/// the server *before* a pull overwrites the cache they describe; running the two together
+/// would let a pull land the server's stale view over work the device has already recorded.
+/// The outbox overlay would still mask it on screen, but the ordering should be deliberate
+/// rather than whatever the event loop chose.
+///
+/// **Returns immediately.** A device with no signal must reach its delivery list without
+/// waiting on requests that will time out — which is also why `runApp` precedes this.
+///
+/// **This is still not FR-SYN-010 (TD-41).** The requirement is *"within 2 minutes of
+/// reconnection"*, and the frozen mobile stack has no connectivity-state mechanism to detect
+/// one. A launch is when a device reconnects in practice, not by guarantee. When the trigger
+/// arrives it calls *this function*; neither engine changes.
+void startBackgroundSync(ProviderContainer container) {
+  unawaited(_restoreThenSync(container));
+}
+
+Future<void> _restoreThenSync(ProviderContainer container) async {
+  // Runs synchronously up to this first `await`, so the `sessionProvider` read inside
+  // `startSessionRestoration` still happens before anything can emit.
+  final restored = await startSessionRestoration(container);
+
+  // **No session, no sync — and there are two ways to arrive at no session.**
+  //
+  // `Err` is restoration *failing*. `Ok(null)` is restoration *succeeding* and finding no
+  // credential — a fresh install, or a device signed out. They are different events and the
+  // distinction matters elsewhere (§8.2: `Ok(null)` is what lets the shell render a login
+  // screen without waiting on a timeout), but neither produces an authenticated session, so
+  // both stop here. Pushing would meet a guaranteed 401 and pulling would return someone
+  // else's nothing; both would look like work and be neither.
+  final Session? session = restored.fold((value) => value, (_) => null);
+  if (session == null) return;
+
+  final pushed = await container.read(syncEngineProvider).sync();
+
+  // **The push result is observed, not discarded.** `Unauthenticated` means the credential
+  // is finished — a pull would only repeat the same 401. Anything else (`Offline`,
+  // `StorageFull`) leaves the rows `PENDING`, the outbox overlay preserves the local write
+  // intent, and the pull is still worth attempting: the connection may have returned, and a
+  // fresh round is more useful than none.
+  if (pushed is Err<SyncReport> && pushed.failure is Unauthenticated) return;
+
+  await container.read(pullServiceProvider).pull();
 }

@@ -1,9 +1,16 @@
-// M8 task 4 M6 — schema migration 1 → 2, against a real file on disk.
+// M8 task 4 M6 — migration **from** schema v1, against a real file on disk.
 //
-// **The v1 database is built by Drift itself, not by hand-written DDL.** Opening at v2 and
-// then removing `local_identity` leaves `outbox_operation` byte-identical to what a v1
-// device actually has — including the `AUTOINCREMENT` sequence (D-C1). A hand-written
-// CREATE TABLE would prove that *my* idea of v1 migrates, which is not the question.
+// **The v1 database is built by Drift itself, not by hand-written DDL.** Opening at the
+// current version and then removing `local_identity` leaves `outbox_operation`
+// byte-identical to what a v1 device actually has — including the `AUTOINCREMENT` sequence
+// (D-C1). A hand-written CREATE TABLE would prove that *my* idea of v1 migrates, which is
+// not the question.
+//
+// **This file is about the oldest supported device, not about one hop.** It was written when
+// the newest version was 2; M9.4 made the same seed exercise 1 → 3. Nothing here should name
+// a version number except the one being migrated *from* — the destination is whatever
+// `AppDatabase.schemaVersion` currently declares, and an assertion spelling it out as a
+// literal is a maintenance tax that fails on every bump while proving nothing extra.
 import 'dart:io';
 
 import 'package:districore/data/db/app_database.dart';
@@ -94,6 +101,18 @@ void main() {
     addTearDown(db.close);
     final identity = IdentityCache(db);
 
+    // **The table exists**, stated explicitly rather than inferred from the round trip
+    // below. `IdentityCache` working proves it too, but only as a side effect — and a
+    // reader looking for "did the upgrade create the table" should find that question asked.
+    final tables = await db
+        .customSelect("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .get();
+    expect(
+      tables.map((row) => row.data['name']),
+      contains('local_identity'),
+    );
+
+    // **And it is usable**: empty on arrival, then written and read back.
     expect(await identity.read(), isNull, reason: 'a migrated device starts signed out');
 
     await identity.save(const Session(
@@ -104,11 +123,39 @@ void main() {
     ));
 
     expect((await identity.read())!.userId, 12);
+
+    // **Against the declared version, not a literal.**
+    //
+    // This assertion said `2` and broke when M9.4 bumped the schema to 3 — which is the
+    // wrong thing to have been asserting. The invariant is *"the file on disk was brought
+    // all the way up to the version this build declares"*, and that is what `schemaVersion`
+    // names. It is not circular: `user_version` is written into the file by the migration,
+    // so an `onUpgrade` that failed, or a bump someone forgot to handle, still leaves a 1
+    // here.
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.data.values.first, 2);
+    expect(version.data.values.first, db.schemaVersion);
   });
 
-  test('12d. a fresh install creates both tables at version 2', () async {
+  test('12e. the two-step upgrade also creates the v3 cache tables', () async {
+    // **A v1 device does not stop at v2.** `seedVersionOne` stamps `user_version = 1`, so
+    // opening it here runs `onUpgrade(from: 1, to: 3)` and both branches must fire. Nothing
+    // asserted that until now: `cache_migration_test.dart` covers 2 → 3 from a *seeded v2
+    // file*, so a `from < 3` branch mistakenly written as `from == 2` would pass every test
+    // in this repository and strand exactly the devices that skipped a release.
+    await seedVersionOne();
+
+    final db = AppDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+
+    expect(await db.select(db.cachedCustomers).get(), isEmpty);
+    expect(await db.select(db.cachedDeliveries).get(), isEmpty);
+    expect(await db.select(db.syncCursors).get(), isEmpty);
+
+    // And the promise the cache is not allowed to disturb (§8.3) is still intact.
+    expect((await db.select(db.outboxOperations).get()).length, 3);
+  });
+
+  test('12d. a fresh install creates every table at the declared version', () async {
     final db = AppDatabase(NativeDatabase(file));
     addTearDown(db.close);
 
@@ -119,5 +166,8 @@ void main() {
 
     expect(outbox, isEmpty);
     expect(await IdentityCache(db).read(), isNotNull);
+
+    final version = await db.customSelect('PRAGMA user_version').getSingle();
+    expect(version.data.values.first, db.schemaVersion);
   });
 }

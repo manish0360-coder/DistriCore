@@ -29,6 +29,7 @@ urlpatterns = [
     # --- synchronisation (M9.1) ---
     path("sync/push", sync_views.SyncPushView.as_view(), name="sync-push"),
     path("sync/status", sync_views.SyncStatusView.as_view(), name="sync-status"),
+    path("sync/pull", sync_views.SyncPullView.as_view(), name="sync-pull"),
     # --- master data (M1) ---
     path("products", master_views.ProductListView.as_view(), name="product-list"),
     path("products/<int:pk>", master_views.ProductDetailView.as_view(), name="product-detail"),

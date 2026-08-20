@@ -157,7 +157,7 @@ void main() {
       final env = wire(script: (_, __) => gate.future);
 
       final restored = Completer<Session>();
-      startSessionRestoration(env.container);
+      unawaited(startSessionRestoration(env.container));
       env.container.listen<AsyncValue<Session?>>(sessionProvider, (_, next) {
         final session = next.valueOrNull;
         if (session != null && !restored.isCompleted) restored.complete(session);
@@ -184,7 +184,7 @@ void main() {
       // and the device sits on the login screen holding a valid refresh token.
       final env = wire();
 
-      startSessionRestoration(env.container);
+      unawaited(startSessionRestoration(env.container));
 
       final restored = Completer<Session>();
       env.container.listen<AsyncValue<Session?>>(
@@ -221,7 +221,7 @@ void main() {
       });
       addTearDown(subscription.cancel);
 
-      startSessionRestoration(env.container);
+      unawaited(startSessionRestoration(env.container));
 
       await published.future.timeout(
         const Duration(seconds: 5),
@@ -241,7 +241,7 @@ void main() {
       // on a timeout before it can show a login screen.
       final env = wire(refreshToken: null);
 
-      startSessionRestoration(env.container);
+      unawaited(startSessionRestoration(env.container));
       // `startSessionRestoration` is fire-and-forget by design, so the test needs its own
       // settle point. With no credentials `restore()` is pure, and repeating it changes
       // neither the store nor the adapter.

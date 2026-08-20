@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/as_of.dart';
 import '../../domain/delivery/delivery.dart';
 import 'delivery_controller.dart';
 
@@ -63,6 +64,17 @@ class _DeliveriesScreenState extends ConsumerState<DeliveriesScreen> {
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: CircularProgressIndicator(key: Key('deliveries.loading')),
+              ),
+            // **P-8: stale is acceptable, silently stale is not.** Absent before the first
+            // pull, because "never synced" is not the same claim as a timestamp.
+            if (state.asOf case final asOf?)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Text(
+                  'Round as of ${asOfLabel(asOf)} UTC',
+                  key: const Key('deliveries.asOf'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ),
             Expanded(
               child: state.deliveries.isEmpty && !state.loading

@@ -29,6 +29,22 @@ class SyncOperationSerializer(serializers.Serializer):
         return value
 
 
+class SyncPullSerializer(serializers.Serializer):
+    """`GET /sync/pull?since=` (05 §11.1).
+
+    **`since` is optional, and its absence is meaningful** — P-1 makes it a full bootstrap of
+    everything the user may hold, not an error and not "since the epoch".
+    """
+
+    since = serializers.DateTimeField(required=False, allow_null=True, default=None)
+
+    #: **P-7 — opaque.** Position within the current pull, not the device's sync cursor. Its
+    #: contents are the server's business; a client echoes it and never reads it.
+    page_token = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, default=""
+    )
+
+
 class SyncPushSerializer(serializers.Serializer):
     device_id = serializers.CharField(max_length=64)
     operations = SyncOperationSerializer(many=True, allow_empty=True)

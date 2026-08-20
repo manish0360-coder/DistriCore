@@ -1,72 +1,59 @@
 import '../../core/clock.dart';
-import '../../core/failure.dart';
 import '../../core/result.dart';
 import '../../core/uuid.dart';
 import '../../domain/delivery/delivery.dart';
 import '../../domain/delivery/delivery_repository.dart';
 import '../../domain/outbox/outbox_operation.dart';
 import '../../domain/outbox/outbox_repository.dart';
-import '../api/api_client.dart';
-import '../delivery/delivery_dto.dart';
+import '../../domain/sync/cached_round.dart';
+import 'delivery_cache.dart';
+import 'sync_cursor_store.dart';
 
-/// Deliveries: **read from the API, write to the outbox** (M8 §5.1, P-2).
+/// Deliveries: **read from the local cache, written to the outbox** (M9.4, P-2).
 ///
-/// The asymmetry is the whole design. A read is a convenience and may fail — the screen
-/// says so. A write is a promise, so it goes to a durable local queue and M9 delivers it.
-/// A repository that posted the completion here would put the network between a salesman and
-/// the next drop, and would lose the handover entirely when the van has no signal.
+/// **The network is gone from this class.** T5 fetched over HTTP and overlaid the queue,
+/// which meant a driver opening the app in a depot with no signal saw an empty round — the
+/// largest gap in the app between T5 and now. `PullService` owns the fetch; this reads disk.
 final class OutboxDeliveryRepository implements DeliveryRepository {
   const OutboxDeliveryRepository({
-    required ApiClient api,
+    required DeliveryCache cache,
     required OutboxRepository outbox,
+    required SyncCursorStore cursor,
     required Clock clock,
-  })  : _api = api,
+  })  : _cache = cache,
         _outbox = outbox,
+        _cursor = cursor,
         _clock = clock;
 
-  static const listPath = '/deliveries';
-
-  /// `04` T-26's vocabulary, quoted from `05` §11.2's own example. Not an enum: M8 task 3
-  /// owns the queue, not the operations that fill it.
+  /// `04` T-26's vocabulary, quoted from `05` §11.2's own example.
   static const operationType = 'DELIVERY_COMPLETE';
 
-  final ApiClient _api;
+  final DeliveryCache _cache;
   final OutboxRepository _outbox;
+  final SyncCursorStore _cursor;
   final Clock _clock;
 
   @override
-  Future<Result<List<Delivery>>> assignedToMe() async {
-    final Result<List<Delivery>> fetched;
-    try {
-      fetched = await _api.get<List<Delivery>>(
-        listPath,
-        // `05` §9.4. `assigned_to=me` keeps the scoping decision on the server, where
-        // N-06 re-authorises it — the client asking for "mine" is not the client deciding
-        // what "mine" means.
-        query: <String, dynamic>{'assigned_to': 'me'},
-        decode: DeliveryDto.listFromJson,
-      );
-    } on DeliveryPayloadException catch (error) {
-      return Err(MalformedResponse(error.reason));
-    }
-
-    if (fetched is Err<List<Delivery>>) return Err(fetched.failure);
-
-    // **The overlay, and why it is here rather than in the screen.** A delivery completed
-    // ten minutes ago is still `DISPATCHED` on the server until M9 syncs. Showing the server's
-    // answer verbatim would tell a driver to deliver a parcel they have already handed over.
-    // Merging is a repository concern because the outbox is a repository concern.
+  Future<Result<CachedRound<Delivery>>> assignedToMe() async {
+    final cached = await _cache.read();
     final queued = await _pendingCompletions();
-    return Ok([
-      for (final delivery in (fetched as Ok<List<Delivery>>).value)
-        if (queued[delivery.id] case final operation?)
-          delivery.completedLocally(
-            recipientName: _recipientOf(operation),
-            at: operation.clientCreatedAt,
-          )
-        else
-          delivery,
-    ]);
+
+    // **The overlay, unchanged by M9.4.** A delivery completed ten minutes ago is still
+    // `DISPATCHED` in the cache until the next pull. Showing that verbatim would tell a
+    // driver to deliver a parcel they have already handed over.
+    return Ok(CachedRound<Delivery>(
+      rows: [
+        for (final delivery in cached)
+          if (queued[delivery.id] case final operation?)
+            delivery.completedLocally(
+              recipientName: _recipientOf(operation),
+              at: operation.clientCreatedAt,
+            )
+          else
+            delivery,
+      ],
+      asOf: await _asOf(),
+    ));
   }
 
   @override
@@ -77,8 +64,7 @@ final class OutboxDeliveryRepository implements DeliveryRepository {
     // **P-6, and the reason this is a lookup rather than a fresh mint.** `client_uuid` is
     // *"generated before the first attempt and never regenerated"* — a second tap, or a
     // relaunch after the app was killed mid-tap, is the same attempt. Re-appending the
-    // existing key returns the original row through the outbox's UNIQUE constraint (I-4, I-6)
-    // rather than queueing a second handover for one parcel.
+    // existing key returns the original row through the outbox's UNIQUE constraint (I-4).
     final existing = (await _pendingCompletions())[delivery.id];
     final clientUuid = existing?.clientUuid ?? newClientUuid();
     final at = existing?.clientCreatedAt ?? _clock.nowUtc();
@@ -94,24 +80,25 @@ final class OutboxDeliveryRepository implements DeliveryRepository {
         'recipient_name': recipient,
         'delivered_at': at.toIso8601String(),
         // **No `device_id`** — D-C4: `05` §11.2 carries it once per batch, from the keystore,
-        // when M9 builds the request. A column here would duplicate it.
-        // **No `client_uuid`** — it is the operation's identity, not part of its payload.
+        // when M9 builds the request. **No `client_uuid`** — it is the operation's identity,
+        // not part of its payload.
       },
     );
 
     return appended.fold(
       (_) => Ok(delivery.completedLocally(recipientName: recipient, at: at)),
-      // `StorageFull` and friends surface unchanged (D-C3). §5.3: the user is never told
-      // "saved" before it is.
+      // `StorageFull` and friends surface unchanged (D-C3).
       Err.new,
     );
   }
 
-  /// Queued completions, keyed by `delivery_id`.
-  ///
-  /// Reads the outbox rather than a second index. Introducing one would be the "second
-  /// persistence layer" that has to be kept in step with the first, and the outbox is
-  /// already the authority on what is unsent.
+  /// The server's snapshot instant, or `null` if no pull has ever completed.
+  Future<DateTime?> _asOf() async {
+    final serverTime = await _cursor.read();
+    return serverTime == null ? null : DateTime.tryParse(serverTime)?.toUtc();
+  }
+
+  /// Queued completions, keyed by `delivery_id`. Unchanged by M9.4.
   Future<Map<int, OutboxOperation>> _pendingCompletions() async {
     final pending = await _outbox.pending();
     return pending.fold(

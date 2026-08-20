@@ -1,4 +1,5 @@
 import '../../core/result.dart';
+import '../sync/cached_round.dart';
 import '../visit/visit_outcome.dart';
 import 'customer.dart';
 
@@ -9,13 +10,17 @@ import 'customer.dart';
 abstract interface class CustomerRepository {
   /// The shops this user may call on.
   ///
-  /// **Reads need the network in V1.** There is no cached customer table — §5.2 keeps the
-  /// read cache disposable and says it *"arrives with the screens that need it"*. A failed
-  /// fetch is an [Err] the screen shows, not an empty round pretending to be an answer.
+  /// **Cache-first since M9.4** — this reads only what the last pull left on the device, so
+  /// a salesman with no signal still has their round. The network belongs to `PullService`;
+  /// nothing on this path touches it.
+  ///
+  /// The result carries `asOf` (P-8): stale is acceptable, silently stale is not. `null`
+  /// means no pull has ever completed, which a screen must render differently from an empty
+  /// round taken this morning.
   ///
   /// Visits already queued are overlaid, so a salesman never sees a shop they have just
   /// logged as still outstanding.
-  Future<Result<List<Customer>>> customers();
+  Future<Result<CachedRound<Customer>>> customers();
 
   /// Record a call. **Durable before it returns** (§5.3).
   ///

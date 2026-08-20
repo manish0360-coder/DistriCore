@@ -8,12 +8,16 @@ import '../data/api/tokens.dart';
 import '../data/db/app_database.dart';
 import '../data/identity/auth_service.dart';
 import '../data/identity/session_restorer.dart';
+import '../data/repositories/customer_cache.dart';
+import '../data/repositories/delivery_cache.dart';
 import '../data/repositories/drift_outbox_repository.dart';
 import '../data/repositories/identity_cache.dart';
+import '../data/repositories/sync_cursor_store.dart';
 import '../data/repositories/outbox_customer_repository.dart';
 import '../data/repositories/outbox_delivery_repository.dart';
 import '../data/repositories/token_session_repository.dart';
 import '../data/sync/api_sync_status_repository.dart';
+import '../data/sync/pull_service.dart';
 import '../data/sync/sync_engine.dart';
 import '../domain/customer/customer_repository.dart';
 import '../domain/delivery/delivery_repository.dart';
@@ -98,20 +102,46 @@ final syncStatusRepositoryProvider = Provider<SyncStatusRepository>(
   (ref) => ApiSyncStatusRepository(ref.watch(apiClientProvider)),
 );
 
-/// Customers: read through `ApiClient`, visits written through the outbox (T6, P-2).
+/// The M9.4 pull cache. One instance each, so every reader sees the same rows.
+final customerCacheProvider =
+    Provider<CustomerCache>((ref) => CustomerCache(ref.watch(appDatabaseProvider)));
+
+final deliveryCacheProvider =
+    Provider<DeliveryCache>((ref) => DeliveryCache(ref.watch(appDatabaseProvider)));
+
+/// The pull half of sync (M9.4). Reads the server's view into the cache and advances the
+/// cursor once, after the last page.
+final pullServiceProvider = Provider<PullService>(
+  (ref) => PullService(
+    api: ref.watch(apiClientProvider),
+    db: ref.watch(appDatabaseProvider),
+    customers: ref.watch(customerCacheProvider),
+    deliveries: ref.watch(deliveryCacheProvider),
+    cursor: ref.watch(syncCursorStoreProvider),
+  ),
+);
+
+/// The pull cursor — read by the repositories for `asOf`, written only by `PullService`.
+final syncCursorStoreProvider = Provider<SyncCursorStore>(
+  (ref) => SyncCursorStore(ref.watch(appDatabaseProvider), ref.watch(clockProvider)),
+);
+
+/// Customers: **read from the cache**, visits written through the outbox (M9.4, P-2).
 final customerRepositoryImplProvider = Provider<CustomerRepository>(
   (ref) => OutboxCustomerRepository(
-    api: ref.watch(apiClientProvider),
+    cache: ref.watch(customerCacheProvider),
     outbox: ref.watch(outboxRepositoryProvider),
+    cursor: ref.watch(syncCursorStoreProvider),
     clock: ref.watch(clockProvider),
   ),
 );
 
-/// Deliveries: read through `ApiClient`, written through the outbox (T5, P-2).
+/// Deliveries: **read from the cache**, written through the outbox (M9.4, P-2).
 final deliveryRepositoryImplProvider = Provider<DeliveryRepository>(
   (ref) => OutboxDeliveryRepository(
-    api: ref.watch(apiClientProvider),
+    cache: ref.watch(deliveryCacheProvider),
     outbox: ref.watch(outboxRepositoryProvider),
+    cursor: ref.watch(syncCursorStoreProvider),
     clock: ref.watch(clockProvider),
   ),
 );

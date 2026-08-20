@@ -1,13 +1,18 @@
-// M9.2 — the one race `bootstrap` newly creates.
+// M9.2 — two independent callers racing one refresh.
 //
-// `startSessionRestoration` and `startSync` are both fired unawaited, one after the other,
-// and both immediately issue a request through the **same** `ApiClient`. On a cold start the
-// access token is memory-only and therefore absent (§8.2), so **both meet `401
-// TOKEN_EXPIRED` at once**.
+// Restoration and the outbox drain both issue their first request through the **same**
+// `ApiClient`. On a cold start the access token is memory-only and therefore absent (§8.2),
+// so if they run together **both meet `401 TOKEN_EXPIRED` at once**.
 //
 // D-B1 says refresh is single-flight. M2's tests pin that for one caller; this is the first
 // time two independent callers race it, and a second refresh would present a token the
 // server has already rotated and blacklisted — the precise failure D-B1 exists to prevent.
+//
+// **M9.4 step F serialised the launch chain**, so `bootstrap` no longer creates this overlap
+// itself. The guarantee still has to hold and this test still has to exist: `SyncEngine` and
+// `SessionRestorer` are shared objects reachable from anywhere, and TD-41's reconnection
+// trigger — which is deferred, not cancelled — will fire while a launch chain may still be
+// in flight. This asserts the property, not the caller.
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -39,7 +44,7 @@ void main() {
   // inside `FakeAsync` — which intercepts `scheduleMicrotask` as well as `Timer`, and only
   // flushes on a `pump()`. With nothing to pump, the first `await` below never resumed and
   // the harness timed out after ten minutes without evaluating a single assertion.
-  test('bootstrap\'s two unawaited callers trigger exactly one refresh', () async {
+  test('two concurrent callers trigger exactly one refresh', () async {
     var refreshes = 0;
     var meCalls = 0;
     var pushes = 0;
@@ -98,7 +103,8 @@ void main() {
     );
     final engine = SyncEngine(api: api, outbox: outbox, tokens: tokens);
 
-    // **Exactly `bootstrap`'s ordering**: both started, neither awaited.
+    // **Deliberately overlapped**: both started, neither awaited. This is the adversarial
+    // case D-B1 must survive, not a reproduction of what `bootstrap` now does.
     final restoring = restorer.restore();
     final syncing = engine.sync();
     await Future.wait<void>([restoring, syncing]);
