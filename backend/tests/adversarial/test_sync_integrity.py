@@ -66,9 +66,10 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 
+from core.models import AuditLog
 from field import services as field_services
 from field.models import Visit
 from fulfilment.models import Delivery
@@ -84,6 +85,14 @@ pytestmark = [pytest.mark.django_db, pytest.mark.adversarial]
 DEVICE = "a3f9c1d2e4b6a8c0"
 WHEN = "2026-08-16T06:41:10Z"
 KEY = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+KEY2 = "1f0a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+KEY3 = "2e1b3c4d-5e6f-7081-92a3-b4c5d6e7f809"
+
+#: **Skew, not variety.** A device whose clock is years wrong in both directions, and
+#: non-monotonic within one batch — the exact condition P-4 forbids putting on a
+#: correctness path and PU-3 demotes to metadata.
+FAR_FUTURE = "2099-01-01T00:00:00Z"
+FAR_PAST = "2019-06-30T23:59:59Z"
 
 
 class ProcessKilled(RuntimeError):
@@ -97,7 +106,57 @@ class ProcessKilled(RuntimeError):
     """
 
 
-def visit_op(customer: Any, *, client_uuid: str = KEY) -> dict[str, Any]:
+@pytest.fixture
+def kill_on_the_nth_visit(monkeypatch):
+    """Interrupt the **Nth** `record_visit` of a batch, counted, never timed.
+
+    Arms with a call index so a batch can be left *partially* applied: the operations
+    before it commit, the one it fires on rolls back, and the ones after it are never
+    reached because the exception aborts the request.
+    """
+    real = field_services.record_visit
+    seen: list[int] = []
+
+    def arm(nth: int) -> list[int]:
+        def wrapper(**kwargs: Any) -> Visit:
+            seen.append(len(seen) + 1)
+            visit = real(**kwargs)
+            if len(seen) == nth:
+                raise ProcessKilled(f"interrupted on operation {nth} of the batch")
+            return visit
+
+        monkeypatch.setattr(field_services, "record_visit", wrapper)
+        return seen
+
+    return arm
+
+
+@pytest.fixture
+def storage_is_exhausted(monkeypatch):
+    """The shape PostgreSQL raises when the volume fills under an INSERT.
+
+    **`OperationalError`, deliberately not a `DomainError`** — a full disk is not a business
+    refusal, so `_process_one` must not convert it into an orderly `REJECTED`.
+
+    **Limitation, stated rather than glossed.** This models the exception and the savepoint
+    rollback. It does **not** model PostgreSQL's poisoned-transaction state after a real
+    backend error, where every subsequent statement in the same transaction fails until
+    rollback. The oracle below — *is the row recoverable, or stranded forever* — is unaffected
+    by that difference; a test that needed the poisoning would have to exhaust a real volume.
+    """
+    hits: list[str] = []
+
+    def wrapper(**kwargs: Any) -> Visit:
+        hits.append(str(kwargs.get("client_uuid")))
+        raise OperationalError(
+            "could not extend file \"base/16384/2601\": No space left on device"
+        )
+
+    monkeypatch.setattr(Visit.objects, "create", wrapper)
+    return hits
+
+
+def visit_op(customer: Any, *, client_uuid: str = KEY, when: str = WHEN) -> dict[str, Any]:
     """One `VISIT_CREATE`, in `05` §11.2's shape.
 
     `VISIT_CREATE` rather than `DELIVERY_COMPLETE` on purpose: a visit is append-only with a
@@ -108,8 +167,8 @@ def visit_op(customer: Any, *, client_uuid: str = KEY) -> dict[str, Any]:
     return {
         "client_uuid": client_uuid,
         "operation_type": "VISIT_CREATE",
-        "client_created_at": WHEN,
-        "payload": {"customer_id": customer.pk, "visited_at": WHEN, "outcome": "NO_ORDER"},
+        "client_created_at": when,
+        "payload": {"customer_id": customer.pk, "visited_at": when, "outcome": "NO_ORDER"},
     }
 
 
@@ -400,3 +459,183 @@ def test_recovery_locks_the_operation_row_before_re_entering_the_handler(
     again = process_push(actor=owner, device_id=DEVICE, operations=[visit_op(customer)])
     assert again[0]["status"] == SyncOperation.Status.DUPLICATE
     assert Visit.objects.filter(client_uuid=KEY).count() == 1
+
+
+# ---------------------------------------------- G. severed connection (02 §25.2)
+def test_a_response_lost_on_the_wire_does_not_duplicate_the_batch(owner, customer):
+    """**The server finished; the answer never arrived.**
+
+    Distinct from the killed process: nothing failed server-side. The device times out, has
+    no verdict for anything, keeps every row `PENDING` (05 §11.2) and resends the whole
+    batch. C-7's *"a retry after a timeout is the **correct** client behaviour"*.
+
+    **The oracle goes past counting rows**, because a count alone would pass against a
+    server that rewrote each record on the second pass. The `entity_id`s must be the *same
+    objects* (I-4: *"the original resource"*), and the audit trail must show the write path
+    ran **once** — `record_audit` fires only on the create branch of `record_visit`, so a
+    second audit row is proof of a second application.
+    """
+    keys = [KEY, KEY2, KEY3]
+    batch = [visit_op(customer, client_uuid=key) for key in keys]
+
+    first = process_push(actor=owner, device_id=DEVICE, operations=batch)
+    assert [r["status"] for r in first] == [SyncOperation.Status.ACCEPTED] * 3
+    # Anti-vacuity: the identity comparison below is worthless if these are all `None`.
+    assert all(r["entity_id"] for r in first), "no entity ids to compare"
+
+    # The wire drops the 202. The device learns nothing and sends the identical batch.
+    second = process_push(actor=owner, device_id=DEVICE, operations=batch)
+
+    assert [r["status"] for r in second] == [SyncOperation.Status.DUPLICATE] * 3
+    assert [r["entity_id"] for r in second] == [r["entity_id"] for r in first], (
+        "I-4: a replay reports the original resource, it does not create a new one"
+    )
+    assert Visit.objects.filter(client_uuid__in=keys).count() == 3
+    assert SyncOperation.objects.filter(client_uuid__in=keys).count() == 3
+
+    for result in first:
+        assert (
+            AuditLog.objects.filter(
+                entity_type="visit", entity_id=result["entity_id"]
+            ).count()
+            == 1
+        ), "the write path ran twice; a replay must not re-enter the create branch"
+
+
+# ---------------------------------------------- H. replayed batch (02 §25.2)
+def test_a_partially_applied_batch_is_resumed_not_restarted(
+    owner, customer, kill_on_the_nth_visit, monkeypatch
+):
+    """**FR-SYN-017: *"partial progress MUST be retained and retried, never restarted from
+    the beginning."*** Plus FR-SYN-004 — an interrupted batch loses, duplicates and partially
+    applies nothing.
+
+    The hardest shape in the contract, and the one no other test reaches: **one request must
+    do three different things at once.** Operation 1 was already applied and must be
+    recognised, not repeated. Operation 2 was interrupted and must be recovered. Operation 3
+    was never seen and must be applied fresh.
+    """
+    keys = [KEY, KEY2, KEY3]
+    batch = [visit_op(customer, client_uuid=key) for key in keys]
+
+    kill_on_the_nth_visit(2)
+    with pytest.raises(ProcessKilled):
+        process_push(actor=owner, device_id=DEVICE, operations=batch)
+
+    # The intermediate state: one applied, one orphaned, one untouched.
+    assert Visit.objects.filter(client_uuid=KEY).count() == 1, "operation 1 committed"
+    assert SyncOperation.objects.get(client_uuid=KEY).status == SyncOperation.Status.ACCEPTED
+    assert Visit.objects.filter(client_uuid=KEY2).count() == 0, "operation 2 rolled back"
+    assert SyncOperation.objects.get(client_uuid=KEY2).status == SyncOperation.Status.RECEIVED
+    assert not SyncOperation.objects.filter(client_uuid=KEY3).exists(), "3 never reached"
+
+    original_first = SyncOperation.objects.get(client_uuid=KEY).result_entity_id
+
+    monkeypatch.undo()
+    results = process_push(actor=owner, device_id=DEVICE, operations=batch)
+
+    assert [r["status"] for r in results] == [
+        SyncOperation.Status.DUPLICATE,  # 1 — already applied, not repeated
+        SyncOperation.Status.ACCEPTED,  # 2 — recovered
+        SyncOperation.Status.ACCEPTED,  # 3 — applied fresh
+    ]
+    assert results[0]["entity_id"] == original_first, "operation 1 was re-executed"
+    assert Visit.objects.filter(client_uuid__in=keys).count() == 3
+    assert SyncOperation.objects.filter(client_uuid__in=keys).count() == 3
+    assert not SyncOperation.objects.filter(
+        client_uuid__in=keys, status=SyncOperation.Status.RECEIVED
+    ).exists(), "the resend left an operation unfinished"
+
+
+# ---------------------------------------------- I. clock skew (02 §25.2)
+def test_a_skewed_device_clock_changes_no_outcome_including_on_recovery(
+    owner, customer, kill_on_the_nth_visit, monkeypatch
+):
+    """**P-4: the device clock is never on a correctness path. PU-3: it is metadata.**
+
+    `test_operations_are_applied_in_array_order_not_by_timestamp` already covers ordering on
+    a happy path. **This covers the path that ordering test cannot reach: recovery**, which
+    is code the zero-loss repair introduced. An implementation that keyed replay on
+    `(client_uuid, client_created_at)` — a plausible mistake, since both are on the row —
+    would create a *second* operation the moment a device corrected its clock between the
+    interrupted attempt and the resend. Nothing else in the suite would notice.
+    """
+    # Ordering first, under skew that runs backwards across two decades.
+    ordered = [
+        visit_op(customer, client_uuid=KEY2, when=FAR_FUTURE),
+        visit_op(customer, client_uuid=KEY3, when=FAR_PAST),
+    ]
+    applied = process_push(actor=owner, device_id=DEVICE, operations=ordered)
+    assert [r["client_uuid"] for r in applied] == [KEY2, KEY3], "array order decides"
+    assert applied[0]["entity_id"] < applied[1]["entity_id"], (
+        "the far-future operation was applied first because it came first in the array"
+    )
+
+    # Now the half no ordering test reaches: interrupt, then resend with a corrected clock.
+    # Armed *here*, after the ordering push, so the two halves stay independent.
+    kill_on_the_nth_visit(1)
+    with pytest.raises(ProcessKilled):
+        process_push(
+            actor=owner,
+            device_id=DEVICE,
+            operations=[visit_op(customer, client_uuid=KEY, when=FAR_FUTURE)],
+        )
+    recorded_at = SyncOperation.objects.get(client_uuid=KEY).client_created_at
+
+    monkeypatch.undo()
+    results = process_push(
+        actor=owner,
+        device_id=DEVICE,
+        operations=[visit_op(customer, client_uuid=KEY, when=FAR_PAST)],
+    )
+
+    assert SyncOperation.objects.filter(client_uuid=KEY).count() == 1, (
+        "a corrected clock produced a second operation; the idempotency key is the "
+        "`client_uuid` alone (P-6, BR-012), never the uuid paired with a timestamp"
+    )
+    assert Visit.objects.filter(client_uuid=KEY).count() == 1
+    assert results[0]["status"] == SyncOperation.Status.ACCEPTED
+
+    record = SyncOperation.objects.get(client_uuid=KEY)
+    assert record.client_created_at == recorded_at, (
+        "recovery rewrote the receipt's metadata; `client_created_at` is what the device "
+        "said when the server first received it, and a recovery does not restate history"
+    )
+
+
+# ---------------------------------------------- J. exhausted storage (02 §25.2)
+def test_a_full_disk_leaves_the_operation_recoverable_not_stranded(
+    owner, customer, storage_is_exhausted, monkeypatch
+):
+    """**NFR-OFF-004 / FR-SYN-006: the failure must be survivable, not terminal.**
+
+    A full volume is neither a business refusal nor a lost transaction — it is a temporary
+    condition. The wrong outcomes are both available and both silent: convert it to
+    `REJECTED` and the operation is refused forever for a reason that has since cleared; or
+    leave it `RECEIVED` with no way back and the row is **stranded**, which is what
+    `05` §11.5 warned about when it said the count *"only grows once it is non-zero"*.
+    """
+    with pytest.raises(OperationalError):
+        process_push(actor=owner, device_id=DEVICE, operations=[visit_op(customer)])
+
+    assert storage_is_exhausted == [KEY], "the insert was attempted, then failed"
+    assert Visit.objects.filter(client_uuid=KEY).count() == 0
+
+    record = SyncOperation.objects.get(client_uuid=KEY)
+    assert record.status == SyncOperation.Status.RECEIVED, (
+        "a storage failure is not a verdict; converting it to REJECTED would refuse the "
+        "operation permanently for a condition that clears"
+    )
+    assert record.error_code == "", "nothing refused this operation (BR-014)"
+    assert record.payload is None, "the payload is retained for rejections, not for outages"
+
+    # Storage recovers; the device resends what it never got a verdict for.
+    monkeypatch.undo()
+    results = process_push(actor=owner, device_id=DEVICE, operations=[visit_op(customer)])
+
+    assert results[0]["status"] == SyncOperation.Status.ACCEPTED, (
+        "the row was stranded: a `RECEIVED` operation must be recoverable once the "
+        "condition that interrupted it has cleared"
+    )
+    assert Visit.objects.filter(client_uuid=KEY).count() == 1
+    assert SyncOperation.objects.filter(client_uuid=KEY).count() == 1
