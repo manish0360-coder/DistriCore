@@ -67,10 +67,9 @@ def _process_one(
     # every device write is recorded here *before* the business operation is attempted.
     existing = SyncOperation.objects.filter(client_uuid=client_uuid).first()
     if existing is not None:
-        # BR-012 / I-4: a replay is success, and it reports what the original produced.
-        return _result(existing, status=SyncOperation.Status.DUPLICATE)
-
-    handler = _HANDLERS.get(operation["operation_type"])
+        return _settle_existing(
+            actor=actor, device_id=device_id, operation=operation, record=existing
+        )
 
     try:
         with transaction.atomic():
@@ -83,11 +82,83 @@ def _process_one(
             )
     except IntegrityError:
         # Two requests racing on one key. The constraint decided; read the winner rather
-        # than guess which one it was.
+        # than guess which one it was — and settle it by the same rule as any other replay,
+        # because a winner still sitting at RECEIVED is unfinished work either way.
         winner = SyncOperation.objects.filter(client_uuid=client_uuid).first()
         if winner is None:
             raise
-        return _result(winner, status=SyncOperation.Status.DUPLICATE)
+        return _settle_existing(
+            actor=actor, device_id=device_id, operation=operation, record=winner
+        )
+
+    return _apply(actor=actor, device_id=device_id, operation=operation, record=record)
+
+
+def _settle_existing(
+    *, actor: Any, device_id: str, operation: dict[str, Any], record: SyncOperation
+) -> dict[str, Any]:
+    """Answer for an operation this server has already seen.
+
+    **`RECEIVED` is not a verdict, and answering `DUPLICATE` to one loses the transaction.**
+    Receipt commits in its own transaction *before* the business operation is attempted
+    (04 T-26), so an interruption in that window leaves the row `RECEIVED` with nothing
+    applied. Reporting `DUPLICATE` tells the device *"delete from the outbox, this is
+    success"* (05 §11.2) for work that never happened — a silent loss, against 01 §10.3's
+    non-negotiable zero. Reproduced by `tests/adversarial/test_sync_integrity.py`.
+
+    **Every other status is terminal here and keeps its existing meaning.** `ACCEPTED` and
+    `DUPLICATE` are finished; `REJECTED` is the owner's evidence and re-running it would
+    resurrect refused work (BR-014); `DEFERRED` returns to `PENDING` on the device and
+    arrives as a fresh push, not as a replay.
+    """
+    if record.status != SyncOperation.Status.RECEIVED:
+        # BR-012 / I-4: a replay is success, and it reports what the original produced.
+        return _result(record, status=SyncOperation.Status.DUPLICATE)
+
+    return _recover(
+        actor=actor, device_id=device_id, operation=operation, record_id=record.pk
+    )
+
+
+def _recover(
+    *, actor: Any, device_id: str, operation: dict[str, Any], record_id: int
+) -> dict[str, Any]:
+    """Finish an operation whose receipt committed and whose outcome did not.
+
+    **Safe to re-enter, and the reason is not the handler's name.** Both dispatchable
+    handlers are idempotent on `client_uuid` against a database unique constraint, and each
+    wraps its write in a savepoint so a lost race returns the original row instead of
+    poisoning the caller's transaction: `field.services.record_visit` over
+    `visit.client_uuid`, `fulfilment.services.complete_delivery` over
+    `delivery.outcome_client_uuid` (I-6, TD-39). So whether the first attempt left the
+    business effect absent *or* present-but-unrecorded, re-entering converges on one row.
+
+    **The lock is what makes concurrent recovery safe.** Two workers recovering one key
+    would otherwise both re-enter the handler and then race to write the outcome. The
+    row is claimed with `select_for_update`, so the second waits and finds the work done.
+
+    **The architecture is unchanged.** Receipt and outcome remain two transactions
+    (04 T-26); this adds the recovery path §11.5 said did not exist, and nothing else.
+    """
+    with transaction.atomic():
+        record = SyncOperation.objects.select_for_update().get(pk=record_id)
+        if record.status != SyncOperation.Status.RECEIVED:
+            # Another worker recovered it while this one waited on the lock.
+            return _result(record, status=SyncOperation.Status.DUPLICATE)
+
+        return _apply(
+            actor=actor, device_id=device_id, operation=operation, record=record
+        )
+
+
+def _apply(
+    *, actor: Any, device_id: str, operation: dict[str, Any], record: SyncOperation
+) -> dict[str, Any]:
+    """Run the handler for a recorded operation and settle its row.
+
+    Reached by a first attempt and by a recovery alike, so the two cannot drift apart.
+    """
+    handler = _HANDLERS.get(operation["operation_type"])
 
     if handler is None:
         return _reject(

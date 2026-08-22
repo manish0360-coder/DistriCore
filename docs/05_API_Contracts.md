@@ -1212,9 +1212,43 @@ Nothing fails silently (FR-SYN-008/009). The device shows its own outbox depth; 
 > processing was interrupted after receipt — a killed worker, a lost connection mid-handler.
 > That is precisely the "nothing fails silently" this section exists for.
 >
-> **Recovery of orphaned `RECEIVED` rows is not specified and is not built.** Nothing retries,
-> escalates or purges them, so the count only grows once it is non-zero. Deferred to
-> M9.4/M10 by ruling; recorded here so it is not mistaken for an oversight.
+> **Orphaned `RECEIVED` rows are recovered by replaying the original operation** (amended
+> 2026-08-21; the clause below is what this replaces).
+>
+> A device that receives no verdict keeps the operation and resends it under the same
+> `client_uuid` (P-6, BR-012). When that resend finds a row already at **`RECEIVED`**, the
+> server **re-enters the handler for the original row** rather than answering `DUPLICATE`:
+> the same `client_uuid`, the same `sync_operation`, no second record. Success settles it as
+> **`ACCEPTED`**; a refusal settles it as **`REJECTED`**. **No status, field or endpoint is
+> added, and no other status is affected** — `ACCEPTED` and `DUPLICATE` are finished,
+> `REJECTED` is terminal evidence (BR-014) and is never re-run, and `DEFERRED` returns to
+> `PENDING` on the device and arrives as a fresh push.
+>
+> **`RECEIVED` is not a verdict, which is why answering `DUPLICATE` to one was a defect.**
+> Receipt commits before the business operation is attempted (`04` T-26), so an interruption
+> in that window leaves the row `RECEIVED` with nothing applied — and `DUPLICATE` tells the
+> device *"delete from the outbox, this is success"* (§11.2) for work that never happened.
+> **Found by reading the receiver, reproduced by
+> `backend/tests/adversarial/test_sync_integrity.py`, and repaired in the same change as this
+> paragraph.** It was a silent loss against `01` §10.3's non-negotiable zero, and it is the
+> reason the M9→M10 gate exists.
+>
+> **Re-entry is safe because the handlers are idempotent on `client_uuid` against a database
+> constraint, not because they are called retries.** `record_visit` resolves through
+> `visit.client_uuid`; `complete_delivery` through `delivery.outcome_client_uuid`
+> (I-6, TD-39). Each wraps its write in a savepoint, so a lost race returns the original row
+> instead of aborting the caller's transaction. Whether the first attempt left the business
+> effect **absent** or **present-but-unrecorded**, re-entering converges on one row.
+> Concurrent recoveries serialise on `SELECT … FOR UPDATE` over the `sync_operation` row.
+>
+> **Superseded clause, kept so the change is legible:** *"Recovery of orphaned `RECEIVED`
+> rows is not specified and is not built. Nothing retries, escalates or purges them, so the
+> count only grows once it is non-zero. Deferred to M9.4/M10 by ruling."* The deferral ended
+> when the window was shown to lose transactions rather than merely to strand them.
+>
+> **Still true, and unchanged:** a non-zero `pending_count` remains an alarm rather than a
+> queue depth. Recovery happens when the device resends; **nothing sweeps `RECEIVED` rows on
+> the server's own initiative**, so a device that never returns still leaves one visible.
 >
 > `rejected[]` carries four fields and omits `payload` and `error_detail` deliberately:
 > `payload` is business data the device already holds, and `error_detail` is prose §5 permits
