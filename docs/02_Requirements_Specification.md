@@ -4,13 +4,35 @@
 | --- | --- |
 | Document ID | `02_Requirements_Specification` |
 | Product | DistriCore (working title) |
-| Version | **0.2.0** |
+| Version | **0.4.0** |
 | Status | **Draft — pending stakeholder sign-off** |
-| Date | 2026-08-04 · **amended 2026-08-08** |
+| Date | 2026-08-04 · amended 2026-08-08 · **amended 2026-08-21** |
 | Owner | Product Architecture |
 | Depends on | `01_Project_Vision.md` v0.2.0 |
 | Audience | Engineering, QA, business owner |
 
+> **Amendment in v0.4.0.** **S-5** — FR-SYN-008's third field read *"count of unresolved
+> conflicts"*, a phrase this document used twice and defined nowhere, and which the existing
+> implementation already represented as `rejected_count`. It now reads *"count of operations the server
+> has rejected"*, which names a quantity `05` §11.5 already specifies as `rejected_count` and
+> `05` §11.2 already requires be flagged to the user. **Priority `M` and release `v1.0`
+> unchanged; no API field is added or renamed.** Authority: `docs/M9_Design_Review.md` §6
+> D-M9-6 (v1.1.0). **FR-SYN-009 carries the same undefined phrase and is deliberately not
+> amended** — it is an independent `S1` gap awaiting its own ruling.
+>
+> **Amendments in v0.3.0.** M9 established that the synchronisation block, like the
+> receivables and reporting blocks before it, was written against the frozen baseline and
+> never back-updated after `02A` §5 / DV-1 removed field order capture from Edition 1.
+> **§18.1** records four amendments — **S-1** (FR-SYN-005, `M`/`v1.0` unchanged), **S-2**
+> (FR-SYN-013 and FR-SYN-014 → `v2.0`), **S-3** (BR-014's Edition-1 vehicle), **S-4** (§5.3's
+> four human classes are Edition 2, and FR-SYN-006 quarantine is distinct from that taxonomy).
+> Authority: `docs/M9_Design_Review.md` §6, signed 2026-08-21.
+>
+> **Minor, not patch.** `M8_Design_Review` 1.6.1 states the corpus rule when it declines a
+> minor bump — *"Patch version, not minor: **no architectural decision changed**"*. S-2 moves
+> two `M`/`v1.0` requirements to `v2.0`, which is the same class of change that took this
+> document from 0.1.0 to 0.2.0.
+>
 > **Amendments in v0.2.0.** Implementation through M6 established behaviour that eight
 > requirement lines in this document no longer described. They are corrected in place, with
 > the reasoning recorded beside the block it affects: **§14.1** (receivables — FR-REC-004,
@@ -233,7 +255,7 @@ Every consequence below follows from this one sentence. Attempting to make an of
 | **BR-011** | **Prices and schemes computed offline are quoted, not agreed.** The client stores the computed price on the order line as `quotedUnitPrice`. `CORE` recomputes on sync (BR-001). Where the recomputed price differs, `CORE` MUST record both values and raise a variance — it MUST NOT silently substitute either. |
 | **BR-012** | **Every offline-created record carries a client-generated identifier**, assigned at creation on the device. `CORE` treats this identifier as the idempotency key. Re-transmission of an already-accepted record is acknowledged as accepted and creates nothing. |
 | **BR-013** | **Sync is idempotent and ordered per device.** Replaying a batch produces no duplicates. Transactions from one device are applied in the order the device created them. |
-| **BR-014** | **No transaction is discarded.** A transaction that fails server-side validation is persisted as a `SyncConflict` in `PENDING_RESOLUTION`, never dropped. Silent loss is a critical defect (Vision §10.3, non-negotiable). |
+| **BR-014** | **No transaction is discarded.** A transaction that fails server-side validation is persisted as a `SyncConflict` in `PENDING_RESOLUTION`, never dropped. Silent loss is a critical defect (Vision §10.3, non-negotiable). **[S-3 — Edition-1 vehicle: `sync_operation` with `status = 'REJECTED'`, retained `payload` and a non-empty `error_code`, enforced by `ck_sync_operation_rejected` (`04` T-26). The no-discard guarantee is unchanged; only the named artefact.]** |
 | **BR-015** | **Conflict resolution is explicit, never automatic**, except for the deterministic classes in §5.3. Anything else is routed to a human with sufficient context to decide. |
 
 ### 5.3 Conflict taxonomy
@@ -250,6 +272,27 @@ Detected by `CORE` at sync time. Every class has a defined, testable outcome.
 | `SC-SEQUENCE` | Transaction depends on a prior transaction not yet accepted | Held; retried automatically once its dependency is accepted | Yes — deterministic |
 
 > **Design note.** `SC-STOCK` deliberately does not reject the order. A salesman standing in front of a retailer has made a commercial commitment; the correct response to a stock shortfall is a business decision (partial fulfilment, substitution, backorder), not silent data loss. This is the practical meaning of BR-014.
+
+> **Amendment S-4, 2026-08-21.** **The four non-automatic classes — `SC-STOCK`, `SC-CREDIT`,
+> `SC-PRICE`, `SC-MASTER` — are Edition 2.** Each is defined over an offline-captured *order*,
+> and `02A` §5 / DV-1 removes field order capture from Edition 1: the taxonomy collapses to
+> `SC-DUPLICATE` and `SC-SEQUENCE`, both deterministic and both automatic. `04` T-26 carries
+> the four forward as future `status` values plus a `conflict_type` column. **The table above
+> is unchanged and nothing is deleted** — a class deferred is still a class, and Edition 2
+> restores all four with the capability that creates them.
+>
+> **FR-SYN-006 quarantine is not part of this taxonomy.** Every class above describes a
+> transaction that is well-formed and authorised but **contends with server state that has
+> moved on** — stock, credit, price, master data, ordering, or a prior acceptance. A
+> malformed, invalid or unauthorised operation contends with nothing, and FR-SYN-006 already
+> covers it separately: *"quarantined and reported rather than dropped"*. Its reason is
+> carried in `sync_operation.error_code`, which is **not** an `SC-*` value. **No new class is
+> created by this amendment.**
+>
+> **This distinction is a ruling, not a restatement.** `M9_Design_Review` §6 D-M9-3 records
+> that this document did not previously draw it, that FR-SYN-005's *"every rejected
+> transaction"* read wider than this taxonomy can support, and that the ambiguity was
+> resolved by choosing rather than by discovery.
 
 ### 5.4 Sync observability
 
@@ -659,21 +702,65 @@ Governed by §5. These requirements make those semantics testable.
 | FR-SYN-002 | Sync MUST transmit outbox transactions in creation order per device (BR-013). | M | v1.0 | S2, S3 | BR-013 |
 | FR-SYN-003 | `CORE` MUST treat the client identifier as an idempotency key; a re-transmitted accepted transaction MUST be acknowledged without creating a duplicate. | M | v1.0 | CORE | BR-012 |
 | FR-SYN-004 | Sync MUST be resumable: an interrupted batch MUST NOT lose, duplicate or partially apply transactions. | M | v1.0 | CORE, S2 | §10.3 |
-| FR-SYN-005 | `CORE` MUST classify every rejected transaction into a §5.3 class and persist it as a `SyncConflict` in `PENDING_RESOLUTION`. | M | v1.0 | CORE | BR-014, BR-015 |
+| FR-SYN-005 | `CORE` MUST classify every rejected transaction into a §5.3 class and persist it as a `SyncConflict` in `PENDING_RESOLUTION`. **[S-1 — in Edition 1 the §5.3 taxonomy reduces to the two automatic classes (`02A` §5); persistence is discharged by `sync_operation` (`04` T-26). `SyncConflict` is a §4.1 conceptual entity name, not a schema requirement.]** | M | v1.0 | CORE | BR-014, BR-015 |
 | FR-SYN-006 | A transaction MUST NOT be discarded under any circumstance, including malformed payloads, which MUST be quarantined and reported rather than dropped. | M | v1.0 | CORE | BR-014 |
 | FR-SYN-007 | Sync MUST deliver master-data updates to the device: customers on assigned routes, products, prices, schemes and stock snapshot. | M | v1.0 | CORE, S2 | FR-CUS-013 |
-| FR-SYN-008 | The device MUST display its last successful sync time, count of pending transactions, and count of unresolved conflicts. | M | v1.0 | S2, S3 | §5.4 |
+| FR-SYN-008 | The device MUST display its last successful sync time, count of pending transactions, and count of operations the server has rejected. **[S-5 — the third field previously read *"count of unresolved conflicts"*, a phrase defined nowhere in this document. Edition 1's smallest truthful quantity is `sync_operation.status = 'REJECTED'`, which `05` §11.2 already requires be flagged to the user. `DEFERRED` is excluded: it auto-retries, so it belongs to the owner's exception list (`04` T-26) and not to the device's count.]** | M | v1.0 | S2, S3 | §5.4 |
 | FR-SYN-009 | `SALESMGR` and `ADMIN` MUST be able to view, per device: last sync time, pending transaction count and unresolved conflicts. | M | v1.0 | S1 | §5.4 |
 | FR-SYN-010 | Full sync of a typical daily volume MUST complete within 2 minutes of reconnection at the DR-8 envelope. | M | v1.0 | CORE | §10.3 |
 | FR-SYN-011 | Sync MUST occur over an encrypted transport and MUST authenticate both user and device. | M | v1.0 | CORE | NFR-5, FR-IAM-009 |
 | FR-SYN-012 | Sync MUST transmit only records the device's user is authorised to hold, minimising data at rest on the device. | M | v1.0 | CORE | NFR-5, R-8 |
-| FR-SYN-013 | Conflicts MUST be resolvable on `S1` with sufficient context to decide: captured values, current values, customer, salesman and capture time. | M | v1.0 | S1 | BR-015, FR-ORD-034 |
-| FR-SYN-014 | Resolution of a conflict MUST be audited with resolver, decision and timestamp. | M | v1.0 | CORE | BR-002 |
+| FR-SYN-013 | Conflicts MUST be resolvable on `S1` with sufficient context to decide: captured values, current values, customer, salesman and capture time. **[S-2 — Edition 2. No Edition-1 conflict class requires human resolution (`02A` §5), so this requirement has no subject. Moved to v2.0 exactly as FR-REC-004 (B-1) and FR-RPT-006 (A-3) were: still a requirement, not deleted.]** | M | **v2.0** | S1 | BR-015, FR-ORD-034 |
+| FR-SYN-014 | Resolution of a conflict MUST be audited with resolver, decision and timestamp. **[S-2 — Edition 2. No resolution action exists in Edition 1, so there is nothing to audit. Returns with FR-SYN-013.]** | M | **v2.0** | CORE | BR-002 |
 | FR-SYN-015 | The system MUST report the proportion of synchronised transactions that raised a conflict, as the measure for Vision §10.3. | M | v1.0 | S1 | §10.3 |
 | FR-SYN-016 | Local device storage MUST be encrypted at rest. | M | v1.0 | S2, S3 | NFR-5, R-8 |
 | FR-SYN-017 | Sync MUST degrade gracefully on intermittent connectivity: partial progress MUST be retained and retried, never restarted from the beginning. | M | v1.0 | S2, S3 | C-11 |
 
 > **Verification focus.** FR-SYN-003, FR-SYN-004 and FR-SYN-006 carry the two non-negotiable metrics in Vision §10.3 (zero transactions lost, zero duplicates). They MUST be verified by adversarial testing — connection severed mid-batch, duplicate batch replay, device clock skew, application killed mid-write, storage exhausted — not by happy-path integration tests. A green happy-path suite is not evidence for these requirements.
+
+### 18.1 Amendment log — 2026-08-21
+
+This block was written against the frozen baseline, **before `02A` §5 / DV-1 removed field
+order capture from Edition 1**, and was never back-updated. `02A`'s own standing clause is
+the authority: it *"does not add requirements; it **partitions** the confirmed ones and, where
+the new Edition 1 direction departs from the frozen baseline, **records the departure
+explicitly rather than absorbing it silently**."* `03`, `04` and `05` derived from it; this
+document did not, and **S-1 … S-4** close that gap.
+
+**S-5 is of a different kind and is recorded here for locality, not because it shares that
+cause.** It corrects a term this document never defined, rather than a departure `02A` had
+already decided — see the row itself and `M9_Design_Review` §6 D-M9-6.
+
+**Nothing here was deleted.** A requirement moved to v2.0 is still a requirement; a reader
+must be able to see it was considered and deferred rather than forgotten.
+
+> **A new prefix, deliberately.** `A-` is §20.1's Reporting series and `B-` is §14.1's
+> Receivables series — every existing row in both concerns the block it sits in. `S-` keeps
+> that property for Synchronisation. It also avoids a collision `A-8` would have created:
+> FR-REC-010 already traces an **assumption** called `A-7`, and the two namespaces are
+> distinct. *(`M9_Design_Review` §11 proposed `A-8…A-11` before §14.1 had been read; the
+> renumbering is recorded here rather than left as a silent divergence.)*
+
+| Ref | Change | Authority |
+| --- | --- | --- |
+| **S-1** | **FR-SYN-005 stays `M`, `v1.0`, and is discharged as written.** In Edition 1 the §5.3 taxonomy reduces to `SC-DUPLICATE` and `SC-SEQUENCE`, both automatic, so nothing is left unclassified. Its persistence clause is satisfied by `sync_operation` — `status = 'REJECTED'` with retained `payload` — which `04` T-26 already claims for FR-SYN-003…006. **`SyncConflict` is a §4.1 conceptual entity name, not a schema mandate**; `SyncBatch` and `SyncTransaction` beside it are equally unmodelled, and a `PENDING_RESOLUTION` state would have no exit in an edition with zero human-resolvable classes | `02A` §5 · `04` T-26 · `M9_Design_Review` §6 D-M9-2 |
+| **S-2** | **FR-SYN-013 and FR-SYN-014 → `v2.0`**, priority `M` unchanged. Both take their subject from the four non-automatic classes, which are order-borne; Edition 1 has none, so neither requirement has anything to resolve or to audit. They return with field order capture, which `02A` §5 and `04` T-26's *"Future evolution"* both already commit to | `02A` §5, §6.2, §7.12 · `04` T-26 · `M9_Design_Review` §6 D-M9-4 |
+| **S-3** | **BR-014's guarantee is unchanged; only the named artefact.** The Edition-1 vehicle is `sync_operation` with retained `payload` and a non-empty `error_code`, enforced by `ck_sync_operation_rejected` — a rejection with no reason is refused by the database. Nothing is discarded, and `04` T-26 states it is *"the table that makes 'no transaction is ever lost' true rather than aspirational"* | `04` T-26 · `03` §6.2 · `M9_Design_Review` §6 D-M9-2 |
+| **S-4** | **§5.3's four non-automatic classes are Edition 2, and FR-SYN-006 quarantine is distinct from the taxonomy.** Recorded as a ruling: this document did not previously draw that distinction, and FR-SYN-005's *"every rejected transaction"* read wider than §5.3 can support. **No `SC-*` class is created** | `02A` §5 · `M9_Design_Review` §6 D-M9-3 |
+| **S-5** *(2026-08-21)* | **FR-SYN-008's third field reworded; nothing else in the requirement changes.** *"Count of unresolved conflicts"* was undefined — the phrase appeared twice before this amendment, both in this document, and neither §5.4 (its only trace) nor `05` §11.5 defines it. The Edition-1 quantity is `sync_operation.status = 'REJECTED'`, which `05` §11.2 already obliges the client to *"flag to the user"*. **No API field is added or renamed: the existing `rejected_count` (`05` §11.5) satisfies the amended quantity**, and no schema, contract or logic changes. `DEFERRED` stays out of the device count because it auto-retries. **Priority `M` and release `v1.0` are unchanged**; FR-SYN-009, FR-SYN-006 and BR-014 are untouched by this row | `05` §11.2, §11.5 · `04` T-26 · `M9_Design_Review` §6 D-M9-6 |
+
+> **S-4 is the one to read twice.** S-1, S-2 and S-3 record departures `02A` had already
+> decided and this document had merely never been told about. **S-4 decides something the
+> corpus genuinely left open** — whether a malformed or unauthorised operation is a §5.3
+> conflict or an FR-SYN-006 quarantine. A different reader could have concluded that Edition 1
+> owes a class for validation failures. It does not, and the reasoning is in
+> `M9_Design_Review` §6 D-M9-3 and §13.3.
+
+> **Still unmet after these amendments: FR-SYN-006's *"and reported"* clause.** `04` T-26 calls
+> its partial index *"the owner's exception list"* and `03` §6.2 says rejections are *"surfaced
+> to the owner"*, but no endpoint or screen consumes it, and `05` specifies none.
+> **FR-SYN-006 remains `M`, `v1.0`, and is not amended here** — recorded as open contract work
+> at `M9_Design_Review` §8 OC-3.
 
 ---
 
@@ -846,7 +933,7 @@ Consolidated from §4.3 and §5.2. These are invariants, not features: **a desig
 | BR-011 | Offline prices are quoted, not agreed; `CORE` recomputes and flags variance | R-1, PO-6 |
 | BR-012 | Every offline record carries a client-generated idempotency key | Vision §10.3 |
 | BR-013 | Sync is idempotent and ordered per device | Vision §10.3 |
-| BR-014 | No transaction is ever discarded; failures become resolvable conflicts | Vision §10.3 |
+| BR-014 | No transaction is ever discarded. In Edition 1 a rejected or malformed transaction is **retained and quarantined** with its reason and payload; **human conflict resolution is not an Edition-1 mechanism** (S-4, §18.1) | Vision §10.3 |
 | BR-015 | Conflict resolution is explicit except for deterministic classes | R-1 |
 
 ---
