@@ -198,12 +198,27 @@ def record_movement(
 
 
 def receive_stock(
-    *, actor: Any, product: Any, quantity: Decimal | str | int, reason_code: ReasonCode, **kw: Any
+    *,
+    actor: Any,
+    product: Any,
+    quantity: Decimal | str | int,
+    reason_code: ReasonCode | None = None,
+    **kw: Any,
 ) -> StockMovement:
     """Goods in. Always positive (M2-11).
 
     Owner only in V1: there is no separate warehouse role (05 §8 defines four roles, and
     the client confirmed one person does everything).
+
+    **`reason_code` became optional at D5 Stage 3 (D-PUR-10), and this is a seam correction
+    rather than a new feature.** BR-007 has always been *"a stock movement needs a source
+    document **or** a reason code"*, and `record_movement` below has always enforced exactly
+    that. This wrapper was narrower than the thing it wraps: with a required `ReasonCode` a
+    document-backed receipt could not be expressed through it at all, so a goods receipt would
+    have had to call `record_movement` directly and skip the owner check above.
+
+    **Every existing caller is unaffected** — all of them pass a reason code. Callers that
+    pass neither still fail, in `record_movement`, with BR-007's own message.
     """
     require_roles(actor, Role.OWNER)
     quantity = abs(to_quantity(quantity))

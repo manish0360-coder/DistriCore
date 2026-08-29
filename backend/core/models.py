@@ -65,6 +65,19 @@ class BusinessProfile(TimeStampedModel):
 
     # --- tunables ---------------------------------------------------------
     max_manual_discount_percent = PercentField(default=Decimal("10.00"))
+    # **D-PUR-4 / BD-2 — how much more than ordered a goods receipt may accept.**
+    #
+    # Evaluated cumulatively and per purchase-order line: a line is refused once
+    # `Σ received > ordered x (1 + this/100)`. Cumulative rather than per receipt, because
+    # three receipts of 40% each would otherwise pass individually and overshoot together;
+    # per line rather than per order, because a shortfall on one line must not finance an
+    # overage on another.
+    #
+    # **Zero by default: an unconfigured system refuses every over-receipt.** That is the
+    # safest commercial position and the one that relaxes later without a migration. The
+    # value lives only here — no figure is hard-coded in the application, and there is
+    # deliberately no per-supplier or per-product variant (`04` T-05).
+    over_receipt_tolerance_percent = PercentField(default=Decimal("0.00"))
     credit_limit_mode = models.CharField(
         max_length=10, choices=CreditMode.choices, default=CreditMode.WARN
     )
@@ -87,6 +100,13 @@ class BusinessProfile(TimeStampedModel):
             ),
             models.CheckConstraint(
                 condition=models.Q(otp_expiry_minutes__gt=0), name="ck_business_profile_otp"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    over_receipt_tolerance_percent__gte=0,
+                    over_receipt_tolerance_percent__lte=100,
+                ),
+                name="ck_business_profile_over_receipt_tolerance",
             ),
         ]
 

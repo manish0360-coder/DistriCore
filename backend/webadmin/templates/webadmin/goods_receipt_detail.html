@@ -1,0 +1,53 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{{ receipt.grn_number }} — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:900px">
+  <h2 style="margin-top:0">{{ receipt.grn_number }}</h2>
+
+  <table>
+    <tr><th>Purchase order</th>
+        <td><a href="{% url 'webadmin:purchase-order-detail' receipt.purchase_order.pk %}">{{ receipt.purchase_order.po_number }}</a></td></tr>
+    <tr><th>Supplier</th><td>{{ receipt.purchase_order.supplier.code }} — {{ receipt.purchase_order.supplier.name }}</td></tr>
+    <tr><th>Received</th><td>{{ receipt.receipt_date }}</td></tr>
+    <tr><th>Their reference</th><td>{{ receipt.supplier_reference|default:"—" }}</td></tr>
+    <tr><th>Booked in</th><td>{{ receipt.created_at }}{% if receipt.received_by %} by {{ receipt.received_by }}{% endif %}</td></tr>
+    {% if receipt.notes %}<tr><th>Notes</th><td>{{ receipt.notes }}</td></tr>{% endif %}
+  </table>
+
+  <h3>Lines</h3>
+  {# `Movement` proves FR-PUR-007: every received line resolves back to the stock it moved. #}
+  <table>
+    <tr><th>#</th><th>Product</th><th class="r">Received</th><th class="r">Unit cost</th>
+        <th class="r">Taxable</th><th class="r">GST %</th><th class="r">Tax</th>
+        <th class="r">Total</th><th class="r">Movement</th></tr>
+    {% for line in lines %}
+    <tr>
+      <td>{{ line.purchase_order_line.line_number }}</td>
+      <td>{{ line.purchase_order_line.product_code }} — {{ line.purchase_order_line.product_name }}</td>
+      <td class="r">{{ line.quantity_received }} {{ line.purchase_order_line.unit_name }}</td>
+      <td class="r">{{ line.unit_cost }}</td>
+      <td class="r">{{ line.taxable_amount }}</td>
+      <td class="r">{{ line.tax_rate_percent }}</td>
+      <td class="r">{{ line.tax_amount }}</td>
+      <td class="r">{{ line.line_total }}</td>
+      <td class="r">#{{ line.stock_movement_id }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <th colspan="4" class="r">Totals</th>
+      <th class="r">{{ receipt.subtotal_amount }}</th>
+      <th></th>
+      <th class="r">{{ receipt.tax_amount }}</th>
+      <th class="r">{{ receipt.total_amount }}</th>
+      <th></th>
+    </tr>
+  </table>
+
+  <p class="muted">
+    This receipt is final. It moved the stock above and raised {{ receipt.total_amount }}
+    against {{ receipt.purchase_order.supplier.name }}; neither can be edited.
+  </p>
+
+  <p><a href="{% url 'webadmin:goods-receipt-list' %}" class="muted">Back to goods receipts</a></p>
+</div>
+{% endblock %}

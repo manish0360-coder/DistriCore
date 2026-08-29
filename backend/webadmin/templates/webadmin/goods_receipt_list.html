@@ -1,0 +1,26 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Goods receipts — DistriCore{% endblock %}
+{% block heading %}Goods receipts{% endblock %}
+{# No "New" action: goods are always received against a purchase order, from its own screen. #}
+{% block action %}{% endblock %}
+{% block search %}
+<form method="get" style="margin-bottom:12px">
+  <input name="q" value="{{ q }}" placeholder="Search by GRN, PO number or their reference" style="max-width:380px;margin:0">
+  <button type="submit">Filter</button>
+</form>
+{% endblock %}
+{% block rows %}
+<tr><th>GRN</th><th>Purchase order</th><th>Supplier</th><th>Received</th>
+    <th>Their reference</th><th class="r">Value</th><th></th></tr>
+{% for receipt in page.object_list %}
+<tr>
+  <td>{{ receipt.grn_number }}</td>
+  <td>{{ receipt.purchase_order.po_number }}</td>
+  <td>{{ receipt.purchase_order.supplier.name }}</td>
+  <td>{{ receipt.receipt_date }}</td>
+  <td>{{ receipt.supplier_reference|default:"—" }}</td>
+  <td class="r">{{ receipt.total_amount }}</td>
+  <td class="r"><a href="{% url 'webadmin:goods-receipt-detail' receipt.pk %}">Open</a></td>
+</tr>
+{% endfor %}
+{% endblock %}

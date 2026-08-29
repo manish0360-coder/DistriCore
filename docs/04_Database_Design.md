@@ -3,13 +3,13 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `04_Database_Design` |
-| Version | 0.1.0 |
+| Version | **0.2.0** |
 | Status | **Draft — requires sign-off before `0001_initial` is written** |
 | Date | 2026-08-04 |
 | Owner | Chief Systems Engineer |
-| Scope | **Edition 1 (1a + 1b)** per `02A` §13 |
+| Scope | **Edition 1 (1a + 1b)** per `02A` §13, **as amended by `02A` §14** (D5 procurement returned to v1.0, 2026-08-25) |
 | Target | PostgreSQL 16 |
-| Depends on | `00_Engineering_Foundation.md` v1.0.0 · `01` v0.2.0 · `02` v0.1.0 · `02A` v0.2.0 · `03` v0.1.0 |
+| Depends on | `00_Engineering_Foundation.md` v1.0.0 · `01` v0.2.0 · `02` v0.1.0 · `02A` **v0.3.0** · `03` v0.1.0 |
 
 > **This document is the design of the least reversible artefact in the project.** `0001_initial` establishes the shape every later migration inherits and every future row is written through. A missing column here is not a schema addition later — it is a migration of live financial history (Foundation §15.3, E-06).
 >
@@ -141,6 +141,25 @@ The decision rule, applied consistently:
 | **Core business — field & marketing** | 2 | `visit`, `offer` |
 | **Infrastructure** | 2 | `media_file`, `sync_operation` |
 | **Audit** | 1 | `audit_log` |
+| **Core business — procurement** *(v1.0 per `02A` §14)* | 7 | `supplier`, `product_supplier`, `purchase_order`, `purchase_order_line`, `goods_receipt`, `goods_receipt_line`, `supplier_ledger_entry` |
+
+> **Procurement is being built in stages** (`D5_Design_Review` v0.6.0), and `04` records only
+> what is specified. **§11A now specifies all seven:** `supplier` and `product_supplier`
+> (T-28, T-29 — **built and verified 2026-08-26**); `purchase_order` and `purchase_order_line`
+> (T-30, T-31 — **built and verified 2026-08-27**); `goods_receipt`, `goods_receipt_line` and
+> `supplier_ledger_entry` (T-32, T-33, T-34 — **specified for Stage 3, not yet built**).
+>
+> `supplier_payment` and a possible eighth table `supplier_payment_allocation` belong to
+> Stage 4; the latter is conditional on business decision **BD-1** and is deliberately absent
+> until that decision is taken.
+>
+> **T-34 is listed in this category but is owned by the `ledger` app**, not `purchasing` —
+> BR-005 requires it on the same terms as `customer_ledger_entry` (T-22), and `ledger` already
+> owns those terms.
+>
+> The row appears here at all because `02A` §14 returned D5 to v1.0 on 2026-08-25, superseding
+> DV-6 for that domain; `04` derives its scope from `02A` and must not continue to describe
+> these tables as Edition 2.
 
 ### 2.2 Tables deliberately NOT created
 
@@ -156,7 +175,6 @@ Each was considered and rejected. Recording the rejection is as important as rec
 | `device` | Registered device records | Device registration demoted (`02A` §13.2). `device_id` survives as a **column** on sync-created rows, preserving the shape | Edition 2 |
 | `notification` | In-app notifications | Module cut entirely (`02A` §13.2). An "unactioned orders" filter replaces it at zero cost | Edition 2 |
 | `complaint` | Complaint tickets | V1 is a call button. Ticket logging is Edition 2 | Edition 2 |
-| `purchase_order`, `goods_receipt`, `supplier` | Procurement | Stock enters via reason-coded `stock_movement` (DV-6) | Edition 2 |
 | `sales_return`, `purchase_return` | Structured returns | Returns are a reason-coded movement plus a credit note (DV-8) | Edition 2 |
 | `sales_target` | Salesman targets | Edition 2 (`02A` §13.2) |Edition 2 |
 | `shipment`, `shipment_line` | Partial fulfilment | V1 has no partial delivery. `delivery` is one-per-order | Edition 2 |
@@ -392,17 +410,44 @@ Everything else is master data or reporting. These three are where correctness l
 | `logo_media_id` | BIGINT | Y | | FK → `media_file` |
 | `invoice_footer` | TEXT | Y | | Terms printed on invoices |
 | `max_manual_discount_percent` | NUMERIC(5,2) | N | `10.00` | Bound on FR-PRC-017 |
+| `over_receipt_tolerance_percent` | NUMERIC(5,2) | N | **`0.00`** | D5 goods receipt. **D-PUR-4** — see below |
 | `credit_limit_mode` | VARCHAR(10) | N | `'WARN'` | `WARN` or `BLOCK` |
 | `otp_expiry_minutes` | SMALLINT | N | `10` | |
 | `updated_at` / `updated_by_id` | TIMESTAMPTZ / BIGINT | N / Y | | FK → `app_user` |
 
 **PK** `id`
-**Constraints** `ck_business_profile_singleton` CHECK (`id = 1`) — a single-row table enforced by the database, not by convention · `ck_business_profile_credit_mode` CHECK (`credit_limit_mode IN ('WARN','BLOCK')`) · `ck_business_profile_discount` CHECK (`max_manual_discount_percent BETWEEN 0 AND 100`)
+**Constraints** `ck_business_profile_singleton` CHECK (`id = 1`) — a single-row table enforced by the database, not by convention · `ck_business_profile_credit_mode` CHECK (`credit_limit_mode IN ('WARN','BLOCK')`) · `ck_business_profile_discount` CHECK (`max_manual_discount_percent BETWEEN 0 AND 100`) · `ck_business_profile_over_receipt_tolerance` CHECK (`over_receipt_tolerance_percent BETWEEN 0 AND 100`)
 
 **Business rules**
 - Exactly one row, id 1, seeded by the first migration.
 - `gstin` and `state_code` are **read at invoice issue and snapshotted** onto the invoice (D-02). Changing them later must not alter issued invoices.
 - `credit_limit_mode` implements DV-9: `WARN` (default — warn and let the owner override) or `BLOCK`. **The client's own answer was that the owner decides the limit**, so warn-and-override is the correct default.
+- **`over_receipt_tolerance_percent` implements D-PUR-4 (BD-2, closed 2026-08-27).** It bounds
+  how much more than the ordered quantity a goods receipt may accept, evaluated
+  **cumulatively and per purchase-order line** (T-31, T-33):
+
+  ```
+  Σ received_for_this_po_line  <=  po_line.quantity_ordered × (1 + tolerance/100)
+  ```
+
+  - **Cumulative, not per receipt** — a per-receipt test would let three receipts of 40% each
+    pass individually and overshoot together.
+  - **Per line, never per order** — a shortfall on one line must not finance an overage on
+    another.
+  - **Default `0.00`: an unconfigured system rejects every over-receipt.** That is the safest
+    commercial position and the one that can be relaxed later without a migration. **No figure
+    is hard-coded anywhere in the application**; the value lives only in this column.
+  - **A breach rejects the whole goods receipt atomically** — no GRN, no `stock_movement`, no
+    `supplier_ledger_entry`, no purchase-order status change, no `audit_log` row.
+  - **Under-receipt is unaffected** and remains valid, leaving the order
+    `PARTIALLY_RECEIVED` (FR-PUR-013).
+
+  **There is deliberately no supplier-specific or product-specific tolerance**, here or on
+  T-28 or T-29. One system-wide value until a real need argues otherwise. `D5_Design_Review`
+  D-PUR-4 records the reason: per-supplier tolerance is the first step toward a stored
+  reliability figure, and a derived "receiving intelligence" capability must be computed from
+  `purchase_order_line` and `goods_receipt_line` rather than cached onto a master table
+  (N-03 / E-01) — the same rule that forbids `outstanding_balance`.
 - Every change is audited.
 
 **Why a singleton table rather than settings constants.** The owner must be able to correct their own GSTIN or address without a deploy (NFR-CFG-001). Under Edition 3 schema-per-tenant, this table becomes *the* per-tenant identity with **zero schema change** — one row per schema. That is E-05 paying off concretely.
@@ -667,7 +712,7 @@ Everything else is master data or reporting. These three are where correctness l
 | `lot_id` | BIGINT | N | | FK → `stock_lot`. **Structural (N-10)** |
 | `quantity` | NUMERIC(14,3) | N | | **Signed.** Positive in, negative out |
 | `movement_type` | VARCHAR(20) | N | | `RECEIPT`, `ISSUE`, `ADJUSTMENT`, `RETURN`, `OPENING` |
-| `source_document_type` | VARCHAR(30) | Y | | `SALES_ORDER`, `DELIVERY`, `CREDIT_NOTE` |
+| `source_document_type` | VARCHAR(30) | Y | | `SALES_ORDER`, `DELIVERY`, `CREDIT_NOTE`, **`GOODS_RECEIPT`** — the registry below is authoritative |
 | `source_document_id` | BIGINT | Y | | Polymorphic — see below |
 | `reason_code_id` | BIGINT | Y | | FK → `reason_code` |
 | `occurred_at` | TIMESTAMPTZ | N | `now()` | When it physically happened |
@@ -696,9 +741,63 @@ Everything else is master data or reporting. These three are where correctness l
 - Dispatch writes negative; receipt and restockable return write positive.
 - `occurred_at` and `created_at` differ for offline-captured movements — the physical event precedes the record.
 
-**On the polymorphic `source_document_type` / `source_document_id`.** This deliberately has no foreign key, because it points at four different tables. The alternative — four nullable typed foreign keys — is four columns, four indexes and a check constraint asserting exactly one is set, growing every time a document type is added in Edition 2. The pair is validated by `ck_stock_movement_source_pair`, referential integrity is enforced in `inventory.services`, and the trade is recorded here rather than discovered later. **This is the one place in the schema where D-06 is knowingly relaxed.**
+**The registered source-document types.** `source_document_type` is not free text and is not a
+`CHECK` constraint either — it is produced from **`inventory.services.SOURCE_DOCUMENT_REGISTRY`**,
+an allow-list each owning app populates in its own `registry.py`, imported from that app's
+`AppConfig.ready()`. `_resolve_source` refuses any model absent from it, and refuses a model
+instance that has not been saved. **That is R-2: the caller must possess the document, not
+merely name it.**
 
-**Future evolution.** Edition 2 adds `GOODS_RECEIPT`, `TRANSFER_IN`, `TRANSFER_OUT` to the type check — a one-line migration. Real lots begin appearing in `lot_id`. Multi-location begins using `location_id`. **The table does not change shape for any of it.**
+**This registry governs `stock_movement` and nothing else:**
+
+| Value | Registered by | Table |
+| --- | --- | --- |
+| `DELIVERY` | `fulfilment/registry.py` | T-16 `delivery` |
+| **`GOODS_RECEIPT`** | **`purchasing/registry.py`** *(D5 Stage 3, not yet built)* | **T-32 `goods_receipt`** |
+
+> **There is a second, separate registry, and the two must not be confused.**
+> **`ledger.services.SOURCE_DOCUMENT_REGISTRY`** is a distinct dictionary in a distinct module,
+> governing `customer_ledger_entry.source_document_type` (T-22) and, from D5 Stage 3,
+> `supplier_ledger_entry.source_document_type` (T-34). **`INVOICE`, `CREDIT_NOTE` and `PAYMENT`
+> are registered there, not here — they are ledger source documents and have never been stock
+> source documents.** An earlier revision of this section listed them in the table above; that
+> was wrong and is corrected here.
+>
+> `GoodsReceipt` is the **first document to appear in both**, because a receipt moves stock
+> *and* raises a liability. `purchasing/registry.py` therefore makes two registrations, one
+> into each module's dictionary.
+
+**`GOODS_RECEIPT` is a `source_document_type`, not a `movement_type`** (D-PUR-7). A goods
+receipt writes an ordinary `RECEIPT` movement carrying `source_document_type = 'GOODS_RECEIPT'`
+and `source_document_id = goods_receipt.id`, so **`ck_stock_movement_type` is unchanged and no
+migration touches this table.** Two movement types for one physical event — *goods came in* —
+would split every query filtering `movement_type = 'RECEIPT'` for no gain.
+
+Registration lives in `purchasing` rather than in `inventory` or `ledger`, so the dependency
+points the right way: `purchasing` knows both (§2.1 layering permits it), and neither knows
+anything above it. **The string therefore comes from the registry, never from a literal at a
+call site.**
+
+**On the polymorphic `source_document_type` / `source_document_id`.** This deliberately has no foreign key, because it points at several different tables. The alternative — four nullable typed foreign keys — is four columns, four indexes and a check constraint asserting exactly one is set, growing every time a document type is added in Edition 2. The pair is validated by `ck_stock_movement_source_pair`, referential integrity is enforced in `inventory.services`, and the trade is recorded here rather than discovered later. **This is the one place in the schema where D-06 is knowingly relaxed.**
+
+**Future evolution.** Edition 2 adds `TRANSFER_IN` and `TRANSFER_OUT` to the type check — a one-line migration. Real lots begin appearing in `lot_id`. Multi-location begins using `location_id`. **The table does not change shape for any of it.**
+
+> **D-PUR-7 (2026-08-25) — `GOODS_RECEIPT` is a `source_document_type`, not a movement type.**
+> An earlier version of this note expected Edition 2 to add `GOODS_RECEIPT` to the type check.
+> It will not. D5 goods receipt writes an ordinary `RECEIPT` movement carrying
+> `source_document_type = 'GOODS_RECEIPT'` and `source_document_id = <goods_receipt.id>`, so
+> **the type check is unchanged and no migration touches this table.**
+>
+> Two movement types for one physical event — "goods came in" — would split every query that
+> filters `movement_type = 'RECEIPT'` and would require a `CHECK` migration on the least
+> reversible table in the system. One type, with the *reason* in the field built for reasons,
+> keeps the quantity semantics in one place. `02A` §11 EP-8 names purchase orders as the first
+> intended consumer of `source_document_type`, and the existing constraint forbidding half a
+> reference already makes the pairing enforceable.
+>
+> **Provenance is strengthened, not weakened.** Reason-coded receipts remain valid for stock
+> with no purchase behind it (`02A` §14.1 clause 4); purchase-borne stock additionally carries
+> a document reference that is indexed, constrained, and asserted by test.
 
 ---
 
@@ -1055,7 +1154,7 @@ All seller/buyer snapshot and money columns are identical to `invoice`. `credit_
 | `entry_date` | DATE | N | | Business date |
 | `entry_type` | VARCHAR(20) | N | | `INVOICE`, `CREDIT_NOTE`, `PAYMENT`, `OPENING`, `ADJUSTMENT`, `WRITE_OFF` |
 | `amount` | NUMERIC(14,2) | N | | **Signed.** Positive increases debt |
-| `source_document_type` | VARCHAR(30) | Y | | `INVOICE`, `CREDIT_NOTE`, `PAYMENT` |
+| `source_document_type` | VARCHAR(30) | Y | | `INVOICE`, `CREDIT_NOTE`, `PAYMENT` — from **`ledger.services.SOURCE_DOCUMENT_REGISTRY`** |
 | `source_document_id` | BIGINT | Y | | Polymorphic, as `stock_movement` |
 | `narration` | VARCHAR(255) | N | | Human-readable line on the statement |
 | `created_by_id` | BIGINT | Y | | FK → `app_user` |
@@ -1158,6 +1257,291 @@ All seller/buyer snapshot and money columns are identical to `invoice`. `credit_
 **Why this is not the `scheme` table.** A scheme engine evaluates eligibility, slabs, free goods and conflict resolution, and writes to order lines and stock. That is Edition 2 (`02A` §7.5), ~5 effort units. This table is a title, a message and an image: it satisfies the client's V1 need — "sabko ek jaisi jaankari" — at a fraction of the cost, **and it does not become the scheme table later.** The two coexist; this one keeps carrying announcements.
 
 **Future evolution.** Edition 2 adds `scheme` and `scheme_slab` as new tables. `offer` is unaffected.
+
+---
+
+## 11A. Core Business — Procurement (D5)
+
+Added 2026-08-26. `02A` §14 (D-PUR-6) returned D5 to v1.0, superseding DV-6's verdict for
+that domain; this section is the consequence. **Stage 1 (`supplier`, `product_supplier`) is
+built and verified. Stage 2 (`purchase_order`, `purchase_order_line`) is specified here and
+implemented against this specification.** The remaining procurement tables —
+`goods_receipt`, `goods_receipt_line`, `supplier_ledger_entry`, `supplier_payment` — are
+designed in `D5_Design_Review` v0.5.0 and are not yet specified here.
+
+### T-28 `supplier`
+
+**Purpose.** Who the distributor buys from.
+
+**Why it exists.** FR-PUR-001.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | :-: | --- | --- |
+| `id` | BIGINT identity | N | | PK |
+| `code` | VARCHAR(32) | N | | **UNIQUE.** Canonical upper-case |
+| `name` | VARCHAR(200) | N | | |
+| `contact_name` | VARCHAR(200) | Y | `''` | |
+| `phone` | VARCHAR(20) | N | | |
+| `alt_phone` | VARCHAR(20) | Y | `''` | |
+| `email` | VARCHAR(254) | Y | `''` | No `customer` analogue |
+| `billing_address` | TEXT | N | | |
+| `dispatch_address` | TEXT | Y | `''` | Blank means *same as billing* |
+| `gstin` | VARCHAR(15) | Y | `''` | Unregistered suppliers exist |
+| `state_code` | VARCHAR(2) | Y | `''` | **No consumer in v1.0.** Carried for FR-PUR-001's *"tax identifiers"* |
+| `payment_terms_days` | SMALLINT | N | `0` | |
+| `is_active` | BOOLEAN | N | `true` | Deactivated, never deleted |
+| `created_by_id` | BIGINT | Y | | FK → `app_user` |
+| `created_at`, `updated_at` | TIMESTAMPTZ | N | | |
+
+**Constraints** — `ck_supplier_payment_terms` CHECK (`payment_terms_days >= 0`), mirroring
+`ck_customer_credit_days`.
+
+### T-29 `product_supplier`
+
+**Purpose.** Which suppliers a product may be bought from.
+
+**Why it exists.** FR-PUR-002.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | :-: | --- | --- |
+| `id` | BIGINT identity | N | | PK |
+| `product_id` | BIGINT | N | | FK → `product` **RESTRICT** |
+| `supplier_id` | BIGINT | N | | FK → `supplier` **RESTRICT** |
+| `supplier_sku` | VARCHAR(64) | Y | `''` | Their code for it |
+| `is_preferred` | BOOLEAN | N | `false` | |
+
+**Constraints**
+- `uq_product_supplier` UNIQUE (`product_id`, `supplier_id`)
+- `uq_product_supplier_one_preferred` UNIQUE (`product_id`) **WHERE `is_preferred`** — a
+  partial index, the construction `uq_cle_one_opening_per_customer` uses. A service check
+  would lose the race it exists for.
+
+### T-30 `purchase_order`
+
+**Purpose.** What was ordered from a supplier, and where that order has got to.
+
+**Why it exists.** FR-PUR-003, FR-PUR-005.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | :-: | --- | --- |
+| `id` | BIGINT identity | N | | PK |
+| `po_number` | VARCHAR(32) | N | | **UNIQUE. Allocated at creation** (D-PUR-8), `PO-00000001` |
+| `supplier_id` | BIGINT | N | | FK → `supplier` **RESTRICT** |
+| `status` | VARCHAR(20) | N | `'DRAFT'` | §T-30.1 |
+| `order_date` | DATE | N | | **Caller-supplied.** Never derived from the machine clock |
+| `expected_date` | DATE | Y | | |
+| `subtotal_amount` | NUMERIC(14,2) | N | `0` | Σ of already-rounded line values (M3-8) |
+| `tax_amount` | NUMERIC(14,2) | N | `0` | |
+| `total_amount` | NUMERIC(14,2) | N | `0` | |
+| `notes` | TEXT | Y | `''` | |
+| `issued_at` | TIMESTAMPTZ | Y | | |
+| `issued_by_id` | BIGINT | Y | | FK → `app_user` |
+| `cancelled_reason` | TEXT | Y | `''` | |
+| `cancelled_at` | TIMESTAMPTZ | Y | | |
+| `cancelled_by_id` | BIGINT | Y | | FK → `app_user` |
+| `created_by_id` | BIGINT | Y | | FK → `app_user` |
+| `created_at`, `updated_at` | TIMESTAMPTZ | N | | |
+
+**Constraints** — `ck_po_totals_non_negative` CHECK (all three money columns `>= 0`).
+
+**`po_number` is a reference, not a statutory series.** It is drawn from
+`purchase_order_number_seq` with `nextval` — lock-free, gaps permitted — exactly as
+`payment_number_seq` serves `payment`, and deliberately **not** as `number_series` serves
+`invoice`, where gaplessness is a legal requirement and costs a row lock. A PO abandoned in
+draft consumes a number, and that is acceptable.
+
+#### T-30.1 Status
+
+`DRAFT → ISSUED → PARTIALLY_RECEIVED → RECEIVED → CLOSED`, with `CANCELLED` reachable from
+`DRAFT` and `ISSUED` **only**. `PARTIALLY_RECEIVED → PARTIALLY_RECEIVED` is a permitted
+self-edge — it is what makes multiple receipts against one order work (FR-PUR-013).
+
+**Once stock has arrived, an order is short-closed, never cancelled.** That is why
+`PARTIALLY_RECEIVED → CANCELLED` and `RECEIVED → CANCELLED` are absent.
+
+The map lives in `purchasing.services.ALLOWED_TRANSITIONS` and is enforced by a single
+`_transition` function, the construction `orders.services` uses. **`status` is never a
+settable field**; a caller that could write it would hold the state machine.
+
+**Stage 2 exercises `DRAFT→ISSUED`, `DRAFT→CANCELLED` and `ISSUED→CANCELLED` only.** The
+receipt-driven edges are declared because the map is the specification, and are unreachable
+until Stage 3.
+
+### T-31 `purchase_order_line`
+
+**Purpose.** What was ordered, at the cost that was agreed, with the tax that applied.
+
+**Why it exists.** FR-PUR-003.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | :-: | --- | --- |
+| `id` | BIGINT identity | N | | PK |
+| `purchase_order_id` | BIGINT | N | | FK → `purchase_order` **CASCADE** |
+| `line_number` | SMALLINT | N | | 1-based, display order |
+| `product_id` | BIGINT | N | | FK → `product` **RESTRICT** |
+| `product_code` | VARCHAR(32) | N | | **Snapshot** |
+| `product_name` | VARCHAR(200) | N | | **Snapshot** |
+| `unit_name` | VARCHAR(20) | N | | **Snapshot** |
+| `pack_size_snapshot` | INTEGER | N | | **Snapshot** |
+| `quantity_ordered` | NUMERIC(14,3) | N | | Base units |
+| `unit_cost` | NUMERIC(14,2) | N | | **A purchase price.** Unrelated to `product.selling_price` |
+| `tax_rate_percent` | NUMERIC(5,2) | N | | **Snapshot** of `product.tax_rate_percent` |
+| `taxable_amount` | NUMERIC(14,2) | N | | `unit_cost × quantity`, rounded at line level |
+| `tax_amount` | NUMERIC(14,2) | N | | `taxable × rate / 100` |
+| `line_total` | NUMERIC(14,2) | N | | `taxable + tax` |
+
+**PK** `id` · **FK** `purchase_order_id ON DELETE CASCADE` (a line cannot outlive its order) ·
+`product_id ON DELETE RESTRICT`
+
+**Constraints**
+- `uq_po_line_number` UNIQUE (`purchase_order_id`, `line_number`)
+- `ck_po_line_quantity_positive` CHECK (`quantity_ordered > 0`)
+- `ck_po_line_unit_cost_non_negative` CHECK (`unit_cost >= 0`) — free goods are legitimate,
+  negative costs are not
+
+**The snapshots freeze the commercial agreement**, as T-15's do for a sale. A product renamed
+or repriced after issue must not retroactively change what was ordered.
+
+**No new tax engine.** The line reuses `core.fields.to_money` / `to_percent` and the M3-8
+rule — round at line level, sum already-rounded values onto the header. It does **not** call
+`pricing.compute_line`, which resolves a *selling* price and answers a different question.
+There is no purchase-side price resolution, no purchase discount and no new tax policy in
+v1.0.
+
+### T-32 `goods_receipt`
+
+**Purpose.** What actually arrived against a purchase order, and when.
+
+**Why it exists.** FR-PUR-006, FR-PUR-013.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | :-: | --- | --- |
+| `id` | BIGINT identity | N | | PK |
+| `grn_number` | VARCHAR(32) | N | | **UNIQUE**, `GRN-00000001`, `nextval` |
+| `purchase_order_id` | BIGINT | N | | FK → `purchase_order` **RESTRICT** |
+| `receipt_date` | DATE | N | | **Caller-supplied.** Never derived from the machine clock |
+| `supplier_reference` | VARCHAR(64) | Y | `''` | Their delivery-note number |
+| `subtotal_amount` | NUMERIC(14,2) | N | `0` | Σ of already-rounded line values (M3-8) |
+| `tax_amount` | NUMERIC(14,2) | N | `0` | |
+| `total_amount` | NUMERIC(14,2) | N | `0` | The amount the payable is raised for (T-34) |
+| `notes` | TEXT | Y | `''` | |
+| `received_by_id` | BIGINT | Y | | FK → `app_user` |
+| `created_at` | TIMESTAMPTZ | N | | |
+
+**Constraints** — `ck_grn_totals_non_negative` CHECK (all three money columns `>= 0`).
+
+**`grn_number` is a reference, not a statutory series** — `nextval`, lock-free, gaps
+permitted, exactly as `po_number` (T-30) and `payment_number` (T-21).
+
+**Immutable once created.** A goods receipt has no draft phase: the moment the row exists it
+has moved stock (T-13) and raised a liability (T-34). It carries no `updated_at` and no status
+because it has no lifecycle of its own — the lifecycle it drives belongs to T-30.
+
+> **Posted goods receipts are immutable; correction mechanisms are outside Stage 3 and
+> require a separately approved design.** No such mechanism exists in v1.0, and nothing in
+> this specification may be read as providing one.
+
+### T-33 `goods_receipt_line`
+
+**Purpose.** What arrived, per ordered line, and the stock movement it produced.
+
+**Why it exists.** FR-PUR-006, FR-PUR-007, FR-PUR-008.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | :-: | --- | --- |
+| `id` | BIGINT identity | N | | PK |
+| `goods_receipt_id` | BIGINT | N | | FK → `goods_receipt` **CASCADE** |
+| `purchase_order_line_id` | BIGINT | N | | FK → `purchase_order_line` **RESTRICT** |
+| `quantity_received` | NUMERIC(14,3) | N | | Base units |
+| `unit_cost` | NUMERIC(14,2) | N | | **Snapshot of the PO line**, not of the product |
+| `tax_rate_percent` | NUMERIC(5,2) | N | | **Snapshot of the PO line** |
+| `taxable_amount` | NUMERIC(14,2) | N | | |
+| `tax_amount` | NUMERIC(14,2) | N | | |
+| `line_total` | NUMERIC(14,2) | N | | |
+| `stock_movement_id` | BIGINT | **N** | | FK → `stock_movement` **RESTRICT** |
+
+**PK** `id` · **FK** `goods_receipt_id ON DELETE CASCADE` (a line cannot outlive its receipt) ·
+`purchase_order_line_id ON DELETE RESTRICT` · `stock_movement_id ON DELETE RESTRICT`
+
+**Constraints**
+- `uq_grn_line` UNIQUE (`goods_receipt_id`, `purchase_order_line_id`) — one line per ordered
+  line per receipt. Receiving the same PO line twice **in one receipt** is a data-entry error,
+  not a partial delivery; partials are separate receipts (FR-PUR-013)
+- `ck_grn_line_quantity_positive` CHECK (`quantity_received > 0`) — a zero receipt is not a
+  receipt
+
+**`stock_movement_id` is `NOT NULL`, and that is the point.** T-13 carries
+`source_document_type = 'GOODS_RECEIPT'` and `source_document_id` pointing *forward* to the
+receipt; this column points *back* to the movement. Both directions must resolve, and the
+`NOT NULL` makes a receipt line without a movement **unrepresentable** rather than merely
+discouraged. Together with T-13's existing CHECK forbidding half a reference, that is the
+whole of FR-PUR-007.
+
+**No new movement type** (D-PUR-7): the movement is an ordinary `RECEIPT`.
+
+**Variance is derived, never stored.** FR-PUR-008's figure is
+`purchase_order_line.quantity_ordered − Σ(goods_receipt_line.quantity_received)`. A stored
+variance would be a second source of truth for a subtraction, which N-03/E-01 forbid for the
+same reason they forbid a cached balance.
+
+> **The quantity-acceptance rule is deliberately absent from this schema.** Whether a receipt
+> may exceed the remaining ordered quantity is business decision **BD-2**, undecided at the
+> time of writing. **All three candidate policies produce identical DDL** — they differ only
+> in a service-level predicate — so nothing here presupposes an answer, and nothing here will
+> need migrating once one is given.
+
+### T-34 `supplier_ledger_entry`
+
+**Purpose.** Every event that changes what the distributor owes a supplier.
+
+**Why it exists.** FR-PUR-010, FR-PUR-011, BR-005.
+
+**Owned by the `ledger` app, not `purchasing`** — BR-005 requires it *"on the same terms as
+the customer ledger"*, and `ledger` already owns immutability, the derived-balance rule and
+the one-opening constraint. It is the payables sibling of T-22:
+
+```
+catalogue → product    is to   inventory → stock_movement
+customers → customer   is to   ledger    → customer_ledger_entry
+purchasing → supplier  is to   ledger    → supplier_ledger_entry
+```
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | :-: | --- | --- |
+| `id` | BIGINT identity | N | | PK |
+| `supplier_id` | BIGINT | N | | FK → `supplier` **RESTRICT** |
+| `entry_date` | DATE | N | | |
+| `entry_type` | VARCHAR(20) | N | | `GOODS_RECEIPT` · `PAYMENT` · `OPENING` · `ADJUSTMENT` · `DEBIT_NOTE` |
+| `amount` | NUMERIC(14,2) | N | | **Signed.** See below |
+| `source_document_type` | VARCHAR(30) | Y | `''` | `GOODS_RECEIPT` — from **`ledger.services.SOURCE_DOCUMENT_REGISTRY`**, the same registry T-22 uses. **Not** the `inventory` one |
+| `source_document_id` | BIGINT | Y | | |
+| `narration` | VARCHAR(255) | N | | Written once; a statement never joins to a document that may have moved |
+| `created_by_id` | BIGINT | Y | | FK → `app_user` |
+| `created_at` | TIMESTAMPTZ | N | | |
+
+**Constraints**
+- `uq_sle_one_opening_per_supplier` UNIQUE (`supplier_id`) **WHERE `entry_type = 'OPENING'`** —
+  a partial index, the construction `uq_cle_one_opening_per_customer` uses
+- `ck_sle_amount_non_zero` CHECK (`amount <> 0`)
+
+**Sign convention — D-PUR-3, stated as an invariant rather than an instruction:**
+
+> **A positive `amount` increases the distributor's liability to the supplier.**
+>
+> - `GOODS_RECEIPT` → **positive**
+> - `PAYMENT` → **negative**
+> - `OPENING` → signed as the opening position requires
+> - **Balance ≡ `SUM(amount)`.** Never stored, never cached — **there is deliberately no
+>   `outstanding_balance` column**, exactly as there is none on `customer` (N-03 / E-01)
+> - **Rows are immutable.** No `UPDATE`, no `DELETE`
+
+Testable as written: a receipt of 1,000 followed by a payment of 400 leaves a balance of
+exactly 600.
+
+> **`ADJUSTMENT` and `DEBIT_NOTE` are vocabulary, not capability.** They are enumerated so the
+> type need not be migrated when a correction mechanism is designed. **Stage 3 writes only
+> `GOODS_RECEIPT`; Stage 4 adds `PAYMENT`.** No service writes the other three, and
+> `OPENING` awaits business decision **BD-5** (whether existing payables migrate at go-live).
 
 ---
 

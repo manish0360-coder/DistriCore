@@ -1,0 +1,66 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{% if purchase_order %}Amend{% else %}New{% endif %} purchase order — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:820px">
+  <h2 style="margin-top:0">
+    {% if purchase_order %}Amend {{ purchase_order.po_number }}{% else %}New purchase order{% endif %}
+  </h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    {% if purchase_order %}
+      <p class="muted">Supplier: <strong>{{ purchase_order.supplier.name }}</strong> ·
+        Ordered {{ purchase_order.order_date }} · Draft</p>
+    {% else %}
+      <label>Supplier</label>
+      <select name="supplier" required>
+        {% for s in suppliers %}<option value="{{ s.pk }}">{{ s.code }} — {{ s.name }}</option>{% endfor %}
+      </select>
+      <label>Order date</label>
+      <input name="order_date" type="date" value="{{ today }}" required>
+    {% endif %}
+
+    <label>Expected date</label>
+    <input name="expected_date" type="date"
+           value="{{ purchase_order.expected_date|date:'Y-m-d'|default:'' }}">
+    <label>Notes</label>
+    <input name="notes" value="{{ purchase_order.notes|default:'' }}">
+
+    <h3>Lines</h3>
+    <p class="muted">Unit cost is what this supplier charges, not the selling price. Leave a
+      row blank to skip it.</p>
+    <table>
+      <tr><th>Product</th><th class="r">Quantity</th><th class="r">Unit cost</th></tr>
+      {% for line in lines %}
+      <tr>
+        <td>
+          <select name="product">
+            {% for p in products %}
+            <option value="{{ p.pk }}" {% if p.pk == line.product_id %}selected{% endif %}>
+              {{ p.code }} — {{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td class="r"><input name="quantity_ordered" value="{{ line.quantity_ordered }}"></td>
+        <td class="r"><input name="unit_cost" value="{{ line.unit_cost }}"></td>
+      </tr>
+      {% endfor %}
+      {% for spare in "123" %}
+      <tr>
+        <td>
+          <select name="product">
+            <option value="">—</option>
+            {% for p in products %}<option value="{{ p.pk }}">{{ p.code }} — {{ p.name }}</option>{% endfor %}
+          </select>
+        </td>
+        <td class="r"><input name="quantity_ordered" value=""></td>
+        <td class="r"><input name="unit_cost" value=""></td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    <button type="submit">Save</button>
+    <a href="{% url 'webadmin:purchase-order-list' %}" class="muted" style="margin-left:12px">Cancel</a>
+  </form>
+</div>
+{% endblock %}

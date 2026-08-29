@@ -188,8 +188,8 @@ show_missing = true
 [tool.importlinter]
 root_packages = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "field", "billing", "receivables",
-    "reporting", "sync", "api", "webadmin",
+    "pricing", "orders", "purchasing", "fulfilment", "field", "billing",
+    "receivables", "reporting", "sync", "api", "webadmin",
 ]
 include_external_packages = false
 
@@ -201,6 +201,7 @@ forbidden_modules = [
     "core.models", "identity.models",
     "catalogue.models", "customers.models", "inventory.models",
     "ledger.models", "pricing.models", "orders.models",
+    "purchasing.models",
     "fulfilment.models", "billing.models", "receivables.models",
     "field.models", "sync.models",
 ]
@@ -212,8 +213,8 @@ name = "N-01: domain modules must not import a delivery layer"
 type = "forbidden"
 source_modules = [
     "core", "identity", "catalogue", "customers", "inventory", "ledger",
-    "pricing", "orders", "fulfilment", "field", "billing", "receivables",
-    "reporting", "sync",
+    "pricing", "orders", "purchasing", "fulfilment", "field", "billing",
+    "receivables", "reporting", "sync",
 ]
 forbidden_modules = ["api", "webadmin"]
 allow_indirect_imports = true
@@ -267,7 +268,7 @@ layers = [
     "receivables",
     "billing",
     "fulfilment | field",
-    "orders",
+    "orders | purchasing",
     "pricing",
     "inventory | ledger",
     "catalogue | customers",

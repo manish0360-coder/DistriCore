@@ -184,3 +184,140 @@ class CustomerLedgerEntry(models.Model):
 
     def delete(self, *args: Any, **kwargs: Any) -> Any:
         raise LedgerEntryImmutable("customer_ledger_entry is append-only (M5-3, BR-005)")
+
+
+class SupplierLedgerEntryQuerySet(models.QuerySet["SupplierLedgerEntry"]):
+    def update(self, **kwargs: Any) -> int:
+        raise LedgerEntryImmutable("supplier_ledger_entry is append-only (BR-005, D-PUR-3)")
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        raise LedgerEntryImmutable("supplier_ledger_entry is append-only (BR-005, D-PUR-3)")
+
+
+class SupplierLedgerEntry(models.Model):
+    """The supplier ledger — every event that changes what the distributor owes (`04` T-34).
+
+    **The payables sibling of `CustomerLedgerEntry`**, ported field for field because BR-005
+    requires it *"on the same terms as the customer ledger"*. The architecture's own analogy,
+    extended by one line:
+
+        catalogue  → Product   is to  inventory → StockMovement
+        customers  → Customer  is to  ledger    → CustomerLedgerEntry
+        purchasing → Supplier  is to  ledger    → SupplierLedgerEntry
+
+    **It lives here, not in `purchasing`,** for the reason ADR-0008 gives for the customer
+    side: `ledger` owns immutability, the derived-balance rule and the opening constraint, and
+    a second module implementing them again would be a second answer to a settled question.
+
+    **A balance is not stored. It is `SUM(amount)`** filtered by supplier (N-03, E-01). There
+    is deliberately no `outstanding_balance` column on `supplier`, and adding one is forbidden.
+
+    **Sign convention — D-PUR-3, and the reason it is stated rather than implied:** a positive
+    amount **increases** the distributor's liability. `GOODS_RECEIPT` is positive, `PAYMENT`
+    negative. An instruction to "mirror the customer ledger" would have left two developers
+    free to invert a debit, which is a defect that reads as a plausible number.
+    """
+
+    class Type(models.TextChoices):
+        GOODS_RECEIPT = "GOODS_RECEIPT", "Goods receipt"
+        PAYMENT = "PAYMENT", "Payment"
+        OPENING = "OPENING", "Opening balance"
+        ADJUSTMENT = "ADJUSTMENT", "Adjustment"
+        DEBIT_NOTE = "DEBIT_NOTE", "Debit note"
+
+    #: Types that must carry a positive amount — they increase what is owed.
+    DEBIT_TYPES = (Type.GOODS_RECEIPT,)
+    #: Types that must carry a negative amount — they reduce what is owed.
+    CREDIT_TYPES = (Type.PAYMENT, Type.DEBIT_NOTE)
+    #: **`OPENING` is deliberately in neither**, which is where this diverges from
+    #: `CustomerLedgerEntry` (`04` T-34: *"signed as the opening position requires"*). A
+    #: retailer's opening balance is money owed to us or nothing at all; an opening position
+    #: with a supplier can legitimately be a credit — an advance paid, or goods returned
+    #: before the system went live. Forcing it positive would make an operator record a real
+    #: position backwards to get it in.
+    UNSIGNED_TYPES = (Type.OPENING, Type.ADJUSTMENT)
+
+    supplier = models.ForeignKey(
+        "purchasing.Supplier", on_delete=models.RESTRICT, related_name="ledger_entries"
+    )
+    entry_date = models.DateField()
+    entry_type = models.CharField(max_length=20, choices=Type.choices)
+    amount = MoneyField()
+    # Validated against `ledger.services.SOURCE_DOCUMENT_REGISTRY` — a **different** registry
+    # from `inventory.services`', which governs `stock_movement`. `GoodsReceipt` is the first
+    # document registered in both, because a receipt moves stock and raises a liability.
+    source_document_type = models.CharField(max_length=30, blank=True)
+    source_document_id = models.BigIntegerField(null=True, blank=True)
+    # Written once and shown on the statement, so a statement never depends on joining to
+    # documents that may have been superseded.
+    narration = models.CharField(max_length=255)
+    created_by = models.ForeignKey(
+        "identity.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="supplier_ledger_entries",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects: ClassVar[models.Manager[SupplierLedgerEntry]] = (
+        SupplierLedgerEntryQuerySet.as_manager()
+    )
+
+    class Meta:
+        db_table = "supplier_ledger_entry"
+        ordering = ["supplier", "entry_date", "id"]
+        indexes = [
+            # THE balance and statement query.
+            models.Index(fields=["supplier", "entry_date", "id"], name="ix_sle_supplier_date"),
+            models.Index(
+                fields=["source_document_type", "source_document_id"], name="ix_sle_source"
+            ),
+            models.Index(fields=["entry_type", "entry_date"], name="ix_sle_entry_type_date"),
+        ]
+        constraints = [
+            # A zero entry is a bug, not a record.
+            models.CheckConstraint(condition=~models.Q(amount=0), name="ck_sle_amount_non_zero"),
+            # Half a reference is worse than none.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(source_document_type="", source_document_id__isnull=True)
+                    | (
+                        ~models.Q(source_document_type="")
+                        & models.Q(source_document_id__isnull=False)
+                    )
+                ),
+                name="ck_sle_source_pair",
+            ),
+            # **The accounting direction, in the database.** A service-layer sign error is
+            # rejected rather than silently halving what we owe someone.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(entry_type="GOODS_RECEIPT") & models.Q(amount__gt=0))
+                    | (models.Q(entry_type__in=["PAYMENT", "DEBIT_NOTE"]) & models.Q(amount__lt=0))
+                    | models.Q(entry_type__in=["OPENING", "ADJUSTMENT"])
+                ),
+                name="ck_sle_sign",
+            ),
+            # **One opening balance per supplier** — the same partial unique index the
+            # customer side carries as `uq_cle_one_opening_per_customer`. A second opening
+            # balance is not a second fact; it is a duplicate of one.
+            models.UniqueConstraint(
+                fields=["supplier"],
+                condition=models.Q(entry_type="OPENING"),
+                name="uq_sle_one_opening_per_supplier",
+            ),
+        ]
+        verbose_name = "supplier ledger entry"
+        verbose_name_plural = "supplier ledger entries"
+
+    def __str__(self) -> str:
+        return f"{self.entry_type} {self.amount} for supplier {self.supplier_id}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.pk is not None:
+            raise LedgerEntryImmutable("supplier_ledger_entry is append-only (BR-005, D-PUR-3)")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> Any:
+        raise LedgerEntryImmutable("supplier_ledger_entry is append-only (BR-005, D-PUR-3)")

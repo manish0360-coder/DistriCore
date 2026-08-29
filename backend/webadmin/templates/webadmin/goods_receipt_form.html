@@ -1,0 +1,70 @@
+{% extends "webadmin/base.html" %}
+{% block title %}Receive against {{ purchase_order.po_number }} — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:900px">
+  <h2 style="margin-top:0">Receive goods — {{ purchase_order.po_number }}</h2>
+  <p class="muted">
+    {{ purchase_order.supplier.code }} — {{ purchase_order.supplier.name }} ·
+    {{ purchase_order.get_status_display }}
+  </p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  {# A posted receipt cannot be corrected, so the warning belongs before the form, not after. #}
+  <p class="muted">
+    Posting a receipt moves stock and raises what you owe this supplier. It cannot be
+    edited or reversed afterwards.
+  </p>
+
+  <form method="post">
+    {% csrf_token %}
+    <label>Receipt date</label>
+    <input type="date" name="receipt_date" value="{{ today }}" required style="max-width:200px">
+
+    <label>Their delivery note number</label>
+    <input name="supplier_reference" maxlength="64" style="max-width:320px">
+
+    <h3>Lines</h3>
+    <p class="muted">Leave a quantity blank for anything that has not arrived.</p>
+    <table>
+      <tr><th>#</th><th>Product</th><th class="r">Ordered</th><th class="r">Received so far</th>
+          <th class="r">Outstanding</th><th class="r">Receiving now</th></tr>
+      {% for row in outstanding %}
+      <tr>
+        <td>{{ row.line.line_number }}</td>
+        <td>
+          {{ row.line.product_code }} — {{ row.line.product_name }}
+          <input type="hidden" name="purchase_order_line" value="{{ row.line.pk }}">
+        </td>
+        <td class="r">{{ row.line.quantity_ordered }} {{ row.line.unit_name }}</td>
+        <td class="r">{{ row.received }}</td>
+        <td class="r">{{ row.outstanding }}</td>
+        <td class="r">
+          <input name="quantity_received" inputmode="decimal" style="max-width:110px;margin:0">
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    <label>Notes</label>
+    <textarea name="notes" rows="2"></textarea>
+
+    <button type="submit">Post receipt</button>
+  </form>
+
+  {% if receipts %}
+  <h3>Already received against this order</h3>
+  <table>
+    <tr><th>GRN</th><th>Date</th><th class="r">Value</th></tr>
+    {% for receipt in receipts %}
+    <tr>
+      <td><a href="{% url 'webadmin:goods-receipt-detail' receipt.pk %}">{{ receipt.grn_number }}</a></td>
+      <td>{{ receipt.receipt_date }}</td>
+      <td class="r">{{ receipt.total_amount }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <p><a href="{% url 'webadmin:purchase-order-detail' purchase_order.pk %}" class="muted">Back to the purchase order</a></p>
+</div>
+{% endblock %}

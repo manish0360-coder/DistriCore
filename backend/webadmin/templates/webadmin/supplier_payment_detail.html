@@ -1,0 +1,43 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{{ payment.payment_number }} — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:760px">
+  <h2 style="margin-top:0">{{ payment.payment_number }}</h2>
+  {% if flash %}<div class="error">{{ flash }}</div>{% endif %}
+
+  <table>
+    <tr><th>Supplier</th><td>{{ payment.supplier.code }} — {{ payment.supplier.name }}</td></tr>
+    <tr><th>Amount</th><td>{{ payment.amount }}</td></tr>
+    <tr><th>Paid on</th><td>{{ payment.payment_date }}</td></tr>
+    <tr><th>Method</th><td>{{ payment.get_method_display }}</td></tr>
+    <tr><th>Reference</th><td>{{ payment.reference_number|default:"—" }}</td></tr>
+    <tr><th>Recorded</th><td>{{ payment.created_at }}{% if payment.paid_by %} by {{ payment.paid_by }}{% endif %}</td></tr>
+    {% if payment.notes %}<tr><th>Notes</th><td>{{ payment.notes }}</td></tr>{% endif %}
+    {% if payment.is_reversed %}
+    <tr><th>Reversed</th><td>{{ payment.reversed_at }} — {{ payment.reversed_reason }}</td></tr>
+    {% endif %}
+  </table>
+
+  {% if payment.is_reversed %}
+  <p class="muted">
+    This payment was reversed. The original record stands and a compensating entry was
+    added, so everything it had settled is outstanding again at its original age.
+  </p>
+  {% else %}
+  <p class="muted">
+    A recorded payment cannot be edited. Reversing it appends a compensating entry; it does
+    not erase this one.
+  </p>
+  <form method="post" action="{% url 'webadmin:supplier-payment-reverse' payment.pk %}">
+    {% csrf_token %}
+    <label>Reversal reason</label>
+    <input name="reason" required>
+    <label>Reversed on</label>
+    <input type="date" name="reversal_date" value="{{ today }}" required style="max-width:200px">
+    <button type="submit">Reverse payment</button>
+  </form>
+  {% endif %}
+
+  <p><a href="{% url 'webadmin:supplier-payment-list' %}" class="muted">Back to supplier payments</a></p>
+</div>
+{% endblock %}

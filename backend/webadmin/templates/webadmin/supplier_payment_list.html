@@ -1,0 +1,36 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Supplier payments — DistriCore{% endblock %}
+{% block heading %}Supplier payments{% endblock %}
+{# No "New" action: a payment is always made from the supplier's own page, where the form
+   mints the submission identity that makes a duplicate submit detectable. #}
+{% block action %}{% endblock %}
+{% block search %}
+{% if flash %}<div class="error">{{ flash }}</div>{% endif %}
+<form method="get" style="margin-bottom:12px">
+  <input name="q" value="{{ q }}" placeholder="Search by payment number, reference or supplier" style="max-width:380px;margin:0">
+  <select name="method" style="max-width:200px;margin:0">
+    <option value="">All methods</option>
+    <option value="BANK" {% if method == "BANK" %}selected{% endif %}>Bank transfer</option>
+    <option value="UPI" {% if method == "UPI" %}selected{% endif %}>UPI</option>
+    <option value="CHEQUE" {% if method == "CHEQUE" %}selected{% endif %}>Cheque</option>
+    <option value="CASH" {% if method == "CASH" %}selected{% endif %}>Cash</option>
+  </select>
+  <button type="submit">Filter</button>
+</form>
+{% endblock %}
+{% block rows %}
+<tr><th>Payment</th><th>Supplier</th><th>Paid on</th><th>Method</th>
+    <th>Reference</th><th class="r">Amount</th><th></th><th></th></tr>
+{% for payment in page.object_list %}
+<tr>
+  <td>{{ payment.payment_number }}</td>
+  <td>{{ payment.supplier.name }}</td>
+  <td>{{ payment.payment_date }}</td>
+  <td>{{ payment.get_method_display }}</td>
+  <td>{{ payment.reference_number|default:"—" }}</td>
+  <td class="r">{{ payment.amount }}</td>
+  <td>{% if payment.is_reversed %}<span class="muted">reversed</span>{% endif %}</td>
+  <td class="r"><a href="{% url 'webadmin:supplier-payment-detail' payment.pk %}">Open</a></td>
+</tr>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Suppliers — DistriCore{% endblock %}
+{% block heading %}Suppliers{% endblock %}
+{% block action %}<a class="btn" href="{% url 'webadmin:supplier-new' %}">Add supplier</a>{% endblock %}
+{% block search %}
+<form method="get" style="margin-bottom:12px">
+  <input name="q" value="{{ q }}" placeholder="Search by name or code" style="max-width:320px;margin:0">
+</form>
+{% endblock %}
+{% block rows %}
+<tr><th>Code</th><th>Name</th><th>Contact</th><th>Phone</th><th>GSTIN</th>
+    <th class="r">Terms</th><th></th></tr>
+{% for s in page.object_list %}
+<tr>
+  <td>{{ s.code }}</td>
+  <td>{{ s.name }}{% if not s.is_active %} <span class="off">inactive</span>{% endif %}</td>
+  <td>{{ s.contact_name|default:"—" }}</td>
+  <td>{{ s.phone }}</td>
+  <td>{{ s.gstin|default:"—" }}</td>
+  <td class="r">{{ s.payment_terms_days }} d</td>
+  <td class="r"><a href="{% url 'webadmin:supplier-edit' s.pk %}">Edit</a></td>
+</tr>
+{% endfor %}
+{% endblock %}

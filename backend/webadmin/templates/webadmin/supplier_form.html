@@ -1,0 +1,90 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{% if supplier %}Edit{% else %}New{% endif %} supplier — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:600px">
+  <h2 style="margin-top:0">{% if supplier %}Edit supplier{% else %}New supplier{% endif %}</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Code</label>
+    <input name="code" value="{{ supplier.code|default:'' }}" {% if supplier %}readonly{% endif %} required>
+    <label>Name</label>
+    <input name="name" value="{{ supplier.name|default:'' }}" required>
+    <label>Contact name</label>
+    <input name="contact_name" value="{{ supplier.contact_name|default:'' }}">
+    <label>Phone</label>
+    <input name="phone" value="{{ supplier.phone|default:'' }}" required>
+    <label>Alternate phone</label>
+    <input name="alt_phone" value="{{ supplier.alt_phone|default:'' }}">
+    <label>Email</label>
+    <input name="email" type="email" value="{{ supplier.email|default:'' }}">
+    <label>Billing address</label>
+    <input name="billing_address" value="{{ supplier.billing_address|default:'' }}" required>
+    <label>Dispatch address <span class="muted">(blank means same as billing)</span></label>
+    <input name="dispatch_address" value="{{ supplier.dispatch_address|default:'' }}">
+    <label>GSTIN</label>
+    <input name="gstin" value="{{ supplier.gstin|default:'' }}">
+    <label>State code</label>
+    <input name="state_code" value="{{ supplier.state_code|default:'' }}">
+    <label>Payment terms (days)</label>
+    <input name="payment_terms_days" value="{{ supplier.payment_terms_days|default:0 }}">
+    {% if supplier %}
+    <label><input type="checkbox" name="is_active" {% if supplier.is_active %}checked{% endif %}
+           style="width:auto;margin-right:6px"> Active</label>
+    {% endif %}
+    <button type="submit">Save</button>
+    <a href="{% url 'webadmin:supplier-list' %}" class="muted" style="margin-left:12px">Cancel</a>
+  </form>
+</div>
+
+{% if supplier %}
+<div class="card" style="max-width:600px">
+  <h2 style="margin-top:0">Products supplied</h2>
+  <p class="muted">One supplier may be marked preferred for a product. Marking a new one
+    replaces the old.</p>
+  <table>
+    <tr><th>Product</th><th>Their code</th><th>Preferred</th><th></th></tr>
+    {% for link in links %}
+    <tr>
+      <td>{{ link.product.name }}</td>
+      <td>{{ link.supplier_sku|default:"—" }}</td>
+      <td>
+        {% if link.is_preferred %}Yes{% else %}
+        <form method="post" action="{% url 'webadmin:supplier-products' supplier.pk %}"
+              style="display:inline">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="prefer">
+          <input type="hidden" name="product" value="{{ link.product_id }}">
+          <button type="submit">Prefer</button>
+        </form>
+        {% endif %}
+      </td>
+      <td class="r">
+        <form method="post" action="{% url 'webadmin:supplier-products' supplier.pk %}"
+              style="display:inline">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="unlink">
+          <input type="hidden" name="product" value="{{ link.product_id }}">
+          <button type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="4" class="muted">No products linked yet.</td></tr>
+    {% endfor %}
+  </table>
+
+  <form method="post" action="{% url 'webadmin:supplier-products' supplier.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="link">
+    <label>Add a product</label>
+    <select name="product">
+      {% for p in products %}<option value="{{ p.pk }}">{{ p.code }} — {{ p.name }}</option>{% endfor %}
+    </select>
+    <label>Their code for it</label>
+    <input name="supplier_sku" value="">
+    <button type="submit">Link product</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

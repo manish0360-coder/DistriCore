@@ -16,13 +16,14 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from django.db.models import Q, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce
 
 from core.fields import MoneyField
 from customers.models import Customer
-from ledger.models import CustomerLedgerEntry
+from ledger.models import CustomerLedgerEntry, SupplierLedgerEntry
 
 ZERO_MONEY = Value(Decimal("0.00"), output_field=MoneyField())
 
@@ -101,3 +102,48 @@ def settled_order_ids(customer: Customer) -> QuerySet[CustomerLedgerEntry, int]:
         .values_list("sales_order_id", flat=True)
         .distinct()
     )
+
+
+# --------------------------------------------------------------------------------
+# Payables (D5 Stage 3).
+#
+# **Why the supplier equivalents are split across two modules and the customer ones are
+# not.** `customers` sits BELOW `ledger` in the layer contract, so this module may import
+# `Customer` and anchor R-1 aggregates on it. `purchasing` sits ABOVE `ledger`, so
+# importing `Supplier` here would invert the graph and import-linter would reject it.
+#
+# The scalar below therefore anchors on the fact table, which is safe for exactly the
+# reason R-1's trap does not apply: `aggregate()` has no row dimension to lose, so a
+# supplier with no entries yields a coalesced `0.00` rather than vanishing. The *list*
+# form does have that dimension, so it lives in `purchasing.selectors`, anchored on
+# `Supplier`, where the import runs downhill.
+# --------------------------------------------------------------------------------
+
+
+def supplier_balance(supplier: Any, *, as_of: date | None = None) -> Decimal:
+    """What we owe this supplier. Zero, never None.
+
+    Positive means a liability outstanding (D-PUR-3). Derived on every read — there is no
+    stored balance to fall out of step (N-03, E-01).
+    """
+    queryset = SupplierLedgerEntry.objects.filter(supplier=supplier)
+    if as_of is not None:
+        queryset = queryset.filter(entry_date__lte=as_of)
+    return queryset.aggregate(
+        balance=Coalesce(Sum("amount", output_field=MoneyField()), ZERO_MONEY)
+    )["balance"]
+
+
+def supplier_statement_for(
+    supplier: Any,
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> QuerySet[SupplierLedgerEntry]:
+    """The payables ledger itself, oldest first. This is what explains a balance."""
+    queryset = SupplierLedgerEntry.objects.filter(supplier=supplier).select_related("created_by")
+    if date_from is not None:
+        queryset = queryset.filter(entry_date__gte=date_from)
+    if date_to is not None:
+        queryset = queryset.filter(entry_date__lte=date_to)
+    return queryset.order_by("entry_date", "id")

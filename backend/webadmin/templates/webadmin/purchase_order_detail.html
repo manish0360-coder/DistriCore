@@ -1,0 +1,113 @@
+{% extends "webadmin/base.html" %}
+{% block title %}{{ purchase_order.po_number }} — DistriCore{% endblock %}
+{% block content %}
+<div class="card" style="max-width:820px">
+  <h2 style="margin-top:0">{{ purchase_order.po_number }}</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <table>
+    <tr><th>Supplier</th><td>{{ purchase_order.supplier.code }} — {{ purchase_order.supplier.name }}</td></tr>
+    <tr><th>Status</th><td>{{ purchase_order.get_status_display }}</td></tr>
+    <tr><th>Ordered</th><td>{{ purchase_order.order_date }}</td></tr>
+    <tr><th>Expected</th><td>{{ purchase_order.expected_date|default:"—" }}</td></tr>
+    {% if purchase_order.issued_at %}
+    <tr><th>Issued</th><td>{{ purchase_order.issued_at }}</td></tr>
+    {% endif %}
+    {% if purchase_order.cancelled_at %}
+    <tr><th>Cancelled</th><td>{{ purchase_order.cancelled_at }} — {{ purchase_order.cancelled_reason }}</td></tr>
+    {% endif %}
+    {% if purchase_order.notes %}
+    <tr><th>Notes</th><td>{{ purchase_order.notes }}</td></tr>
+    {% endif %}
+  </table>
+
+  <h3>Lines</h3>
+  <table>
+    <tr><th>#</th><th>Product</th><th class="r">Quantity</th><th class="r">Unit cost</th>
+        <th class="r">Taxable</th><th class="r">GST %</th><th class="r">Tax</th><th class="r">Total</th></tr>
+    {% for line in lines %}
+    <tr>
+      <td>{{ line.line_number }}</td>
+      <td>{{ line.product_code }} — {{ line.product_name }}</td>
+      <td class="r">{{ line.quantity_ordered }} {{ line.unit_name }}</td>
+      <td class="r">{{ line.unit_cost }}</td>
+      <td class="r">{{ line.taxable_amount }}</td>
+      <td class="r">{{ line.tax_rate_percent }}</td>
+      <td class="r">{{ line.tax_amount }}</td>
+      <td class="r">{{ line.line_total }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <th colspan="4" class="r">Totals</th>
+      <th class="r">{{ purchase_order.subtotal_amount }}</th>
+      <th></th>
+      <th class="r">{{ purchase_order.tax_amount }}</th>
+      <th class="r">{{ purchase_order.total_amount }}</th>
+    </tr>
+  </table>
+
+  {% if receipts %}
+  <h3>Goods received</h3>
+  <table>
+    <tr><th>GRN</th><th>Date</th><th>Their reference</th><th class="r">Value</th></tr>
+    {% for receipt in receipts %}
+    <tr>
+      <td><a href="{% url 'webadmin:goods-receipt-detail' receipt.pk %}">{{ receipt.grn_number }}</a></td>
+      <td>{{ receipt.receipt_date }}</td>
+      <td>{{ receipt.supplier_reference|default:"—" }}</td>
+      <td class="r">{{ receipt.total_amount }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {# FR-PUR-008. Derived on every read — nothing here is stored. #}
+  <h3>Outstanding</h3>
+  <table>
+    <tr><th>#</th><th>Product</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">Outstanding</th></tr>
+    {% for row in outstanding %}
+    <tr>
+      <td>{{ row.line.line_number }}</td>
+      <td>{{ row.line.product_code }} — {{ row.line.product_name }}</td>
+      <td class="r">{{ row.line.quantity_ordered }}</td>
+      <td class="r">{{ row.received }}</td>
+      <td class="r">{{ row.outstanding }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if purchase_order.status == "ISSUED" or purchase_order.status == "PARTIALLY_RECEIVED" %}
+  <a class="btn" href="{% url 'webadmin:goods-receipt-new' purchase_order.pk %}">Receive goods</a>
+  {% endif %}
+
+  {% if purchase_order.status == "PARTIALLY_RECEIVED" or purchase_order.status == "RECEIVED" %}
+  <form method="post" action="{% url 'webadmin:purchase-order-close' purchase_order.pk %}">
+    {% csrf_token %}
+    <label>Closing reason</label>
+    <input name="reason" required>
+    <button type="submit">Close order</button>
+  </form>
+  {% endif %}
+
+  {% if purchase_order.is_editable %}
+  <p class="muted">This order is a draft. It has not been sent to the supplier.</p>
+  <a class="btn" href="{% url 'webadmin:purchase-order-edit' purchase_order.pk %}">Amend</a>
+  <form method="post" action="{% url 'webadmin:purchase-order-issue' purchase_order.pk %}"
+        style="display:inline">
+    {% csrf_token %}
+    <button type="submit">Issue to supplier</button>
+  </form>
+  {% endif %}
+
+  {% if purchase_order.status == "DRAFT" or purchase_order.status == "ISSUED" %}
+  <form method="post" action="{% url 'webadmin:purchase-order-cancel' purchase_order.pk %}">
+    {% csrf_token %}
+    <label>Cancellation reason</label>
+    <input name="reason" required>
+    <button type="submit">Cancel order</button>
+  </form>
+  {% endif %}
+
+  <p><a href="{% url 'webadmin:purchase-order-list' %}" class="muted">Back to purchase orders</a></p>
+</div>
+{% endblock %}

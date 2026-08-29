@@ -1,6 +1,13 @@
 from django.urls import path
 
-from webadmin import fulfilment_views, master_views, receivables_views, report_views, views
+from webadmin import (
+    fulfilment_views,
+    master_views,
+    purchasing_views,
+    receivables_views,
+    report_views,
+    views,
+)
 
 app_name = "webadmin"
 
@@ -15,6 +22,90 @@ urlpatterns = [
     path("customers/", master_views.customer_list, name="customer-list"),
     path("customers/new/", master_views.customer_form, name="customer-new"),
     path("customers/<int:pk>/", master_views.customer_form, name="customer-edit"),
+    # --- suppliers (D5 Stage 1 — FR-PUR-001, FR-PUR-002) ---
+    path("suppliers/", purchasing_views.supplier_list, name="supplier-list"),
+    path("suppliers/new/", purchasing_views.supplier_form, name="supplier-new"),
+    path("suppliers/<int:pk>/", purchasing_views.supplier_form, name="supplier-edit"),
+    path(
+        "suppliers/<int:pk>/products/",
+        purchasing_views.supplier_products,
+        name="supplier-products",
+    ),
+    # --- purchase orders (D5 Stage 2 — FR-PUR-003, FR-PUR-005) ---
+    path("purchase-orders/", purchasing_views.purchase_order_list, name="purchase-order-list"),
+    path("purchase-orders/new/", purchasing_views.purchase_order_form, name="purchase-order-new"),
+    path(
+        "purchase-orders/<int:pk>/",
+        purchasing_views.purchase_order_detail,
+        name="purchase-order-detail",
+    ),
+    path(
+        "purchase-orders/<int:pk>/edit/",
+        purchasing_views.purchase_order_form,
+        name="purchase-order-edit",
+    ),
+    path(
+        "purchase-orders/<int:pk>/issue/",
+        purchasing_views.purchase_order_issue,
+        name="purchase-order-issue",
+    ),
+    path(
+        "purchase-orders/<int:pk>/cancel/",
+        purchasing_views.purchase_order_cancel,
+        name="purchase-order-cancel",
+    ),
+    path(
+        "purchase-orders/<int:pk>/close/",
+        purchasing_views.purchase_order_close,
+        name="purchase-order-close",
+    ),
+    # --- goods receipts (D5 Stage 3 — FR-PUR-006…011, FR-PUR-013) ---
+    #
+    # The receive route is nested under the purchase order because that is what it acts on:
+    # goods are always received *against* an order, never freestanding. There is deliberately
+    # no edit or delete route — a posted receipt is immutable (`04` T-32).
+    path(
+        "purchase-orders/<int:pk>/receive/",
+        purchasing_views.goods_receipt_form,
+        name="goods-receipt-new",
+    ),
+    path("goods-receipts/", purchasing_views.goods_receipt_list, name="goods-receipt-list"),
+    path(
+        "goods-receipts/<int:pk>/",
+        purchasing_views.goods_receipt_detail,
+        name="goods-receipt-detail",
+    ),
+    # --- supplier payments (D5 Stage 4 S4.3 — FR-PUR-012) ---
+    #
+    # `pay/` is a **GET** and that is load-bearing: it mints the `submission_id` that makes
+    # a duplicate POST identifiable (E3). Post/Redirect/Get after success, so a refresh
+    # re-issues the GET and mints a fresh id — which is exactly why a deliberate second
+    # payment works while a replay does not.
+    path(
+        "suppliers/<int:pk>/pay/",
+        purchasing_views.supplier_payment_form,
+        name="supplier-payment-new",
+    ),
+    path(
+        "suppliers/<int:pk>/pay/record/",
+        purchasing_views.supplier_payment_record,
+        name="supplier-payment-record",
+    ),
+    path(
+        "supplier-payments/",
+        purchasing_views.supplier_payment_list,
+        name="supplier-payment-list",
+    ),
+    path(
+        "supplier-payments/<int:pk>/",
+        purchasing_views.supplier_payment_detail,
+        name="supplier-payment-detail",
+    ),
+    path(
+        "supplier-payments/<int:pk>/reverse/",
+        purchasing_views.supplier_payment_reverse,
+        name="supplier-payment-reverse",
+    ),
     path("zones/", master_views.zone_list, name="zone-list"),
     path("reason-codes/", master_views.reason_code_list, name="reason-code-list"),
     # --- TD-12: the zone screens that M1 left missing ---

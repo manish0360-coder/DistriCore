@@ -4,8 +4,8 @@
 | --- | --- |
 | Document ID | `02A_Product_Editions` |
 | Product | DistriCore (working title) |
-| Version | 0.2.0 |
-| Status | **Approved in principle; Edition 1 re-validated — see §13** |
+| Version | **0.3.0** |
+| Status | **Approved in principle; Edition 1 re-validated — see §13. D5 purchasing returned to v1.0 — see §14 (D-PUR-6, 2026-08-25)** |
 | Date | 2026-08-04 |
 | Owner | Product Management / Solution Architecture |
 | Depends on | `01_Project_Vision.md` v0.2.0, `02_Requirements_Specification.md` v0.1.0 |
@@ -664,6 +664,41 @@ Supersedes §12. Items 2, 3 and 4 there are unchanged.
 | 7 | Approve the Edition 1a / 1b split | Accept. Fastest route to a working distributor |
 | 8 | Approve dropping `tenant_id` in favour of schema-per-tenant | Accept. Cheaper now, safer later (§13.5) |
 | 9 | Confirm the manual discount is acceptable in place of customer-specific pricing | Accept for Edition 1; **first candidate to pull forward** if the owner finds it slows daily order entry |
+
+---
+
+## 14. Amendment — D5 Purchasing returns to v1.0 (2026-08-25)
+
+Added in v0.3.0. Sections 1–13 are unchanged and remain the record; **this section supersedes DV-6's verdict as it applies to D5.** DV-6's row in §4 is deliberately not rewritten — it is a dated recommendation and remains readable as one, exactly as §13 leaves §6.1 in place.
+
+Authority: **D-PUR-6** (`D5_Design_Review` §4), ruled 2026-08-25.
+
+### 14.1 The amendment
+
+**1. D5 Purchase & Supplier Management is v1.0 product scope.** `01` §7.2 lists Purchase & supplier management among the v1.0 functional domains and §7.4 places it in the v1.0 release. The business confirmed that placement on 2026-08-25, following the V1.0 acceptance audit.
+
+**2. DV-6's verdict is superseded for D5.** DV-6 recommended *"Accept. Stock-in in Edition 1; purchase orders and supplier ledger in Edition 2."* That verdict no longer holds. Its *reasoning* is not repudiated: it was a sound, priced judgement at the time it was made, and §14.3 records what changed.
+
+**3. This document is where membership changes.** `02A` governs edition membership; a design review may authorise an amendment but may not make one, exactly as `M9_Design_Review` D-M9-1 established for `02`. `04_Database_Design` derives from this section and is amended consequentially.
+
+**4. The remainder of DV-6 is preserved.** **Reason-coded stock-in is not removed and is not deprecated.** It remains the correct path for inbound stock with no purchase behind it — opening stock, found stock, corrections. D5 *adds* a document-backed path; it does not replace the reason-coded one. `stock_movement`'s constraint permitting either a source document or a reason code stands unchanged.
+
+**5. DV-9 is untouched.** *"No approval workflow in Edition 1"* remains accepted. FR-PUR-014 (`S`) stays deferred pending the shared DR-10 approval contract. **This amendment reinstates purchasing, not approvals.**
+
+**6. DV-8 is untouched.** Structured returns — including `purchase_return` — remain Edition 2. D5's v1.0 scope is the supplier master, purchase orders, goods receipt, the supplier ledger and supplier payments; purchase returns are not part of it.
+
+### 14.2 Effort, stated rather than absorbed
+
+§8 prices **Purchasing & supplier ledger at 4.5 units, 16%** of the Edition-1 estimate. That cost returns to the v1.0 budget in full. This section records it so the roadmap does not silently absorb a sixth of its own estimate.
+
+### 14.3 What changed since DV-6 was written
+
+DV-6 rested on two premises, both stated in §14's own tables: *"Nothing in Edition 1 consumes [the supplier master]"* and *"Owner orders by phone at this scale"*. The first is no longer true — the V1.0 acceptance audit of 2026-08-25 established two consequences that Edition 1 does consume:
+
+- **Stock has no document-backed provenance.** Every unit the business has bought entered `stock_movement` with a reason code and no source document, so unit cost, supplier and purchase context are unrecorded. This is DV-6 working exactly as designed; it is the cost of that design, now visible.
+- **There are no payables at all.** `customer_ledger_entry` is customer-only by name and by foreign key. The business can see what it is owed and nothing about what it owes.
+
+The second premise is a matter for the business, and the business has ruled.
 
 ---
 

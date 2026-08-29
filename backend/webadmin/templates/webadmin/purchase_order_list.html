@@ -1,0 +1,34 @@
+{% extends "webadmin/_list.html" %}
+{% block title %}Purchase orders — DistriCore{% endblock %}
+{% block heading %}Purchase orders{% endblock %}
+{% block action %}<a class="btn" href="{% url 'webadmin:purchase-order-new' %}">New purchase order</a>{% endblock %}
+{% block search %}
+<form method="get" style="margin-bottom:12px">
+  <input name="q" value="{{ q }}" placeholder="Search by PO number or supplier" style="max-width:320px;margin:0">
+  <select name="status" style="max-width:200px;margin:0">
+    <option value="">All statuses</option>
+    <option value="DRAFT" {% if status == "DRAFT" %}selected{% endif %}>Draft</option>
+    <option value="ISSUED" {% if status == "ISSUED" %}selected{% endif %}>Issued</option>
+    <option value="PARTIALLY_RECEIVED" {% if status == "PARTIALLY_RECEIVED" %}selected{% endif %}>Partially received</option>
+    <option value="RECEIVED" {% if status == "RECEIVED" %}selected{% endif %}>Received</option>
+    <option value="CLOSED" {% if status == "CLOSED" %}selected{% endif %}>Closed</option>
+    <option value="CANCELLED" {% if status == "CANCELLED" %}selected{% endif %}>Cancelled</option>
+  </select>
+  <button type="submit">Filter</button>
+</form>
+{% endblock %}
+{% block rows %}
+<tr><th>PO number</th><th>Supplier</th><th>Ordered</th><th>Expected</th>
+    <th>Status</th><th class="r">Total</th><th></th></tr>
+{% for po in page.object_list %}
+<tr>
+  <td>{{ po.po_number }}</td>
+  <td>{{ po.supplier.name }}</td>
+  <td>{{ po.order_date }}</td>
+  <td>{{ po.expected_date|default:"—" }}</td>
+  <td>{{ po.get_status_display }}</td>
+  <td class="r">{{ po.total_amount }}</td>
+  <td class="r"><a href="{% url 'webadmin:purchase-order-detail' po.pk %}">Open</a></td>
+</tr>
+{% endfor %}
+{% endblock %}

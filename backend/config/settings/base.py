@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "ledger.apps.LedgerConfig",
     "pricing.apps.PricingConfig",
     "orders.apps.OrdersConfig",
+    "purchasing.apps.PurchasingConfig",
     "fulfilment.apps.FulfilmentConfig",
     "field.apps.FieldConfig",
     "billing.apps.BillingConfig",
