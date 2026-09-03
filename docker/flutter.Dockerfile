@@ -31,10 +31,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         git \
-        # Drift's `NativeDatabase` opens the system SQLite when `flutter test` runs on the
-        # Dart VM — there is no device to supply `sqlcipher_flutter_libs`. Without this the
-        # outbox tests fail on a missing `libsqlite3.so`, which reads like broken code and
-        # is broken plumbing (task 3).
+        # **Kept, and its original reason no longer holds — TD-44.** This was added because
+        # Drift's `NativeDatabase` was believed to open the *system* SQLite under
+        # `flutter test`. `package:sqlite3` 3.x does not: it bundles a library through a Dart
+        # build hook, and since D-M9-8 that is SQLite3MultipleCiphers
+        # (`mobile/pubspec.yaml`, `source: sqlite3mc`), downloaded at build time and resolved
+        # through `native_assets.json`. So this package is very likely dead weight.
+        # **Very likely is not proven**, and disproving it costs an image rebuild plus a full
+        # gate run, so it stays until TD-44 is worked. Removing it on the strength of this
+        # comment alone would be the same reasoning that left `sqlcipher_flutter_libs` in the
+        # tree for a milestone.
         libsqlite3-0 \
         unzip \
         xz-utils \

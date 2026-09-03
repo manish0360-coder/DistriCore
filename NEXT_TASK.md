@@ -2,27 +2,46 @@
 
 ## The immediate next action
 
-**Resolve roadmap / gating / open-decision state before selecting the next implementation
-milestone.**
+**Run the remaining half of the M8 → M9 durability gate: `make mobile-device-storage`.**
 
-That is the whole of it. **No milestone number is proposed here, and none should be invented.**
+> **Updated 2026-09-01.** `make mobile-device-kill` **has now been run, and PASSED** — first
+> recorded run, Pixel 8a API 34 emulator, evidence quoted verbatim in `M8_Design_Review`
+> §5.6.1. `00` §19.2's *kill* and *restart* clauses are discharged; its **storage exhaustion**
+> clause is not, because `make mobile-device-storage` has still never run. The paragraphs
+> below described the state before that run and are otherwise unchanged.
+
+**It needs no ruling from anyone.** Both targets exist, both are written, and
+`M8_Design_Review` §10.1 says this is the one task that **cannot** slip. What was missing was
+never a decision — it was a run. The encryption work of 2026-08-25 settled that question in
+practice: `make mobile-device-encryption` executed on the Pixel 8a API 34 emulator and closed
+NFR-SEC-008, so the harness, the AVD and the by-hand invocation path are all known to work
+(TD-42 records that they cannot yet run in CI).
+
+**This changes what is next, not what is blocked.** Until 2026-08-25 this file said *"the next
+action is a decision, not an implementation."* That was true when every open item needed a
+Product Architect. It is no longer true of **all** of them: D-M9-4, D-M9-6, D-M9-7 and D-M9-8
+have since been ruled, and the encryption defect was found by *running the thing*, not by
+deciding anything. Item 4 below is now in the same category.
+
+**No milestone number is proposed here, and none should be invented.**
 `docs/00_Engineering_Foundation.md` §19.1 defines **M9 = Sync** and **M10 = Hardening** and
 defines no sub-milestones; `M9.1`–`M9.4` are working labels for four commits, not roadmap
 entries. There is no M9.5.
 
-The next milestone cannot be selected yet because **eight items are open and five of them are
+**The next milestone still cannot be selected.** **Eight items are open and five of them remain
 questions no engineer may answer alone** — two are direct contradictions between frozen
-documents, and two are gates the corpus says must run and which have not. They are listed in
-`PROJECT_STATE.md` under *Open at M9*, unresolved and deliberately so.
+documents. They are listed in `PROJECT_STATE.md` under *Open at M9*, unresolved and
+deliberately so. **Running the durability gate does not shorten that list**; it discharges the
+one item that was waiting on nobody.
 
-**What needs a decision, before any code:**
+**What still needs a decision, before any code:**
 
 | # | Question | Who |
 | --: | --- | --- |
 | 1 | **FR-SYN-005/013/014 vs `05` §11.4.** `02` requires a `SyncConflict` in `PENDING_RESOLUTION`; `05` says *"no conflict resolution console is built, because none is needed"*. `SyncConflict` exists in no schema and no contract | Product Architect |
 | 2 | **FR-SYN-009.** `05` §11.5 claims coverage that **D-M9.3-1** makes unreachable — the endpoint reads `device_id` from the JWT and can only ever describe the caller's own device | Product Architect |
 | 3 | **FR-RPT-009 sync health report.** Placed *at M9* by ruling **A-5** and `M7_Design_Review` §C-4. Unbuilt, and unspecified in `05` | Product Architect |
-| 4 | **M8 → M9 gate** (M8 task 10) — **no recorded evidence of this gate was found in the repository**, and `M8_Design_Review` §10.1 says this one **cannot** slip. M8 tasks 6 and 8 also have no commit | Engineering + Product |
+| 4 | **M8 → M9 gate** (M8 task 10) — **no recorded evidence of this gate was found in the repository**, and `M8_Design_Review` §10.1 says this one **cannot** slip. **This is the immediate next action above: it needs a run, not a ruling.** *A different device gate — `make mobile-device-encryption` — did run on 2026-08-25 and closed NFR-SEC-008 (D-M9-8). It is not this gate and is not evidence for it.* M8 tasks 6 and 8 also have no commit | Engineering *(the gate)* + Product *(tasks 6 and 8)* |
 | 5 | **M9 → M10 gate** — no adversarial sync suite exists | Engineering |
 | 6 | **FR-SYN-007 remainder / stock snapshot** — D-M9.4-1's recorded CONTRACT GAP | Product Architect |
 | 7 | **Orphaned `RECEIVED` recovery** — deferred by `05` §11.5 *"to M9.4/M10"*; M9.4 has passed, so it landed on M10 by default | Engineering |
@@ -35,16 +54,22 @@ documents, and two are gates the corpus says must run and which have not. They a
 
 ---
 
-> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.6.1**, signed
-> 2026-08-10. Both ADRs approved: **Drift + SQLCipher** (§5.6), **Dio** (§7.5). Design
-> principles **P-1…P-10** frozen at §1.3.
+> **M8 Phase 1 is frozen.** Design authority `docs/M8_Design_Review.md` **v1.8.0**, signed
+> 2026-08-10. Both ADRs approved: **Drift** (§5.6 — the cipher clause amended by **D-M9-8** on
+> 2026-08-25 to SQLite3MultipleCiphers via the `sqlite3` build hook; the ADR's conclusion,
+> Drift, is unchanged) and **Dio** (§7.5). Design principles **P-1…P-10** frozen at §1.3.
 >
 > **M8 Phase 2 tasks 0–5, 7 and 9 are committed**, plus TD-39; **tasks 6, 8 and 10 are not.**
 > **M9 has four committed increments** (M9.1–M9.4) and is **not closed**. Commit-by-commit
 > history and the open items are in `PROJECT_STATE.md`.
 >
-> The pre-commit working tree passed the full mobile verification suite (**305 tests**)
-> immediately before commit `bf94b8e`. Backend
+> The working tree passes the full mobile verification suite (**317 tests**); it was **305** at
+> commit `bf94b8e`. **Encryption at rest is closed** (FR-SYN-016, NFR-SEC-008; D-M9-8) —
+> `sqlite3mc` via the build hook, keyed from the Android keystore, with `chacha20` and SQLite
+> `3.53.4` **observed and recorded, not required**. Proven on a **Pixel 8a API 34 emulator,
+> `android-x64` only — not arm64 and not physical hardware** (TD-45). **It closes a
+> requirement, not a milestone**: the M8 → M9 durability gate and the M9 → M10 adversarial sync
+> gate are both still open. Backend
 > `make verify` figures for the M9 increments were not captured in the state documents and
 > are **not restated here from memory**.
 
@@ -264,7 +289,7 @@ reaches the app, so read-only must be enforced by the absence of a server-side w
 | **Re-run `ops/report_performance.py`** after any change to a report or the §5A walk | Not in `make verify` and never will be — an 858-second dataset build has no place in an 8-stage gate, so **nothing else catches a regression of that class** |
 | **TD-29** | Nothing asserts a new report is wired into `REPORT_MENU`, the API router **and** the CSV path. **Task 0 adds an eighth report endpoint — this is the first time TD-29 can actually bite** |
 | **TD-31** | Clock-dependent tests. Four fixed; the class is not structurally prevented |
-| **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is still not in `make verify`. The 17 structural contracts are blocking, but *"does the Dart compile"* is not — and **the 29 Dart cases that prove D-B1/D-B2/D-B3 are invisible to the only authority.** The 743 figure does not include them. Promote to stage 9 once the toolchain image has held for a milestone |
+| **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is still not in `make verify`. The 21 structural contracts are blocking, but *"does the Dart compile"* is not — and **the 317 Dart cases are invisible to the only authority.** The 829 figure does not include them. Promote to stage 9 once the toolchain image has held for a milestone |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `make mobile-image` prints the checksum; paste it into `FLUTTER_SHA256` and the gap closes |
 | **TD-36** | **On M8's path.** Money leaves the seven report endpoints as a JSON float. Fix by routing `_as_json`'s numeric cells through `money_string()` — added in task 0 for this reuse — in its own change, with its own verify run |
 | Deferred debt | TD-32, TD-33 (DRF stubs), TD-34 (`ops/` outside mypy), TD-35 (`pip-audit \|\| true`), TD-23, TD-26, TD-28, TD-14, TD-15 |

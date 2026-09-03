@@ -6,6 +6,8 @@
 //
 // The last group is the exception, and it is deliberate — it is the only thing that can
 // prove `make mobile-verify` actually supplies the define.
+import 'dart:convert';
+
 import 'package:districore/app/config.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -163,6 +165,78 @@ void main() {
         reason: 'run this through `make mobile-verify`, which passes '
             '--dart-define=DISTRICORE_API_BASE_URL=https://api.test. That value is '
             'verification-only and is deliberately not a default in the application.',
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------- the dev trust anchor
+  group('the development trust anchor', () {
+    /// A real, self-signed CA in PEM form. Bytes, not a URL: `_parseDevTrustAnchor` looks
+    /// for the certificate header, so a fixture that only *looks* like one would pass for
+    /// the wrong reason.
+    const pem = '-----BEGIN CERTIFICATE-----\n'
+        'MIIBkTCB+wIJAKHq0mzQ0aTPMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl\n'
+        'c3RjYTAeFw0yNjA4MjQwMDAwMDBaFw0zNjA4MjIwMDAwMDBaMBExDzANBgNVBAMM\n'
+        'BnRlc3RjYTCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAx3Qm0Q0aTPtestca\n'
+        '-----END CERTIFICATE-----\n';
+    final encoded = base64.encode(ascii.encode(pem));
+
+    Matcher rejectsAnchor(String reasonContains) => throwsA(
+          isA<ConfigurationException>()
+              .having((e) => e.variable, 'variable', AppConfig.devTrustAnchorVariable)
+              .having((e) => e.reason, 'reason', contains(reasonContains)),
+        );
+
+    test('absent means null — the production path, and not an error', () {
+      // The overwhelmingly common case. A release build supplies no CA and must behave
+      // exactly as it did before this mechanism existed.
+      expect(AppConfig.parse('https://api.example.com').devTrustAnchor, isNull);
+      expect(
+        AppConfig.parse('https://api.example.com', rawDevTrustAnchor: '   ').devTrustAnchor,
+        isNull,
+        reason: 'blank and unset must fail through one path, as they do for the base URL',
+      );
+    });
+
+    test('a valid CA is decoded to its bytes', () {
+      final config =
+          AppConfig.parse('https://api.example.com', rawDevTrustAnchor: encoded);
+      expect(config.devTrustAnchor, isNotNull);
+      expect(ascii.decode(config.devTrustAnchor!), pem);
+    });
+
+    test('malformed base64 is refused before runApp', () {
+      // Fails closed. Falling back to the default roots would present as the same generic
+      // "no connection" the developer was already trying to diagnose.
+      expect(
+        () => AppConfig.parse('https://api.example.com', rawDevTrustAnchor: 'not base64!!'),
+        rejectsAnchor('not valid base64'),
+      );
+    });
+
+    test('base64 of something that is not a certificate is refused', () {
+      // The two mistakes worth catching by name: handing over the private key, or handing
+      // over the leaf instead of the CA. Both decode cleanly and neither is a trust anchor.
+      expect(
+        () => AppConfig.parse(
+          'https://api.example.com',
+          rawDevTrustAnchor: base64.encode(ascii.encode('-----BEGIN PRIVATE KEY-----')),
+        ),
+        rejectsAnchor('PEM certificate'),
+      );
+    });
+
+    test('a CA does NOT make an http:// base URL acceptable', () {
+      // **The rule this whole mechanism must never be able to bend.** Supplying a
+      // certificate widens which issuers are trusted; it says nothing about whether TLS is
+      // required. If these two rules ever became entangled, this is where it would show.
+      expect(
+        () => AppConfig.parse('http://api.example.com', rawDevTrustAnchor: encoded),
+        throwsA(
+          isA<ConfigurationException>()
+              .having((e) => e.variable, 'variable', AppConfig.baseUrlVariable)
+              .having((e) => e.reason, 'reason', contains('only https://')),
+        ),
       );
     });
   });

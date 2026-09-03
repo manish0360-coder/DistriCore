@@ -27,10 +27,6 @@ dependencies:
   # M8 §5.6 ADR — the local database. Chosen for atomic multi-row commits, ordered reads
   # and migration on a device that cannot be wiped (task 3).
   drift: ^2.18.0
-  # The §5.6 ADR is Drift **with SQLCipher**: FR-SYN-016 and NFR-SEC-008 require the outbox
-  # encrypted at rest. The key comes from the keystore at task 4; task 3 opens the database
-  # through an injected key provider so the seam exists before the secret does.
-  sqlcipher_flutter_libs: ^0.6.0
   # `data/outbox/storage_failure.dart` imports `package:sqlite3/common.dart` to read the
   # engine's result codes (D-C3). An imported package must be a declared dependency, not a
   # transitive one inherited from drift: relying on drift's dependency means a drift upgrade
@@ -46,6 +42,14 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # The device gates. A unit test's database is in memory or a temp path and holds no key, so
+  # the claims that only hold for the real file — `journal_mode = WAL` and `synchronous = FULL`
+  # in `data/db/connection.dart`, and encryption at rest — are unreachable without a device.
+  # `integration_test/` is where they are reached. `M8_Design_Review` §14.11 assigns kill and
+  # real storage exhaustion there (`00` §19.2, still open); `encryption_at_rest_test.dart`
+  # discharges NFR-SEC-008 there (D-M9-8, closed on a Pixel 8a API 34 emulator, android-x64).
+  integration_test:
+    sdk: flutter
   flutter_lints: ^5.0.0
   # Drift is a code-generation package: `drift_dev` writes the `.g.dart` part files without
   # which the schema does not compile. Run via `make mobile-codegen`.
@@ -54,3 +58,36 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+# **Where encryption comes from — this block, and nothing else** (FR-SYN-016, NFR-SEC-008).
+#
+# `package:sqlite3` 3.x selects its native library through Dart build hooks, and the default
+# is upstream SQLite — which has no codec, so `PRAGMA key` is an unrecognised pragma and is
+# **silently ignored**. There is no dependency anywhere in this file that changes that, and
+# no dependency could: `source:` below is the only mechanism.
+#
+# **This used to be a dependency, and that is why it is worth spelling out.** Until
+# 2026-08-25 the block above declared `sqlcipher_flutter_libs`, annotated as though it
+# satisfied the requirement. It never did. Its `openCipherOnAndroid()` feeds
+# `open.overrideFor`, an API `sqlite3` 3.x removed, so nothing could call it — the package
+# shipped 13.8 MiB of `libsqlcipher.so` into every APK that was never loaded while the outbox
+# was written in cleartext, and no test in the repository could see it. A dependency that
+# *looks* like a satisfied requirement is worse than an absent one, so it is gone.
+#
+# **Why SQLite3MultipleCiphers and not SQLCipher.** The M8 §5.6 ADR names SQLCipher, and
+# `source: sqlcipher` was tried first. Its Linux prebuilt was rebuilt in `sqlite3` 3.5.2 and
+# requires GLIBC_2.38; `docker/flutter.Dockerfile` is `debian:bookworm-slim` (2.36), so 151
+# of 317 tests died in `dlopen` before reaching any assertion. `source` is a single global
+# value — per-OS selection is unimplemented upstream (simolus3/sqlite3.dart#346, open) — so
+# one library must serve both the device and the verification container. `sqlite3mc` does,
+# which additionally means CI now runs the *same* engine the device runs and can execute the
+# cipher guard. The §5.6 amendment recording this is pending.
+#
+# There is no Dart API for this choice; this block is the only mechanism. Removing it returns
+# the project to plaintext SQLite, which is why two things stand behind it:
+# `data/db/connection.dart` refuses to open the database, and
+# `test_mobile_boundary.py::test_the_build_hook_selects_an_encrypting_sqlite` fails the gate.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc

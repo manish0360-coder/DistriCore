@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M9 — Sync.** Four increments committed (M9.1–M9.4, below); HEAD is `bf94b8e`. The pre-commit working tree passed the full mobile verification suite (**305 tests**) immediately before commit `bf94b8e`. **M9 is not closed:** several FR-SYN requirements are unbuilt, no recorded evidence was found for two documented gates, and two corpus contradictions are open — see *Open at M9*. **The next action is a decision, not an implementation** (`NEXT_TASK.md`) |
+| Current milestone | **M9 — Sync.** Four increments committed (M9.1–M9.4, below); HEAD is `bf94b8e`. The working tree passes the full mobile verification suite (**317 tests**). **One requirement closed on 2026-08-25 — encryption at rest** (FR-SYN-016, NFR-SEC-008; D-M9-8), proven on a device and uncommitted at the time of writing. **That closes a requirement, not a milestone and not a gate.** **M9 is not closed:** several FR-SYN requirements are unbuilt, no recorded evidence was found for two documented gates, and two corpus contradictions are open — see *Open at M9*. **The next action is a decision, not an implementation** (`NEXT_TASK.md`) |
 | Last closed | **M7 — Reporting**, verified 8/8, plus the identity fix, the owner bootstrap, TD-30, TD-27, TD-21 and TD-2/TD-18 |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -31,7 +31,7 @@
 | M5 | Fulfilment & Billing — delivery, dispatch, GST invoice, credit note, ledger | **Verified & tagged** — `docs/M5_Verification_Report.md` |
 | M6 | Receivables — payments, reversal, write-off, derived outstanding, statement | **Verified & tagged** — `docs/M6_Verification_Report.md` |
 | M7 | Reporting — seven reports, CSV, scoping, owner dashboard | **Verified** — `docs/M7_Verification_Report.md` |
-| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.6.1**, both ADRs approved (Drift + SQLCipher, Dio), principles P-1…P-10 frozen. **Phase 2 tasks 0–5, 7 and 9 committed** plus TD-39 (see the commit history below). **Tasks 6, 8 and 10 have no commit** — GPS and the separate media queue, Owner Companion Mode, and the 8-hour offline soak. `mobile/lib/features/` contains `auth`, `customers`, `deliveries`, `settings`, `sync_status` and nothing else |
+| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.8.0**, both ADRs approved: **Drift over an encrypted SQLite** (§5.6 — the cipher clause amended to SQLite3MultipleCiphers by **D-M9-8**, 2026-08-25; the ADR's conclusion, Drift, is unchanged) and **Dio** (§7.5). Principles P-1…P-10 frozen. **Phase 2 tasks 0–5, 7 and 9 committed** plus TD-39 (see the commit history below). **Tasks 6, 8 and 10 have no commit** — GPS and the separate media queue, Owner Companion Mode, and the 8-hour offline soak. `mobile/lib/features/` contains `auth`, `customers`, `deliveries`, `settings`, `sync_status` and nothing else |
 | M9 | Sync | **In progress.** Four increments committed — M9.1 push receiver, M9.2 mobile drain, M9.3 server status, M9.4 pull and cache. **Not closed:** see *Open at M9* |
 | M10 | Hardening | Not started |
 | M11 | Go-live | Not started |
@@ -108,6 +108,34 @@ chosen with them in view, not so that they are quietly closed.
 | 7 | **M8 → M9 gate.** Assigned to M8 task 10 (`M8_Design_Review` §10), which §14.11 also carries process-kill and real storage exhaustion for. §10.1: *"task 8 is the first thing that can move to M8.1 without breaking the milestone gate — **task 10 cannot**."* No commit | **No recorded evidence of this gate was found in the repository** — no commit, and no `M8_Verification_Report.md` where M0–M7 each have one |
 | 8 | **FR-SYN-010 / NFR-PER-004 — TD-41** | **Open** (below) |
 
+> **One device gate has run. Item 7 is not it.** `make mobile-device-encryption` closed
+> NFR-SEC-008 on 2026-08-25 — see the note below. **`make mobile-device-kill` PASSED on
+> 2026-09-01** (`M8_Design_Review` §5.6.1), so §19.2's *kill* and *restart* clauses are
+> discharged and only **storage exhaustion** remains. `00` §19.2's durability gate needs
+> `make mobile-device-kill` and `make mobile-device-storage`, which exist in the Makefile and
+> still have **no recorded run**. **Neither gate may be cited as evidence for the other**, and
+> the encryption result does not shrink this list: all eight items above stand.
+
+> **Encryption at rest — CLOSED 2026-08-25 (D-M9-8). Read narrowly.**
+>
+> FR-SYN-016 and NFR-SEC-008 are met and proven on a device. **Implementation:** the
+> `package:sqlite3` build hook selects SQLite3MultipleCiphers (`source: sqlite3mc`); the key is
+> the Android keystore value from `PlatformDatabaseKey`, unchanged. **Observed, and recorded as
+> observations rather than requirements:** `PRAGMA cipher` → `chacha20`, SQLite `3.53.4`.
+> Neither `02` nor this document requires a particular cipher, and neither is amended.
+>
+> **Evidence:** a keyed round trip recovered the row and payload; a deliberately wrong key was
+> refused with `SqliteException` `resultCode = 26` (`SQLITE_NOTADB`), non-destructively; the
+> raw database and its WAL carried no SQLite header and no plaintext marker, with the same
+> scanner shown able to find those markers in an unencrypted control. Gate:
+> `make mobile-device-encryption`.
+>
+> **Coverage boundary, stated because it is easy to overstate.** Proven on a **Pixel 8a API 34
+> emulator, `android-x64`**. **Not arm64. Not physical hardware** (TD-45).
+>
+> **What this does not close.** No milestone. The **M8 → M9 durability gate** (item 7) and the
+> **M9 → M10 adversarial sync gate** (item 6) both remain open.
+
 ## Verification history
 
 | Milestone | Stages | Tests | Coverage | Contracts | Verify cycles |
@@ -171,7 +199,7 @@ introduction would move two variables at once.
 | --- | --- |
 | `ops/check_structural_columns.py` | Satisfied since M2 — `location_id` and `lot_id` on every movement (ADR-0004, E-06) |
 | `lint-imports` — 3 contracts | Kept. **144 files, 271 dependencies**, 14 root packages *(captured from the TD-39 verify run; 143 / 271 was task 1's)*. Has caught 4 violations across 7 milestones, all by the rule's author |
-| **The mobile layers hold, from the first Dart file** | **17** tests in `backend/tests/adversarial/test_mobile_boundary.py`, running **inside stage 7** because `make verify` is the only authority and it does not run `flutter analyze`. They assert layering, `features` never importing an implementation, **P-9** (no secret, internal surface or high-entropy literal in a decompilable binary), **P-3**, **P-6**, and that the parser refuses constructs it cannot read. Each was **proved able to fail** by mutation |
+| **The mobile layers hold, from the first Dart file** | **21** tests in `backend/tests/adversarial/test_mobile_boundary.py`, running **inside stage 7** because `make verify` is the only authority and it does not run `flutter analyze`. They assert layering, `features` never importing an implementation, **P-9** (no secret, internal surface or high-entropy literal in a decompilable binary), **P-3**, **P-6**, and that the parser refuses constructs it cannot read. Each was **proved able to fail** by mutation. **Two were added on 2026-08-25 (D-M9-8):** one asserts the `sqlite3` build hook selects an encrypting source, one asserts the runtime cipher guard is unconditional and paired with it. Both were proved able to fail across eight mutations, including a control confirming a coherent switch to another cipher still passes — the contract holds the property FR-SYN-016 states, not the product chosen to satisfy it |
 | **The Flutter pin is stated once** | `mobile/.flutter-version`. The Makefile reads it; `docker/flutter.Dockerfile` takes it as an `ARG` with no default. A test fails if either restates it — the first draft kept two copies and policed them with a test, which is the worse answer |
 | **The Flutter toolchain is built, not borrowed** | `ghcr.io/cirruslabs/flutter` stopped publishing 2026-05-01, before Flutter 3.44 existed. A test fails if `FLUTTER_IMAGE` points at that registry or its Docker Hub predecessor |
 | **The refresh client carries no interceptors** | **D-B2.** `api_client.dart` gives interceptors to `_dio` only; a test fails if `_refreshDio` receives any, or if any name other than `_dio` appears before `.interceptors.add`. A refresh call able to trigger the refresh interceptor is an infinite loop reachable from one expired token — and an interceptor never added cannot be re-entered, which a flag can |
@@ -220,7 +248,11 @@ it can prove.**
 | --- | --- | --- |
 | ~~**TD-39**~~ | ~~`/deliveries/{id}/complete` and `/fail` do not accept `client_uuid`~~ | **CLOSED 2026-08-11.** `outcome_client_uuid` added as a *separate* key — `Delivery.client_uuid` still identifies the assignment. Savepoint + `IntegrityError`, the `record_payment` pattern; in `fail_delivery` the identity is claimed **before** the RETURN movements, so a lost race cannot leave a duplicate restock. 15 tests. Verified 8/8, **758/758**, 94.71% |
 | **TD-41** | **New. Sync is triggered at launch only, which does not satisfy FR-SYN-010.** The requirement is *"within 2 minutes of reconnection at the DR-8 envelope"* (NFR-PER-004); the frozen mobile stack carries **no connectivity-state mechanism**, so no reconnection can be detected. A launch is when a device reconnects in practice, not by guarantee. Cited in three places in the repository — `mobile/lib/app/bootstrap.dart`, `mobile/test/startup_refresh_race_test.dart` and `docs/05_API_Contracts.md` §11.1 (D-M9.4-7) — each stating that the launch trigger **is not claimed** to be FR-SYN-010. `SyncEngine.sync()` and the D-M9.4-7 chain do not change when the trigger is built; its single-flight guard already makes a burst of connectivity events safe | **Open — M9** |
-| **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is not part of `make verify`, so *"does the Dart compile"* is ungated — and the **29 Dart cases that prove D-B1/D-B2/D-B3 are invisible to the only authority**. The 743 figure does not include them. The M8 contracts that *must* be blocking are enforced from stage 7 in Python because they are structural and need a parser, not a compiler; a Dart compile error still reaches `main`. Promote `mobile-verify` to stage 9 once the toolchain image has held for a milestone — adding an untested stage to the only authority is worse than none | M9 |
+| **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is not part of `make verify`, so *"does the Dart compile"* is ungated — and the **317 Dart cases are invisible to the only authority**. The 829 figure does not include them. The M8 contracts that *must* be blocking are enforced from stage 7 in Python because they are structural and need a parser, not a compiler; a Dart compile error still reaches `main`. Promote `mobile-verify` to stage 9 once the toolchain image has held for a milestone — adding an untested stage to the only authority is worse than none. **TD-42 is the stronger statement of the same gap and does not close this one** | M9 |
+| **TD-42** | **New. No Android SDK or JDK in the pinned toolchain image.** `grep -inE "android\|jdk\|sdkmanager\|adb" docker/flutter.Dockerfile` returns nothing, so **every Android artefact is produced by an unpinned host toolchain that `make verify` cannot see**, and no device gate can run in CI. **Amended 2026-09-01:** *"no shell in which both `make` and `flutter` work"* is no longer true — `make` in WSL reaches the Windows launcher through `scripts/win-flutter.sh`, and `make mobile-device-kill` passed that way. The device gates are still run by hand and still cannot run in CI. Strictly stronger than TD-37, which stays open | M10 |
+| **TD-43** | **New. `PRAGMA key = '$key'` is unescaped string interpolation** in `mobile/lib/data/db/connection.dart`. Safe today only because `PlatformDatabaseKey._mint()` emits 64 hexadecimal characters — **safe by accident, not by construction**. Nothing enforces the key's shape at the boundary that consumes it | M10 |
+| **TD-44** | **New. `libsqlite3-0` in `docker/flutter.Dockerfile` is very likely unnecessary** since `package:sqlite3` 3.x bundles its own library through a build hook. Its justifying comment has been corrected in place; **the package is retained until disproved**, because disproving it costs an image rebuild and a full gate run, and removing it on the strength of a comment is the reasoning that left `sqlcipher_flutter_libs` in the tree for a milestone | M10 |
+| **TD-45** | **New. `arm64` and physical hardware are unproven.** The encryption gate (D-M9-8) covers **`android-x64` on a Pixel 8a API 34 emulator only**. The same is true of any device gate run on that AVD | M10 |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `FLUTTER_SHA256` is an optional build-arg and the build prints the checksum it downloaded; `uv.lock` gives the Python side the stronger guarantee. Closing it is one paste from a `make mobile-image` run | M8, before task 3 |
 | **TD-36** | **New, and the most consequential.** The seven report endpoints **emit money as JSON floats**, against AD-02 — whose rationale names Dart and whose client obligation is C-1. `COERCE_DECIMAL_TO_STRING` is set but reaches only `serializers.DecimalField`; `api.v1.report_views._as_json` hand-builds its dict, so DRF's encoder renders `Decimal("1180.00")` as `1180.0`. **Measured, not inferred.** The existing assertion reads `Decimal(str(...))`, and that `str()` makes it pass whichever type arrives — which is how this survived four reviews and a blocking type gate. **Breaking change to a published response type: its own change, its own verify run.** Fix by routing `_as_json`'s numeric cells through `money_string`, added in task 0 for exactly this reuse | **M8, before task 8** |
 | **TD-32** | **New. Retire the `==` dev pins**, now superseded by `uv.lock`. Their own change, their own verify run — and keep the pytest-django incident narrative when the comment block goes | M8 |

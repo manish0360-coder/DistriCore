@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 
 import '../../core/failure.dart';
 import '../../core/money.dart';
@@ -26,6 +29,7 @@ final class ApiClient {
     Dio? refreshDio,
     Duration connectTimeout = const Duration(seconds: 15),
     Duration receiveTimeout = const Duration(seconds: 30),
+    SecurityContext? trustAnchor,
   })  : _dio = dio ?? Dio(),
         _refreshDio = refreshDio ?? Dio() {
     final options = BaseOptions(
@@ -41,6 +45,23 @@ final class ApiClient {
     );
     _dio.options = options;
     _refreshDio.options = options;
+
+    // **Development trust anchor, and only when the build supplied one.**
+    //
+    // `null` is the production path and leaves Dio's adapter exactly as it was — the
+    // default `HttpClient`, the default `SecurityContext`, the default roots. Nothing in
+    // this branch executes in a build without `DISTRICORE_DEV_CA_B64`.
+    //
+    // **Both clients, not one.** D-B2 gives `/auth/refresh` a structurally separate `Dio`
+    // so it can never re-enter the refresh interceptor. That isolation is about
+    // interceptors, not about transport: both talk to the same host over the same TLS, so
+    // a trust anchor applied to one and not the other would make refresh fail on exactly
+    // the connection login had just succeeded on — and only after a token expired.
+    if (trustAnchor != null) {
+      HttpClient create() => HttpClient(context: trustAnchor);
+      _dio.httpClientAdapter = IOHttpClientAdapter(createHttpClient: create);
+      _refreshDio.httpClientAdapter = IOHttpClientAdapter(createHttpClient: create);
+    }
 
     _dio.interceptors.addAll([
       AuthInterceptor(tokens),

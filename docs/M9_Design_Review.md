@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M9_Design_Review` |
-| Version | **1.2.0** |
-| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten).** |
+| Version | **1.3.0** |
+| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45.** |
 | Date | 2026-08-21 |
 | Milestone | M9 — Sync (`00` §19.1) |
 | Scope | Push receiver · mobile drain · server sync status · pull and device cache · **the Edition-1 conflict model** |
@@ -21,9 +21,15 @@
 > the `02` amendment register can cite, and because two decisions (D-M9.4-6, D-M9.4-7) were
 > found cited by identifier in shipped source while existing in no document at all.
 >
-> **No ADR is proposed.** M9 changes no milestone boundary, adds no table, and reverses no
-> architecture decision. §6 resolves a specification conflict by applying the corpus's own
-> declared division of authority, not by creating new authority.
+> **No ADR is proposed.** M9 changes no milestone boundary and adds no table. §6 resolves a
+> specification conflict by applying the corpus's own declared division of authority, not by
+> creating new authority.
+>
+> **One clause of one ADR is amended, and only from v1.3.0.** D-M9-8 (2026-08-25) replaces the
+> cipher named in `M8_Design_Review` §5.6. **That ADR's conclusion — Drift — is untouched**, as
+> is every word of its reasoning; what changes is the implementation behind `PRAGMA key`. The
+> sentence above read *"reverses no architecture decision"* through v1.2.0 and was true then.
+> It is qualified rather than deleted, because it was accurate when written.
 
 ### Change log
 
@@ -32,6 +38,7 @@
 | 1.0.0 | 2026-08-21 | Issued and signed. **D-M9-1 … D-M9-5** — the Edition-1 conflict model. Authority for `02` §18.1 **S-1 … S-4**, which were applied the same day |
 | **1.2.0** | **2026-08-21** | **§6 D-M9-7 added — FR-SYN-009 moves to `Rel = v2.0`, priority `M` and requirement text unchanged, nothing deleted.** Three Edition-1 prerequisites are deferred by `02A` and **each is sufficient alone**: the admin console (§7.12), the `SALESMGR`/`ADMIN` roles (§7.1 — Edition 1 has four, and neither is among them), and the registered `device` entity (§13.2, `04`). `03` §11.3 and `05` §11.5 recorded as **documentation inconsistencies, not counter-evidence**, and **not amended**. **OC-3 stays separate and Edition 1.** An independent Gemini review reaching the same conclusion is recorded as **corroboration, not authority**. **Authorises `02` S-6, which is not written here.** **Minor, not patch: a decision was added.** No API, schema, logic, code or test change |
 | **1.1.0** | **2026-08-21** | **§6 D-M9-6 added — FR-SYN-008's *"count of unresolved conflicts"* is undefined and is replaced.** The smallest truthful V1 quantity is `sync_operation.status = 'REJECTED'`, already specified at `05` §11.5 as `rejected_count` and already displayed. `DEFERRED` is excluded from the **device-side** count because it auto-retries; it stays in the **owner's** exception list (`04` T-26). M8's *"failed count"* recorded as drift evidence, **not** authority. Proposed FR-SYN-008 wording: *"count of operations the server has rejected"*. **Authorises `02` S-5, which is not written here.** FR-SYN-009 untouched. **Minor, not patch: a decision was added** (`M8_Design_Review` 1.6.1's rule). No API, schema, logic, code or test change |
+| **1.3.0** | **2026-08-25** | **§6 D-M9-8 added — the Edition-1 cipher is SQLite3MultipleCiphers, not SQLCipher.** Authority for the `M8_Design_Review` §5.6 amendment, applied the same day at v1.8.0. **`02` is not amended: FR-SYN-016 and NFR-SEC-008 name no cipher**, so the requirement is untouched and no `S-` row is authorised. **The preamble's *"reverses no architecture decision"* is qualified, not deleted.** Records the device proof — Pixel 8a API 34 emulator, `android-x64`, **not arm64 and not physical hardware** — and closes the encryption gate only; **`00` §19.2's durability gate stays open** (§9 item 5). Opens **TD-42…TD-45**; **TD-37 unchanged**. **Minor, not patch: a decision was added.** No API, schema, logic or requirement change; the code and gate it records were built under Changes 1–3 and are already verified |
 
 ---
 
@@ -624,6 +631,125 @@ contract work — **they are not amended here.**
 
 ---
 
+### D-M9-8 — The Edition-1 cipher is SQLite3MultipleCiphers, not SQLCipher. §5.6 is amended, not reversed.
+
+**Ruled 2026-08-25.** Authority for the `M8_Design_Review` §5.6 amendment, applied the same day
+at v1.8.0. **This is the only decision in this document that touches an ADR**, and it touches
+one clause of one.
+
+#### 1. The requirement is unchanged and receives no amendment
+
+`02` says this, and only this:
+
+> `FR-SYN-016` | Local device storage MUST be encrypted at rest. | `M` | `v1.0`
+>
+> `NFR-SEC-008` | Device local storage MUST be encrypted at rest (FR-SYN-016). | *Device
+> inspection test*
+
+**Neither names a cipher, a library or an algorithm.** SQLCipher appears nowhere in `02`; it
+appears in the *design*. So no `S-` row is authorised here and `02` §18.1 is not opened. That
+distinction is the whole shape of this decision: what changed was never a requirement.
+
+#### 2. Three layers, deliberately kept apart
+
+| Layer | Statement | Status |
+| --- | --- | --- |
+| **Requirement** | the device database is encrypted at rest | **binding** — FR-SYN-016, NFR-SEC-008, unamended |
+| **Implementation** | `sqlite3: source: sqlite3mc`, selected by the `package:sqlite3` build hook | **frozen for V1** — this decision |
+| **Observation** | `PRAGMA cipher` → `chacha20`; `PRAGMA sqlite_version` → `3.53.4` | **recorded, not binding** |
+
+**The observation is deliberately not promoted to a requirement.** `chacha20` is
+SQLite3MultipleCiphers' current default. Pinning it would turn a routine library upgrade into
+an apparent security regression, and would put the same claim in a fourth place — the pubspec
+hook, `connection.dart`'s probe, the structural contract, and then here. An assertion repeated
+in four places is one that gets deleted rather than updated.
+`make mobile-device-encryption` therefore **records** the cipher and **asserts only that one is
+present**.
+
+#### 3. Why SQLCipher was not carried forward — three findings, in order of discovery
+
+**(a) It was never actually in use.** `sqlcipher_flutter_libs` exposes `openCipherOnAndroid()`
+for `open.overrideFor`, an API `package:sqlite3` 3.x **removed**. No call site was possible in
+the pinned versions. The APK built 2026-08-24 carried `lib/x86_64/libsqlite3.so` — upstream
+SQLite, no codec — beside 13.8 MiB of `libsqlcipher.so` across three ABIs that nothing could
+open, with `native_assets.json` resolving `package:sqlite3` to the former.
+
+> **`PRAGMA key` against upstream SQLite is an unrecognised pragma. It does not fail; it is
+> ignored.** The outbox was written in cleartext for a milestone, and no test in the repository
+> could see it. This is recorded plainly because the *shape* of the defect — a dependency that
+> looked like a satisfied requirement — is the reusable lesson, not the cipher.
+
+**(b) `source: sqlcipher` was tried first, and does not run in the pinned environment.** The
+build hook selected it correctly; its Linux prebuilt, rebuilt in `sqlite3` 3.5.2, requires
+`GLIBC_2.38`, and `docker/flutter.Dockerfile` is `debian:bookworm-slim` — **GLIBC 2.36**. 151
+of 317 tests died in `dlopen` before reaching any assertion.
+
+**(c) `source:` is a single global value.** Per-OS selection is unimplemented upstream
+(`simolus3/sqlite3.dart#346`, open, no linked PR), so one library must serve both the
+verification container and the Android target. `sqlite3mc` does. That it also means **CI runs
+the same engine the device runs** is the stronger reason: the fail-closed guard in
+`connection.dart` now executes on the host, where nothing previously could.
+
+#### 4. Why this was free now, and will not be later
+
+§5.6 warns that the choice is *"irreversible in the sense that matters: changing it after M9
+means migrating outboxes on devices in the field."*
+
+**There are no devices in the field.** The one emulator database was plaintext and had to be
+cleared regardless. §5.6's condition never triggered — which is precisely why this was settled
+before M11 rather than discovered after it. Drift documents a `VACUUM INTO` + `PRAGMA rekey`
+path for migrating an existing plaintext database; **it was deliberately not built**, because
+building a migration for a population that does not exist is speculative code.
+
+#### 5. What is unchanged
+
+The key source is unchanged: **the Android keystore, via `PlatformDatabaseKey`**, minted once
+per install with `Random.secure()` and never cleared on sign-out (§8.3 — the outbox must
+outlive the session). `DatabaseKeyProvider`, its seam and its behaviour are untouched. So is
+Drift, so is the schema, so is every migration.
+
+#### 6. Verification — stated without overstating it
+
+| | |
+| --- | --- |
+| Target | **Pixel 8a API 34 emulator, `android-x64`** |
+| **Not covered** | **`arm64`, and physical hardware of any kind** (TD-45) |
+| Artefact | `lib/x86_64/libsqlite3mc.so` present; `libsqlite3.so` and `libsqlcipher.so` absent |
+| `PRAGMA cipher` | `chacha20` |
+| `PRAGMA sqlite_version` | `3.53.4` |
+| Correct key | reopened the database and recovered the row and payload |
+| Wrong key | a real read threw `SqliteException`, `resultCode = 26` (`SQLITE_NOTADB`), non-destructively |
+| Bytes on disk | no `SQLite format 3\0` header and no plaintext marker, in the database **or** the WAL; ordinary `sqlite3` refuses the file |
+| Falsifiability | the same scanner is run against a deliberately unencrypted database and must find those markers |
+| Gate | `make mobile-device-encryption` |
+| Host suites | `make verify` VERIFIED · 829 backend tests · 94.54% · `make mobile-verify` 317 |
+
+**The encryption gate is closed. The M8 → M9 durability gate is not.** `00` §19.2 requires
+*"Outbox survives kill, restart and storage exhaustion"*; `make mobile-device-kill` and
+`make mobile-device-storage` exist and have **no recorded run**. §9 item 5 stays open and is
+**not** closed by this decision. Nothing here may be cited as evidence for it.
+
+#### 7. Technical debt opened
+
+**TD-37 is unchanged and remains open.** TD-42 is strictly stronger and does not replace it.
+
+| # | Item | Why it is debt rather than a decision |
+| --- | --- | --- |
+| **TD-42** | **No Android SDK or JDK in the pinned toolchain image.** `grep -inE "android\|jdk\|sdkmanager\|adb" docker/flutter.Dockerfile` returns nothing, so every Android artefact is produced by an **unpinned host toolchain** that `make verify` cannot see, and no device gate can run in CI. **Amended 2026-09-01:** the second half of this — *"no shell where both `make` and `flutter` work"* — is **no longer true**. `make` in WSL reaches the Windows Flutter launcher through `scripts/win-flutter.sh`, and `make mobile-device-kill` passed that way (`M8_Design_Review` §5.6.1). The **first** half stands unchanged: the pinned image still carries no Android SDK or JDK, so device gates remain host-dependent and cannot run in CI | a gap in the gate with a known fix nobody has costed |
+| **TD-43** | **`PRAGMA key = '$key'` is unescaped string interpolation** in `connection.dart`. Safe today only because `PlatformDatabaseKey._mint()` emits 64 hexadecimal characters — safe by accident, not by construction | latent; not currently reachable |
+| **TD-44** | **`libsqlite3-0` in `docker/flutter.Dockerfile` is very likely unnecessary** since `package:sqlite3` 3.x bundles its own library through the build hook. Its justifying comment is already false | removal needs an image rebuild and a full gate run to disprove |
+| **TD-45** | **`arm64` and physical hardware are unproven.** The encryption gate covers `android-x64` on an emulator only | a coverage gap, not a defect |
+
+#### 8. What this decision authorises
+
+**The `M8_Design_Review` §5.6 amendment, and nothing else.** No `02` amendment, no API change,
+no schema change, no requirement change. The production changes it *records* — the build hook,
+the fail-closed guard, the structural contract, the permanent gate and the removal of
+`sqlcipher_flutter_libs` — were implemented and verified before this document was written; this
+records them, it does not authorise them.
+
+---
+
 ## 7. Explicitly preserved
 
 Stated positively so that no future reader mistakes this review for a licence to build.
@@ -652,6 +778,7 @@ Work this review creates. **All of it is documentation; none of it is code.**
 | **OC-2** | Amend `05` §11.4 to cite FR-SYN-005/013/014 and the A-rows, so it stops appearing to contradict `02` unilaterally | Product Architect | — |
 | **OC-3** | **Specify the owner-facing rejection view in `05`** (D-M9-5). Shape unspecified, deliberately | Product Architect | Any implementation of FR-SYN-006's *"reported"* clause |
 | **OC-4** *(v1.2.0)* | **`03` §11.3 asserts *"Sync status per device visible in the admin (FR-SYN-009)"***, a capability `02A` §7.12 places in Edition 2. `03` derives its scope from `02A`, so `03` is the document out of step. **Not amended by D-M9-7** | Product Architect | — |
+| **OC-6** *(v1.3.0)* | **Register TD-42…TD-45 in `PROJECT_STATE.md`'s technical-debt table**, where TD-1…TD-41 are held. D-M9-8 opens them; this document is not their register. Also: `PROJECT_STATE.md` and `NEXT_TASK.md` each still describe the §5.6 ADR as *"Drift + SQLCipher"* | Engineering | An accurate debt register |
 | **OC-5** *(v1.2.0)* | **`05` §11.5's caption *"Nothing fails silently (FR-SYN-008/009)"* over-claims.** After S-5 the FR-SYN-008 half is genuine; the FR-SYN-009 half is unreachable by D-M9.3-1's JWT scoping and, after S-6, no longer an Edition-1 obligation. **Not amended by D-M9-7**; naturally pairs with OC-2 | Product Architect | — |
 
 > **OC-3 is the only item that creates future engineering work**, and it cannot start until

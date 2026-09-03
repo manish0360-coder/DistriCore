@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,6 +105,7 @@ ProviderContainer buildRootContainer({
           (ref) => ApiClient(
             baseUrl: config.baseUrl,
             tokens: ref.watch(tokenStoreProvider),
+            trustAnchor: _devTrustContext(config),
           ),
         ),
         // **The only place the login feature meets its implementation** (M5).
@@ -127,6 +129,27 @@ ProviderContainer buildRootContainer({
             .overrideWith((ref) => ref.watch(syncStatusRepositoryProvider)),
       ],
     );
+
+/// The development trust anchor, or `null` — which is every production build.
+///
+/// **`withTrustedRoots: true` is the whole design.** The supplied certificate is *added* to
+/// the platform roots, never substituted for them: a build carrying a development CA still
+/// verifies every public certificate exactly as one without it does. Widening the set of
+/// acceptable issuers is a different act from disabling verification, and only the first
+/// happens here.
+///
+/// **What is deliberately absent:** no `badCertificateCallback`, no `HttpClient` returning
+/// `true` for a rejected chain, no `allowLegacyUnsafeRenegotiation`, no cleartext fallback.
+/// `test_mobile_boundary.py::test_no_certificate_verification_is_bypassed` runs inside
+/// `make verify` and fails the build if any of them ever appears.
+SecurityContext? _devTrustContext(AppConfig config) {
+  final anchor = config.devTrustAnchor;
+  if (anchor == null) return null;
+
+  final context = SecurityContext(withTrustedRoots: true)
+    ..setTrustedCertificatesBytes(anchor);
+  return context;
+}
 
 /// Cold-start restoration. **The `read` of [sessionProvider] happens synchronously**, before
 /// anything is awaited — see [bootstrap].

@@ -3,13 +3,13 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.7.0** |
-| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. Next: task 4 M6, frozen at §14.12, not yet implemented** |
+| Version | **1.9.0** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. `make mobile-device-kill` PASSED 2026-09-01 (§5.6.1); `make mobile-device-storage` still unrun. Next: task 4 M6, frozen at §14.12, not yet implemented** |
 | Date | 2026-08-16 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
 | Depends on | `00` v1.0.0 · `01` · `02` v0.2.0 · `02A` v0.2.0 · `03` · `04` · `05` · M0–M7 verified |
-| ADR required | ~~Yes — two~~ **Both approved 2026-08-10.** §5.6 Drift + SQLCipher · §7.5 Dio |
+| ADR required | ~~Yes — two~~ **Both approved 2026-08-10.** §5.6 Drift + encrypted SQLite — *cipher amended by D-M9-8, 2026-08-25* · §7.5 Dio |
 
 ### Change log
 
@@ -25,6 +25,8 @@
 | **1.6.1** | **2026-08-11** | **TD-39 verified — §14.10 gate 1 CLOSED.** `make verify` 8/8 · **758/758** · **94.71%** · `mypy` clean over 115 files · 3 contracts kept (144 files, 271 dependencies) · `makemigrations --check` **No changes detected**. Patch version, not minor: **no architectural decision changed** — only a gate status and its evidence |
 | **1.7.0** | **2026-08-16** | **§14.12 — Task 4 / M6 offline authentication window frozen**, after an evidence audit returned *BLOCKED — MISSING CONTRACT*. **D-D1** (the refresh token's `iat` is the trusted anchor — P-4 forbids the device clock and the `server_time` §5.5 relies on does not exist on the auth response), **D-D2** (`DISTRICORE_OFFLINE_WINDOW_DAYS`, compile-time, default 7, **not** in `BusinessProfile`), **D-D3** (anchor on the most recent successful authenticated server *contact*, not last login — `03` §5.2 would force an OTP weekly on a fully connected device), **D-D4/D-D5** (a successful `/auth/refresh` is the post-expiry round trip), **D-D6** (no biometric, PIN or passcode in V1; local auth = cached identity + retained refresh token + unexpired window). **§14.12.1 records three corpus statements this supersedes**, including a §5.5 sentence that is not true of the shipped contract. Documentation only — **no code changed** |
 | **1.6.2** | **2026-08-11** | **§14.11 — Task 3 gate contradiction resolved.** §10's task-3 Gate cell claimed *"Kill · restart · storage exhaustion, at every write boundary"*, which §9 and `00` §19.1 assign to `integration_test/` at the **M8→M9** boundary. Task 3's gate corrected to the hermetic subset. **No architectural decision changed; no code changed** |
+| **1.8.0** | **2026-08-25** | **§5.6 amended in place — the cipher is SQLite3MultipleCiphers, not SQLCipher.** Authority: **D-M9-8** (`M9_Design_Review` v1.3.0). **The original §5.6 paragraph is preserved verbatim**; the amendment is appended beneath it. Drift, the ADR's conclusion and all of its reasoning are unchanged, as are the schema, the migrations and the key source (Android keystore via `PlatformDatabaseKey`). **`02` is not amended** — FR-SYN-016 and NFR-SEC-008 name no cipher. `chacha20` and SQLite `3.53.4` are recorded as **observations, not requirements**. Encryption proven on a **Pixel 8a API 34 emulator, `android-x64` only**; **`00` §19.2's durability gate remains open**. The header ADR row, §11.2 item 1 and §13 item 7 updated mechanically. **Minor, not patch: an architectural decision changed** (1.6.1's rule, applied in the opposite direction). Documentation only — the code it records was built and verified beforehand |
+| **1.9.0** | **2026-09-01** | **§5.6.1 added — the kill gate's first recorded run, and it PASSED.** `make mobile-device-kill` on `emulator-5554` (Pixel 8a, API 34, x86_64), host Windows Flutter 3.44.7 reached from WSL through `scripts/win-flutter.sh`. Phase 1 reached `GATE-P1: KILL-NOW` and died; phase 2 found the database mid-WAL (4096 B / 119512 B / `-shm` present) and **all tests passed** — five committed appends present, three rows still `IN_FLIGHT`, the claim positionally on 1–3, the sequence unbroken (**D-C1**). This discharges `02` NFR-OFF-005 by its own stated method. §5.6's gate-status paragraph corrected from *"NOT closed"* to **partly closed**: `make mobile-device-storage` has still never run, so §19.2's *storage exhaustion* clause remains open, and `M9_Design_Review` TD-42's *"no shell where both `make` and `flutter` work"* is retired while its CI half stands. **Minor, not patch: new evidence closes half a gate.** Documentation only |
 
 ---
 
@@ -446,6 +448,101 @@ device that cannot be wiped**. Recommendation is **Drift with SQLCipher**, but t
 irreversible in the sense that matters: changing it after M9 means migrating outboxes on
 devices in the field.
 
+> #### Amendment — 2026-08-25 (D-M9-8). The database is Drift; the cipher is no longer SQLCipher.
+>
+> **The paragraph above stands unaltered and none of its reasoning is affected.** Drift was
+> chosen for atomic multi-row commits, ordered reads and migration on a device that cannot be
+> wiped; not one of those concerns a cipher. **The ADR's conclusion is unchanged.** What
+> changes is the implementation behind `PRAGMA key`.
+>
+> **The requirement did not change and is not amended.** FR-SYN-016 and NFR-SEC-008 require
+> *"encrypted at rest"* and name no cipher, library or algorithm. `02` receives no amendment.
+>
+> **V1 as built and proven:**
+>
+> | | |
+> | --- | --- |
+> | Mechanism | the `package:sqlite3` build hook — `hooks: user_defines: sqlite3: source: sqlite3mc` |
+> | Native asset | SQLite3MultipleCiphers — **one library for both the verification host and Android** |
+> | Observed cipher | `chacha20` — **recorded, not required** (D-M9-8 §2) |
+> | Observed SQLite | `3.53.4` — **recorded, not required** |
+> | Key source | **unchanged** — the Android keystore via `PlatformDatabaseKey` |
+> | Runtime guard | `connection.dart` refuses to open the database if `PRAGMA cipher` is empty — a hard throw in **every build mode**, not an `assert` |
+> | Gate | `make mobile-device-encryption` |
+> | Proven on | **Pixel 8a API 34 emulator, `android-x64`. Not arm64, not physical hardware** (TD-45) |
+>
+> **Why SQLCipher was not carried forward** — full reasoning at D-M9-8 §3; in short:
+>
+> 1. **It was never actually in use.** `sqlcipher_flutter_libs` feeds `open.overrideFor`, an API
+>    `package:sqlite3` 3.x removed, so no call site was possible. The 2026-08-24 APK carried
+>    upstream `libsqlite3.so` beside 13.8 MiB of `libsqlcipher.so` that nothing could open.
+>    Against upstream SQLite `PRAGMA key` is an unrecognised pragma — ignored, not failed — so
+>    the outbox shipped in cleartext for a milestone with no test able to see it.
+> 2. **`source: sqlcipher` was tried first and does not run in the pinned environment.** Its
+>    Linux prebuilt requires `GLIBC_2.38`; `docker/flutter.Dockerfile` is `debian:bookworm-slim`
+>    (2.36). 151 of 317 tests died in `dlopen`.
+> 3. **`source:` is one global value** — per-OS selection is unimplemented upstream
+>    (`simolus3/sqlite3.dart#346`, open) — so one library must serve host and device.
+>
+> **Why this was free now and will not be later.** The paragraph above warns the choice is
+> irreversible *"after M9 … devices in the field"*. **There are no devices in the field**, and
+> the one emulator database was plaintext and had to be cleared regardless. That condition never
+> triggered, which is exactly why this was settled before M11 rather than after.
+>
+> **Gate status, stated precisely** *(updated 2026-09-01)*. The **encryption** gate is closed.
+> **`00` §19.2's durability gate — *"Outbox survives kill, restart and storage exhaustion"* —
+> is PARTLY closed.** `make mobile-device-kill` **passed on 2026-09-01**, Pixel 8a API 34
+> emulator, evidence in §5.6.1. `make mobile-device-storage` **still has no recorded run**, so
+> the *storage exhaustion* clause of §19.2 remains open. Nothing in this amendment may be cited
+> as evidence for either; §5.6.1 is the only record of the kill result.
+
+
+### 5.6.1 Kill-gate evidence — `make mobile-device-kill`, 2026-09-01
+
+**VERIFIED.** First recorded run. Discharges `02` NFR-OFF-005 — *"Application termination —
+crash, force-close, battery exhaustion — MUST NOT lose a **committed** local transaction"* —
+by its own stated method, *"kill-test at each write boundary"*. It does **not** discharge the
+*storage exhaustion* half of `00` §19.2; that gate has still never been run.
+
+| Field | Value |
+| --- | --- |
+| Command | `make mobile-device-kill`, run from WSL |
+| Device | `emulator-5554` — Pixel 8a, API 34, Google APIs, x86_64 |
+| Toolchain | host Windows Flutter 3.44.7 via `scripts/win-flutter.sh`; Gradle 9.1.0; JDK 18 |
+| Result | **passed** |
+
+Phase 1 — commit, then die:
+
+```
+GATE-P1: database deleted
+GATE-P1: 5 appends committed
+GATE-P1: 3 claimed IN_FLIGHT
+GATE-P1: KILL-NOW
+DriverError: ext.flutter.driver: (112) Service has disappeared
+phase 1 terminated abnormally, as designed
+```
+
+`KILL-NOW` is the last line the process can print, so reaching it is what proves the signal
+was sent **after** both commit boundaries were crossed rather than during either. The
+`DriverError` is the host driver observing the VM service vanish; the Makefile's check on this
+phase is **inverted**, and a clean exit would have failed the gate instead.
+
+Phase 2 — reopen and account for everything:
+
+```
+GATE-P2: database=4096B wal=119512B shm=present
+00:01 +2: All tests passed!
+```
+
+The file sizes are themselves evidence: a 4 KiB main database beside a ~117 KiB `-wal` and a
+live `-shm` is a database killed **mid-WAL**, with no checkpoint — the condition NFR-OFF-005
+describes. Every assertion held: all five committed appends present, the three `claimBatch`
+rows still `IN_FLIGHT`, the claim landed positionally on rows 1–3, and the `AUTOINCREMENT`
+sequence continued without reuse (**D-C1**).
+
+**Not claimed by this run:** storage exhaustion (`make mobile-device-storage`, never run),
+`arm64`, physical hardware, and any device other than the one named above. **TD-45** stands.
+
 ---
 
 ## 6. State management
@@ -702,7 +799,7 @@ portal channel is strictly better.
 
 | # | Item | State |
 | --: | --- | :-: |
-| 1 | **ADR — local database** (§5.6): Drift + SQLCipher | ✔ **Approved 2026-08-10** |
+| 1 | **ADR — local database** (§5.6): Drift + encrypted SQLite | ✔ **Approved 2026-08-10.** Cipher amended by **D-M9-8** (2026-08-25) — SQLite3MultipleCiphers via the `sqlite3` build hook. Drift unchanged |
 | 2 | **ADR — HTTP client and the FR-IAM-016 offline window** (§7.5): Dio | ✔ **Approved 2026-08-10** |
 | 3 | ~~Does the owner get mobile screens?~~ | ✔ **Ruled: Owner Companion Mode** (§3.4) |
 | 4 | **No payment collection** in M8 — FR-REC-010 is v1.1 (§3.5) | ✔ Confirmed |
@@ -799,7 +896,7 @@ check behind it cost, and here the check was one line of Python that I ran a day
 | 4 | §5 offline strategy and the §5.3 outbox state machine | All | ✔ |
 | 5 | §6 Riverpod | All | ✔ |
 | 6 | §7–§8 networking, auth, and the §8.5 condition | All | ✔ |
-| 7 | **ADR — local database:** Drift + SQLCipher (§5.6) | All | ✔ |
+| 7 | **ADR — local database:** Drift + encrypted SQLite (§5.6; cipher amended by D-M9-8) | All | ✔ |
 | 8 | **ADR — HTTP client and offline window:** Dio (§7.5) | All | ✔ |
 | 9 | §11.2 items 4 and 5 | Product Architect | ✔ / ☐ open |
 | 10 | **§1.3 Design Principles P-1…P-10** | All | ✔ **Frozen** |

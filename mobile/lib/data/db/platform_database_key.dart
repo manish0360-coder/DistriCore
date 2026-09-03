@@ -3,7 +3,7 @@ import 'dart:math';
 import '../identity/secure_storage.dart';
 import 'database_key.dart';
 
-/// The SQLCipher passphrase, from the platform keystore (§5.6 ADR, NFR-SEC-008, FR-SYN-016).
+/// The database passphrase, from the platform keystore (§5.6 ADR, NFR-SEC-008, FR-SYN-016).
 ///
 /// `database_key.dart` deferred this to *"task 4"* rather than compile a placeholder into
 /// the binary, because a placeholder *"would satisfy the type system and violate P-9"*. The
@@ -18,11 +18,26 @@ import 'database_key.dart';
 /// signal."* Erasing a key is how you destroy a week of work while believing you signed
 /// someone out. Same reasoning as `device_id` surviving [SecureTokenStore.clear] (§8.4).
 ///
-/// **Unverified on this project's CI, and stated rather than implied.** `flutter test` runs
-/// against the system SQLite in the toolchain image, which is **not** SQLCipher — `PRAGMA
-/// key` there is a no-op. Every test proves the schema, the migration and the window; none
-/// of them proves the file is encrypted. That evidence needs a device, and belongs with the
-/// task-10 gate (TD-37).
+/// **Now verified, and by what.** This paragraph used to say that `flutter test` ran against
+/// *"the system SQLite in the toolchain image, which is not SQLCipher — `PRAGMA key` there is
+/// a no-op"*. **That was wrong when it was written, and it is the reason a real defect went
+/// unseen for a milestone.** `package:sqlite3` 3.x never used the system library: it bundles
+/// one through a Dart build hook, and the hook was defaulting to upstream SQLite — which has
+/// no codec, so `PRAGMA key` really was ignored, on the device as well as in CI, while the
+/// outbox was written in cleartext.
+///
+/// **Both halves are now real.** `pubspec.yaml` pins `sqlite3: source: sqlite3mc`, so the
+/// host and the device link the same encrypting library; `connection.dart` refuses to open the
+/// database at all if `PRAGMA cipher` comes back empty, in every build mode.
+///
+/// **The old warning's conclusion still stands and is not being dropped.** Unit tests prove
+/// the schema, the migration and the window; **none of them proves the file on disk is
+/// encrypted**, because they hold no key and never touch the documents directory. That
+/// evidence needs a device, and `make mobile-device-encryption` now supplies it: a keyed
+/// round trip, a wrong key rejected with `SQLITE_NOTADB`, and the raw bytes of the database
+/// and its WAL scanned for plaintext — on a **Pixel 8a API 34 emulator, `android-x64`**.
+/// **Not arm64 and not physical hardware** (TD-45), and the gate cannot run inside
+/// `make verify` (TD-37, TD-42).
 final class PlatformDatabaseKey implements DatabaseKeyProvider {
   const PlatformDatabaseKey(this._storage);
 

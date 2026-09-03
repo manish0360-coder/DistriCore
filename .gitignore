@@ -41,5 +41,17 @@ docs/_session/NOTES.md
 Thumbs.db
 
 # Flutter (M8)
+# `make dev-ca` writes Caddy's development root CA here. It is a per-machine development
+# artefact regenerated whenever the `caddy_data_dev` volume is recreated — not a secret to
+# guard, but not a repository fact either, and a committed certificate is one somebody
+# later trusts for the wrong reason.
+/build/
+
 /mobile/build/
 /mobile/.dart_tool/
+# Android build outputs. `mobile/android/` itself IS committed — it is the platform
+# scaffolding the M8→M9 device gate builds from, generated once by the pinned SDK
+# (`make mobile-android-scaffold`) so its Gradle/AGP versions match `.flutter-version`.
+/mobile/android/.gradle/
+/mobile/android/app/build/
+/mobile/android/local.properties

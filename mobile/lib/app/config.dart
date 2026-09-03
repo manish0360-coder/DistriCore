@@ -16,6 +16,9 @@
 /// value, which is why that value lives in the Makefile and not here.
 library;
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 /// Compiled once rather than per call. Trailing slashes only: a base URL is normalised, not
 /// rewritten.
 final _trailingSlashes = RegExp(r'/+$');
@@ -44,7 +47,7 @@ final class ConfigurationException implements Exception {
 /// somewhere to live and the second setting does not arrive as a second parameter threaded
 /// through `bootstrap`.
 final class AppConfig {
-  const AppConfig._(this.baseUrl, this.offlineWindow);
+  const AppConfig._(this.baseUrl, this.offlineWindow, this.devTrustAnchor);
 
   /// Absolute, `https`, no trailing slash. Safe to concatenate with the leading-slash paths
   /// the API layer declares (`/auth/login`, `/auth/me`, …).
@@ -57,6 +60,28 @@ final class AppConfig {
   /// requirement (OI-5). A build that omits it is correct; a build that omits the host is a
   /// defect.
   final Duration offlineWindow;
+
+  /// **A development certificate authority, and nothing else.** `null` in every build that
+  /// does not supply one — which is every production build.
+  ///
+  /// **Why this exists.** `00` §7.3 puts the emulator on `10.0.2.2`, and [baseUrl] refuses
+  /// `http://`, so the development stack terminates TLS at Caddy with a locally-issued
+  /// certificate. Dio speaks through `dart:io`'s `HttpClient`, which verifies against
+  /// **BoringSSL's** roots inside the Dart VM — it does not read Android's
+  /// `network_security_config.xml` and it does not read the device's user CA store. A CA
+  /// installed on the device is therefore invisible to this app, which is why the
+  /// certificate has to arrive through the build instead.
+  ///
+  /// **This widens trust; it does not weaken verification.** The bytes are *added* to the
+  /// normal roots (`withTrustedRoots: true`). Chain building, expiry, hostname matching and
+  /// every other check behave exactly as they do in production. There is no
+  /// `badCertificateCallback` anywhere in this codebase, and
+  /// `test_mobile_boundary.py::test_no_certificate_verification_is_bypassed` fails the build
+  /// if one appears.
+  ///
+  /// **P-9 is satisfied because nothing is compiled in.** The certificate is supplied by the
+  /// build command, exactly as [baseUrl] is; `lib/` contains no key material and no host.
+  final Uint8List? devTrustAnchor;
 
   /// The `--dart-define` name, stated once. `00` §9's convention: `DISTRICORE_` prefix,
   /// `SCREAMING_SNAKE_CASE`.
@@ -78,14 +103,28 @@ final class AppConfig {
 
   static const _rawOfflineWindowDays = String.fromEnvironment(offlineWindowVariable);
 
+  /// **Base64, not raw PEM.** A certificate is multi-line; `--dart-define` values that
+  /// contain newlines are quoted differently by every shell and are silently truncated by
+  /// some. One base64 line survives PowerShell, `sh` and a Makefile unchanged.
+  static const devTrustAnchorVariable = 'DISTRICORE_DEV_CA_B64';
+
+  static const _rawDevTrustAnchor = String.fromEnvironment(devTrustAnchorVariable);
+
   /// Reads the values baked in at compile time. Throws [ConfigurationException] if the build
   /// did not supply usable ones.
-  factory AppConfig.fromEnvironment() =>
-      AppConfig.parse(_rawBaseUrl, rawOfflineWindowDays: _rawOfflineWindowDays);
+  factory AppConfig.fromEnvironment() => AppConfig.parse(
+        _rawBaseUrl,
+        rawOfflineWindowDays: _rawOfflineWindowDays,
+        rawDevTrustAnchor: _rawDevTrustAnchor,
+      );
 
   /// The validation, separated from the environment read so that every rule below is
   /// testable without recompiling the suite once per case.
-  factory AppConfig.parse(String raw, {String rawOfflineWindowDays = ''}) {
+  factory AppConfig.parse(
+    String raw, {
+    String rawOfflineWindowDays = '',
+    String rawDevTrustAnchor = '',
+  }) {
     final value = raw.trim();
 
     if (value.isEmpty) {
@@ -148,8 +187,46 @@ final class AppConfig {
     return AppConfig._(
       uri.replace(path: path).toString(),
       _parseOfflineWindow(rawOfflineWindowDays),
+      // **After the scheme check, deliberately.** A build that supplies a certificate and an
+      // `http://` base URL has already been refused above. Supplying a CA can never make a
+      // rejected URL acceptable — the two rules are independent and the order makes that
+      // impossible to get wrong by editing one of them.
+      _parseDevTrustAnchor(rawDevTrustAnchor),
     );
   }
+
+  /// **Absent is the normal case and is not an error.** Present-but-broken is.
+  ///
+  /// A build that supplies an unusable certificate must refuse to start rather than fall
+  /// back to the default roots: the fallback would connect to nothing and present as the
+  /// same generic "no connection" the developer was already trying to fix. Fail closed,
+  /// before `runApp`, naming the define — the same rule [parse] applies to the host.
+  static Uint8List? _parseDevTrustAnchor(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return null;
+
+    final Uint8List bytes;
+    try {
+      bytes = base64.decode(value);
+    } on FormatException {
+      throw const ConfigurationException(
+        devTrustAnchorVariable,
+        'is not valid base64 — supply `base64 -w0 build/districore-dev-ca.crt`',
+      );
+    }
+
+    // Catches the two mistakes that would otherwise reach BoringSSL as an opaque failure:
+    // handing over the private key, or handing over the leaf instead of the CA.
+    if (!ascii.decode(bytes, allowInvalid: true).contains(_pemCertificateHeader)) {
+      throw const ConfigurationException(
+        devTrustAnchorVariable,
+        'does not decode to a PEM certificate — expected a `$_pemCertificateHeader` block',
+      );
+    }
+    return bytes;
+  }
+
+  static const _pemCertificateHeader = '-----BEGIN CERTIFICATE-----';
 
   /// **D-D2.** Absent means OI-5's 7 days. Present means it must be a usable number of days.
   ///

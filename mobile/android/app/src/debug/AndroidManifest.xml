@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The INTERNET permission is required for development. Specifically,
+         the Flutter tool needs it to communicate with the running application
+         to allow setting breakpoints, to provide hot reload, etc.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- **No networkSecurityConfig here, and that is the finding rather than an omission.**
+
+         A `network_security_config.xml` was added here and then removed, because it does
+         nothing for this app. It configures Android's Java/Conscrypt stack — WebView,
+         OkHttp, java.net. Dio speaks through `dart:io`'s HttpClient, which verifies against
+         BoringSSL's own roots inside the Dart VM and reads neither that file nor the
+         device's user CA store. A CA installed with `adb` is invisible to this process.
+
+         The development trust anchor therefore arrives through the build, as
+         `DISTRICORE_DEV_CA_B64` — see `lib/app/config.dart`. Leaving a dead security file
+         behind would be worse than never having written one: the next reader would trust it.
+    -->
+</manifest>
