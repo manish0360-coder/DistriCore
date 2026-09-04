@@ -1292,3 +1292,165 @@ def test_the_cipher_guard_is_unconditional_and_matches_the_hook():
             "the cipher probe does not refuse: a check whose failure branch does not throw "
             "leaves the database open and unencrypted (FR-SYN-016, NFR-SEC-008)."
         )
+
+
+# ------------------------------------------------------ TD-41 / FR-SYN-010, FR-SYN-017
+#
+# **The retry cadence, pinned where the gate can see it.**
+#
+# `02` FR-SYN-010 gives sync **120 seconds from reconnection**; FR-SYN-017 requires that
+# partial progress be *"retained **and** retried"*. Before TD-41 the retry did not exist —
+# sync happened once per process launch. The mechanism now exists, and these contracts are
+# what stop it being quietly removed or slowed past the budget.
+#
+# They are here rather than only in `flutter test` for this file's founding reason: `make
+# verify` is the only authority (N-12) and it does not run the mobile suite. A constant
+# protected solely by `make mobile-verify` is advisory, which is the status `analysis_options
+# .yaml` names in its own header as the mistake `mypy` embodied for six milestones.
+
+#: `02` FR-SYN-010 — *"within 2 minutes of reconnection"*. The whole budget, in seconds.
+FR_SYN_010_BUDGET_SECONDS = 120
+
+SCHEDULER = LIB / "app" / "sync_scheduler.dart"
+ROUND = LIB / "data" / "sync" / "sync_round.dart"
+BOOTSTRAP = LIB / "app" / "bootstrap.dart"
+
+
+def test_the_retry_cadence_stays_inside_the_fr_syn_010_budget():
+    """**The single number FR-SYN-010 rests on.**
+
+    The cadence bounds how long a device waits before *attempting*; the remainder of the 120
+    seconds is what the push and pull actually get. An interval at or above the budget leaves
+    zero seconds to sync and fails the requirement by arithmetic, not by measurement — so it
+    must fail here, not on a van.
+
+    Deliberately asserts `< budget`, not `<= budget`: an interval of exactly 120 s would put a
+    reconnection landing just after a failed attempt outside the bound with nothing left over.
+    """
+    source = SCHEDULER.read_text(encoding="utf-8")
+    declarations = re.findall(
+        r"const\s+Duration\s+syncRetryInterval\s*=\s*Duration\(\s*seconds:\s*(\d+)",
+        source,
+    )
+    assert len(declarations) == 1, (
+        "`syncRetryInterval` must be declared exactly once, as a `Duration(seconds: n)` "
+        f"literal this parser can read. Found {len(declarations)} in {SCHEDULER.name}."
+    )
+
+    seconds = int(declarations[0])
+    assert 0 < seconds < FR_SYN_010_BUDGET_SECONDS, (
+        f"the retry cadence is {seconds}s against FR-SYN-010's "
+        f"{FR_SYN_010_BUDGET_SECONDS}s budget. A device must notice *and* finish syncing "
+        "inside that window; an interval at or above it cannot, whatever the network does."
+    )
+
+    # `05` §13 caps `POST /sync/push` at 60 per device per hour. A cadence faster than one a
+    # minute breaches it whenever every attempt has work and the server defers all of it.
+    assert seconds >= 60, (
+        f"a {seconds}s cadence permits {3600 // seconds} pushes an hour; `05` §13 allows 60."
+    )
+
+
+def test_a_repeating_sync_trigger_exists_and_is_wired_into_start_up():
+    """**TD-41 itself: the app retries without being relaunched.**
+
+    Three separate facts, because any one alone is satisfiable by dead code — a scheduler that
+    nothing constructs, or a provider nothing starts, would leave FR-SYN-017's *"and retried"*
+    exactly as unmet as before while this file stayed green.
+    """
+    assert SCHEDULER.exists(), (
+        "there is no retry trigger. Sync would happen once per launch, which satisfies "
+        "neither FR-SYN-010 nor FR-SYN-017 (TD-41)."
+    )
+
+    scheduler = SCHEDULER.read_text(encoding="utf-8")
+    assert "class SyncScheduler" in scheduler, f"{SCHEDULER.name} declares no SyncScheduler"
+
+    bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
+    assert "syncSchedulerProvider" in bootstrap and ".start()" in bootstrap, (
+        "bootstrap.dart never starts the scheduler. A cadence that is constructed and never "
+        "armed is the launch-only behaviour TD-41 exists to remove."
+    )
+
+    # The lifecycle binding, and the decision recorded in its absences: the cadence continues
+    # through `inactive` and `paused` — whether a Dart timer survives backgrounding is the
+    # OS's decision (Doze, App Standby, TD-47), and cancelling it here as well would add a
+    # second, self-inflicted reason to miss the bound — and stops only at `detached`.
+    assert "AppLifecycleListener" in bootstrap, "the lifecycle is not bound to the cadence"
+    assert "onResume:" in bootstrap and "onDetach:" in bootstrap, (
+        "the lifecycle binding must attempt on resume and cancel on detach"
+    )
+    assert "onPause:" not in bootstrap and "onInactive:" not in bootstrap, (
+        "a pause handler was added to the lifecycle binding. TD-41 decided the cadence runs "
+        "through `paused` and `inactive`: stopping it there is a self-inflicted reason to "
+        "miss FR-SYN-010's bound on top of the one Doze already imposes. If a battery "
+        "measurement (B2) now justifies one, change this contract deliberately."
+    )
+
+
+def test_the_push_before_pull_ordering_is_stated_exactly_once():
+    """**D-M9.4-7, in one place.**
+
+    Local durable writes must reach the server before a pull can overwrite the cache that
+    describes them. Two callers now need that order — the launch chain and the retry cadence —
+    and two files stating one rule is how the two drift apart. `SyncRound` owns it; nothing
+    else may compose the two halves itself.
+    """
+    statements = [
+        path
+        for path in dart_files()
+        if re.search(r"\.sync\(\)", path.read_text(encoding="utf-8"))
+        and re.search(r"\.pull\(\)", path.read_text(encoding="utf-8"))
+    ]
+    assert statements, (
+        "no file composes a push with a pull — this contract would pass vacuously, and "
+        "D-M9.4-7's ordering would be unasserted."
+    )
+    assert [path.name for path in statements] == [ROUND.name], (
+        "the push->pull ordering is stated in more than one place: "
+        f"{[path.name for path in statements]}. It belongs only in {ROUND.name}; every other "
+        "caller must go through SyncRound so the single-flight guard covers the pair."
+    )
+
+
+@pytest.mark.parametrize("layer", PURE_LAYERS)
+def test_the_pure_layers_do_not_learn_about_the_scheduler(layer):
+    """`domain` and `core` must still run on a laptop with no Flutter and no clock.
+
+    The scheduler owns a `Timer` and the round owns a network round trip. Either reaching
+    `domain` or `core` would make the outbox untestable without a device, which is the one
+    property M8 §2.1 spent a milestone buying.
+    """
+    forbidden = ("SyncScheduler", "SyncTicker", "TimerSyncTicker", "SyncRound")
+    offenders = {
+        path.name: [name for name in forbidden if name in path.read_text(encoding="utf-8")]
+        for path in (LIB / layer).rglob("*.dart")
+    }
+    leaked = {name: hits for name, hits in offenders.items() if hits}
+    assert not leaked, f"{layer}/ now knows about the sync trigger: {leaked}"
+
+
+def test_no_connectivity_dependency_was_introduced():
+    """**TD-41 took no new dependency, and that was the design.**
+
+    A connectivity event reports *link* state, not reachability: a phone behind a captive
+    portal reports connected and cannot reach the server. The authoritative test of
+    "reconnected" is a request that succeeds, so the mechanism that discharges FR-SYN-010 is a
+    bounded-latency *attempt*; a connectivity signal is a battery optimisation on top of it,
+    not a substitute for it.
+
+    Adding one is a legitimate future decision — B2 may well justify it — but it is a decision
+    with a rate-limit and a backoff consequence, and it must be made deliberately rather than
+    arrive as a transitive convenience.
+    """
+    pubspec = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
+    offenders = [
+        line.strip()
+        for line in pubspec.splitlines()
+        if re.match(r"^\s{2}(connectivity\w*|internet_connection\w*|network_info\w*):", line)
+    ]
+    assert not offenders, (
+        f"a connectivity package was declared: {offenders}. TD-41 is a fixed cadence by "
+        "design; adding a signal changes what backoff is affordable and must be recorded as "
+        "a decision, not absorbed silently."
+    )

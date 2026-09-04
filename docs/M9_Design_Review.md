@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M9_Design_Review` |
-| Version | **1.3.0** |
-| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45.** |
+| Version | **1.4.0** |
+| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45. D-M9-9 ruled 2026-09-05 — the FR-SYN-010 trigger is a fixed-cadence retry; **gives TD-41 a mechanism without discharging FR-SYN-010**, folds in FR-SYN-017, opens TD-47.** |
 | Date | 2026-08-21 |
 | Milestone | M9 — Sync (`00` §19.1) |
 | Scope | Push receiver · mobile drain · server sync status · pull and device cache · **the Edition-1 conflict model** |
@@ -751,6 +751,92 @@ records them, it does not authorise them.
 
 ---
 
+### D-M9-9 — The FR-SYN-010 trigger is a fixed-cadence retry, not a connectivity listener. TD-41 gets a mechanism; the requirement stays open.
+
+*Ruled 2026-09-05. Implemented in the same increment. **Records the design; does not discharge the requirement.***
+
+#### 1. What TD-41 asserted, and what was wrong with it
+
+> *"The frozen mobile stack carries **no connectivity-state mechanism**, so no reconnection can
+> be detected."*
+
+**That conflates link state with reachability.** A connectivity event reports that a radio
+associated with a network — not that the server can be reached. A device behind a captive
+portal reports `connected` and cannot reach anything; a device on one bar of GPRS reports
+`mobile` and times out. **The authoritative test of "reconnected" is a request that succeeds.**
+
+So a connectivity signal can only ever be a *hint* that must still be followed by an attempt
+that may fail. The mechanism that actually bounds FR-SYN-010 is therefore a **bounded-latency
+attempt**, and a connectivity package is a battery optimisation layered on one — not a
+prerequisite for it. **No new dependency was taken.**
+
+The debt entry carried a second error. *"Its single-flight guard already makes a burst of
+connectivity events safe"* was true of `SyncEngine` and false of the chain: `PullService` has
+no guard at all, and guarding only the push permits `pull(A)` to overlap `push(B)` — the exact
+interleaving **D-M9.4-7** exists to prevent.
+
+#### 2. What shipped
+
+| Unit | Layer | Responsibility |
+| --- | --- | --- |
+| **`SyncRound`** | `data/sync/` | D-M9.4-7's `push → pull` ordering, **stated once**, under a single-flight guard covering the **pair**. `Unauthenticated` stops before the pull; any other push failure still pulls but is reported, so a caller cannot mistake a partial round for a good one |
+| **`SyncScheduler`** | `app/` | The repeating trigger. **60-second fixed cadence**, one attempt at a time, dropped rather than queued |
+| **`SyncTicker`** | `app/` | Wall-clock time as an injected port, so the cadence is provable without waiting for it |
+
+`SyncEngine` and `PullService` are **unchanged**. Session restoration stays out of a round: it
+is a launch concern, and a trigger that re-restored would call `/auth/me` every 60 seconds for
+the life of the process.
+
+#### 3. Why 60 seconds, and why there is no backoff
+
+FR-SYN-010 gives the whole operation **120 seconds**. Sixty leaves the other half for the sync
+itself — at DR-8 a device's entire typical day is ~200 operations, which is **one** push batch
+(`05` §13 caps a batch at 200) plus a 200–400 KB pull. It is also exactly the `05` §13 ceiling
+of **60 pushes per device per hour**, so it is simultaneously the fastest legal cadence.
+
+**Backoff was designed and then removed.** Any growth beyond 60 s puts a reconnection landing
+just after a failed attempt outside the budget; clamping the growth at 60 s makes the
+mechanism dead on arrival. Backing off further is only affordable with a connectivity signal to
+*reset* it — which is the trade a future B2 measurement may justify, and which must then be
+recorded as a decision rather than absorbed.
+
+#### 4. The lifecycle decision, stated by its absences
+
+`onResume` fires an attempt immediately; `onDetach` cancels. **There is deliberately no
+`onPause` and no `onInactive`** — the cadence continues through both.
+
+Whether a Dart timer survives backgrounding is Android's decision (Doze, App Standby).
+Cancelling it in our own code would add a *second, self-inflicted* reason to miss the bound on
+top of the one the OS already imposes. A structural contract now fails the build if a pause
+handler appears, so reversing this is a deliberate act.
+
+#### 5. What this does **not** discharge
+
+**FR-SYN-010 is not satisfied by this decision, and no document may cite it as if it were.**
+The requirement is that sync *completes* within 120 seconds of reconnection; the cadence bounds
+when an attempt *starts*.
+
+| # | Acceptance evidence | Method | State |
+| --- | --- | --- | --- |
+| **B1** | ~200 operations + a 200–400 KB pull **complete** within 120 s of a real reconnection at DR-8 | `02` NFR-PER-004's own words: *"Timed sync at representative volume"* | **NOT MEASURED — FR-SYN-010 remains open** |
+| **B2** | Battery and radio cost of the cadence while offline and backgrounded | Device measurement | Not measured |
+| **B3** | Behaviour under Doze / App Standby | Device measurement | Not measured — **TD-47** |
+
+**FR-SYN-017** — *"partial progress MUST be retained **and retried**"* — **is folded into TD-41
+and closed by the same mechanism.** Its retention half shipped in M9.2 (`reclaimInFlight`,
+per-batch settlement); its retry half did not exist until now. It was never counted separately,
+which is the finding: the debt register tracked one unmet requirement where there were two.
+
+#### 6. Enforcement
+
+Five contracts in `backend/tests/adversarial/test_mobile_boundary.py`, inside `make verify`
+(N-12) rather than only in `make mobile-verify`: the cadence stays inside the budget and above
+the rate limit; the trigger exists **and is wired**; the ordering is stated exactly once;
+`domain` and `core` stay free of the new types; no connectivity dependency appears. Each was
+mutation-tested against a deliberate violation before being trusted.
+
+---
+
 ## 7. Explicitly preserved
 
 Stated positively so that no future reader mistakes this review for a licence to build.
@@ -805,7 +891,7 @@ evidence are in `PROJECT_STATE.md` *"Open at M9"*.
 | 4 | **Orphaned `RECEIVED` recovery** — `05` §11.5 deferred it *"to M9.4/M10"*; M9.4 shipped without it | Open |
 | 5 | **M8 → M9 gate** (`00` §19.2, M8 task 10) | **No recorded evidence of this gate was found in the repository** — an absence of an artefact, not proof that nothing was run |
 | 6 | **M9 → M10 gate** — *"adversarial sync suite passes: zero loss, zero duplicates"* | **The suite does not exist** — `backend/tests/adversarial/` holds 13 suites, none for sync |
-| 7 | **TD-41 / FR-SYN-010** — launch-only sync trigger; no connectivity mechanism in the frozen mobile stack | Open |
+| 7 | **TD-41 / FR-SYN-010** — ~~launch-only sync trigger; no connectivity mechanism in the frozen mobile stack~~ | **Mechanism ruled and built — D-M9-9 (v1.4.0).** `SyncRound` + `SyncScheduler`, 60 s fixed cadence, no new dependency. **FR-SYN-017 folded in and closed.** **FR-SYN-010 stays open** until B1 — a timed device/staging run — exists. Background scope is **TD-47**, a Product Architect ruling |
 
 ---
 

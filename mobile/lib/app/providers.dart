@@ -19,12 +19,14 @@ import '../data/repositories/token_session_repository.dart';
 import '../data/sync/api_sync_status_repository.dart';
 import '../data/sync/pull_service.dart';
 import '../data/sync/sync_engine.dart';
+import '../data/sync/sync_round.dart';
 import '../domain/customer/customer_repository.dart';
 import '../domain/delivery/delivery_repository.dart';
 import '../domain/identity/session.dart';
 import '../domain/identity/session_repository.dart';
 import '../domain/outbox/outbox_repository.dart';
 import '../domain/sync/sync_status_repository.dart';
+import 'sync_scheduler.dart';
 
 /// **The composition root.** The only place an interface is bound to an implementation.
 ///
@@ -125,6 +127,45 @@ final pullServiceProvider = Provider<PullService>(
 final syncCursorStoreProvider = Provider<SyncCursorStore>(
   (ref) => SyncCursorStore(ref.watch(appDatabaseProvider), ref.watch(clockProvider)),
 );
+
+/// **One ordered round: push, then pull** (TD-41, D-M9.4-7).
+///
+/// One instance, for the same reason [syncEngineProvider] is one: the single-flight guard is
+/// **per-object**, so two rounds would be two guards — and the launch chain could then overlap
+/// a scheduler tick, which is the precise interleaving the guard exists to prevent.
+final syncRoundProvider = Provider<SyncRound>(
+  (ref) => SyncRound(
+    engine: ref.watch(syncEngineProvider),
+    pull: ref.watch(pullServiceProvider),
+  ),
+);
+
+/// **The retry cadence** (TD-41; `02` FR-SYN-010 and FR-SYN-017).
+///
+/// Started by `bootstrap` only once a session is restored, never here — constructing a
+/// scheduler is not the same as arming one, and a signed-out device must not be woken every
+/// minute to discover it still has nothing to send.
+///
+/// `onDispose` is not decoration: the scheduler owns a live `Timer`, and a container disposed
+/// without cancelling it leaks a timer that fires into a torn-down object — in tests, into the
+/// *next* test.
+final syncSchedulerProvider = Provider<SyncScheduler>((ref) {
+  final scheduler = SyncScheduler(
+    round: ref.watch(syncRoundProvider),
+    ticker: ref.watch(syncTickerProvider),
+  );
+  ref.onDispose(scheduler.dispose);
+  return scheduler;
+});
+
+/// **Wall-clock time, injected like everything else that a test cannot wait for.**
+///
+/// Declared as its own provider rather than defaulted inside [SyncScheduler] for the same
+/// reason [apiClientProvider] and [appDatabaseProvider] are overridable: the cadence's
+/// properties are temporal — *"a further attempt within 60 seconds"* — and a test that proved
+/// them by sleeping would take ten minutes and flake. Overriding this is how the launch chain's
+/// arming becomes observable at all.
+final syncTickerProvider = Provider<SyncTicker>((ref) => TimerSyncTicker());
 
 /// Customers: **read from the cache**, visits written through the outbox (M9.4, P-2).
 final customerRepositoryImplProvider = Provider<CustomerRepository>(

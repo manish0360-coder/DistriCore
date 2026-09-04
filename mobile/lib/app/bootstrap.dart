@@ -13,7 +13,6 @@ import '../data/db/connection.dart';
 import '../data/db/platform_database_key.dart';
 import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
-import '../data/sync/sync_engine.dart';
 import '../domain/identity/session.dart';
 import '../features/auth/auth_providers.dart';
 import '../features/customers/customer_providers.dart';
@@ -73,10 +72,40 @@ Future<void> bootstrap() async {
     ),
   );
 
+  // **The retry cadence's only tie to the platform** (TD-41). Bound here, after
+  // `ensureInitialized` and `runApp`, because `AppLifecycleListener` needs a live binding.
+  // Constructing the scheduler does not arm it; only `startBackgroundSync` does, and only
+  // once there is a session.
+  bindSyncToAppLifecycle(container);
+
   // **One call, one order.** M9.2 and M9.4 each added a start-up task; started
   // independently they raced, and a pull that won could overwrite the cache describing
   // writes the push had not yet delivered.
   startBackgroundSync(container);
+}
+
+/// **Flutter's lifecycle, bound to the retry cadence** (TD-41).
+///
+/// **The callbacks that are absent decide as much as the two that are present.** There is no
+/// `onPause` and no `onInactive`, deliberately: whether a Dart timer survives backgrounding is
+/// Android's decision — Doze and App Standby — and stopping the cadence here as well would add
+/// a *second, self-inflicted* reason to miss FR-SYN-010's 120-second bound on top of the one
+/// the OS already imposes. The cadence therefore runs through `paused` and `inactive`, and
+/// stops only at `detached`. Please do not add a pause handler as a battery optimisation
+/// without a measurement (B2) showing one is needed.
+///
+/// `onResume` fires an attempt immediately rather than waiting out the remaining cadence: if
+/// the OS *did* suspend the timer while the app was away, this is the moment that becomes
+/// visible, and the worst time to be patient is when the user is already looking at the screen.
+///
+/// The listener registers itself with `WidgetsBinding`, which holds it, so the return value is
+/// returned for testability rather than because a caller must retain it.
+AppLifecycleListener bindSyncToAppLifecycle(ProviderContainer container) {
+  final scheduler = container.read(syncSchedulerProvider);
+  return AppLifecycleListener(
+    onResume: scheduler.resumed,
+    onDetach: scheduler.dispose,
+  );
 }
 
 /// The composition root's two runtime values, bound.
@@ -89,10 +118,17 @@ Future<void> bootstrap() async {
 /// reads its store from [tokenStoreProvider]. Passing `tokens` to both by hand would make it
 /// possible for the two to disagree, which is the kind of defect that only shows up as a
 /// request carrying no `Authorization` header.
+///
+/// **[overrides] is appended after the bindings below, never substituted for them**, so a
+/// caller replaces one binding without silently losing the rest — and, because it comes last,
+/// a caller that names a provider this function also binds wins rather than being ignored. It
+/// exists for the dependencies a test cannot wait for or reach; `syncTickerProvider` is the
+/// first. It defaults to empty, which is every production build.
 ProviderContainer buildRootContainer({
   required AppConfig config,
   required TokenStore tokens,
   required AppDatabase database,
+  List<Override> overrides = const [],
 }) =>
     ProviderContainer(
       overrides: [
@@ -127,6 +163,8 @@ ProviderContainer buildRootContainer({
         // `05` §11.5 — the server's view of this device, beside the local queue (M9.3).
         syncStatusPortProvider
             .overrideWith((ref) => ref.watch(syncStatusRepositoryProvider)),
+        // Last, so a caller's binding wins over anything above it.
+        ...overrides,
       ],
     );
 
@@ -182,10 +220,18 @@ Future<Result<Session?>> startSessionRestoration(ProviderContainer container) {
 /// **Returns immediately.** A device with no signal must reach its delivery list without
 /// waiting on requests that will time out — which is also why `runApp` precedes this.
 ///
-/// **This is still not FR-SYN-010 (TD-41).** The requirement is *"within 2 minutes of
-/// reconnection"*, and the frozen mobile stack has no connectivity-state mechanism to detect
-/// one. A launch is when a device reconnects in practice, not by guarantee. When the trigger
-/// arrives it calls *this function*; neither engine changes.
+/// **The launch round is no longer the only round (TD-41).** A repeating trigger now exists —
+/// `SyncScheduler` — and it is armed at the end of this chain. The earlier note here claimed a
+/// trigger could simply *"call this function"*; that was wrong, and the correction is the
+/// reason [SyncRound] exists. This function restores a session, which is a **launch** concern:
+/// a trigger calling it would re-authenticate against `/auth/me` on every attempt. The
+/// scheduler calls [SyncRound] instead, and the two share the ordering rather than restating
+/// it.
+///
+/// **This still does not discharge FR-SYN-010.** The requirement is that sync *completes*
+/// within two minutes of reconnection; the cadence bounds when an attempt *starts*. Completion
+/// at the DR-8 envelope over a real network is a timed device measurement (B1) that does not
+/// exist yet, and the background case remains an open specification gap (**TD-47**).
 void startBackgroundSync(ProviderContainer container) {
   unawaited(_restoreThenSync(container));
 }
@@ -206,14 +252,20 @@ Future<void> _restoreThenSync(ProviderContainer container) async {
   final Session? session = restored.fold((value) => value, (_) => null);
   if (session == null) return;
 
-  final pushed = await container.read(syncEngineProvider).sync();
+  // **The launch round, through the same object every later attempt uses.** Push before pull,
+  // `Unauthenticated` stopping before the pull, a transient failure still pulling — all of it
+  // now lives in `SyncRound` rather than being restated here. Two callers stating one ordering
+  // is how the two drift apart.
+  final failure = (await container.read(syncRoundProvider).run())
+      .fold<Failure?>((_) => null, (value) => value);
 
-  // **The push result is observed, not discarded.** `Unauthenticated` means the credential
-  // is finished — a pull would only repeat the same 401. Anything else (`Offline`,
-  // `StorageFull`) leaves the rows `PENDING`, the outbox overlay preserves the local write
-  // intent, and the pull is still worth attempting: the connection may have returned, and a
-  // fresh round is more useful than none.
-  if (pushed is Err<SyncReport> && pushed.failure is Unauthenticated) return;
+  // **A dead credential arms nothing.** Every tick would meet the same 401 and stop the
+  // scheduler on its first attempt; starting it would buy one wasted round and nothing else.
+  // Any other failure is exactly what the cadence exists for — `Offline` and `StorageFull`
+  // both leave the rows `PENDING` and both resolve without a relaunch.
+  if (failure is Unauthenticated) return;
 
-  await container.read(pullServiceProvider).pull();
+  // **FR-SYN-017's retry, armed** — and only now, with a session in hand (D-M9.4-7 carried
+  // forward to the trigger).
+  container.read(syncSchedulerProvider).start();
 }

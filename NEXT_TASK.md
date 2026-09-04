@@ -40,7 +40,7 @@ each was found to hide a real defect, not merely a missing signature.
 defines no sub-milestones; `M9.1`–`M9.4` are working labels for four commits, not roadmap
 entries. There is no M9.5.
 
-**The next milestone still cannot be selected.** **Six items are open and five of them remain
+**The next milestone still cannot be selected.** **Seven items are open and six of them remain
 questions no engineer may answer alone** — two are direct contradictions between frozen
 documents. They are listed in `PROJECT_STATE.md` under *Open at M9*, unresolved and deliberately
 so. **Running the two gates did not shorten that list by any decision**; it discharged the two
@@ -57,7 +57,8 @@ items that were waiting on nobody, which is exactly what a gate can do and all i
 | 5 | ~~**M9 → M10 gate** — no adversarial sync suite exists~~ — **CLOSED 2026-09-04.** The suite has existed since `4d4854e` (2026-08-22); this line was written against `bf94b8e` and was seven commits stale. 11/11, `docs/M9_Verification_Report.md` | ~~Engineering~~ |
 | 6 | **FR-SYN-007 remainder / stock snapshot** — D-M9.4-1's recorded CONTRACT GAP | Product Architect |
 | 7 | **Orphaned `RECEIVED` recovery** — deferred by `05` §11.5 *"to M9.4/M10"*; M9.4 has passed, so it landed on M10 by default | Engineering |
-| 8 | **TD-41 / FR-SYN-010** — launch-only trigger, no connectivity mechanism | Engineering |
+| 8 | **TD-41 / FR-SYN-010 + FR-SYN-017** — *mechanism built 2026-09-05*: `SyncRound` + `SyncScheduler`, 60 s fixed cadence, no new dependency. **FR-SYN-017 is closed by it.** FR-SYN-010 needs **B1**, a timed device/staging run | Engineering *(B1 evidence)* |
+| 9 | **TD-47 — does FR-SYN-010 bind while the app is backgrounded?** `02` names no application state, and Doze/App Standby mean **no** in-process mechanism can hold the bound there. A ruling decides whether this is a `WorkManager` milestone or out of scope | Product Architect |
 
 > **Why this is a task and not a preamble.** Until 2026-08-21 this file said *"Next: task 3"*
 > and `PROJECT_STATE.md` said *"M9 — Not started"*, while fourteen commits had landed past
@@ -75,7 +76,7 @@ items that were waiting on nobody, which is exactly what a gate can do and all i
 > **M9 has four committed increments** (M9.1–M9.4) and is **not closed**. Commit-by-commit
 > history and the open items are in `PROJECT_STATE.md`.
 >
-> The working tree passes the full mobile verification suite — **324 tests** at `e2fbc07`,
+> The working tree passes the full mobile verification suite — **346 tests** (324 at `e2fbc07`),
 > measured by `make mobile-verify` on 2026-09-04. It was **317** when this note was written
 > and **305** at commit `bf94b8e`. **Encryption at rest is closed** (FR-SYN-016, NFR-SEC-008; D-M9-8) —
 > `sqlite3mc` via the build hook, keyed from the Android keystore, with `chacha20` and SQLite
