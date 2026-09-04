@@ -873,6 +873,82 @@ def test_every_host_flutter_invocation_uses_the_wrapper():
     )
 
 
+#: The storage gate's two halves: the helper that fills the disk, and the phase that uses it.
+_STORAGE_SUPPORT = MOBILE / "integration_test" / "support" / "device_outbox.dart"
+_STORAGE_TEST = MOBILE / "integration_test" / "outbox_storage_full_test.dart"
+
+
+def test_the_storage_gate_fills_its_own_disk_and_always_releases_it():
+    """**`flutter drive` always installs the APK, so the disk cannot be full beforehand.**
+
+    Measured 2026-09-04 across three runs: plain `drive` builds and installs; `--no-build` is
+    ignored and it rebuilds, which rewrites the APK and forces a reinstall; and
+    `--use-application-binary` skips the build but installs anyway. Every one of them died on
+    `PackageInstallerService`'s *"Requested internal only, but not enough space"* before a
+    line of Dart ran. An externally placed ballast — `adb shell dd` in the Makefile — cannot
+    work, and no arrangement of the recipe can make it work.
+
+    So the app fills its own filesystem, after it is running. Two properties must hold and
+    neither is visible to a reader skimming the test:
+
+    1. **The fill happens**, or the loop runs on an empty disk, nothing is refused, and the
+       gate reports a setup error rather than a durability result.
+    2. **The release is in a `finally`**, or a failed expectation leaves the device full — and
+       the *next* run then cannot install the APK either. That is precisely the state the old
+       external ballast left behind whenever a run aborted between the `dd` and the `rm`.
+    """
+    assert _STORAGE_SUPPORT.exists(), f"{_STORAGE_SUPPORT} missing — would pass vacuously"
+    assert _STORAGE_TEST.exists(), f"{_STORAGE_TEST} missing — would pass vacuously"
+
+    support = _STORAGE_SUPPORT.read_text(encoding="utf-8")
+    for symbol in ("Future<int> fillDeviceStorage(", "Future<void> releaseDeviceStorage("):
+        assert symbol in support, f"device_outbox.dart no longer defines `{symbol}`"
+
+    # **The slack must be measured, not counted.** The write that hits `ENOSPC` can land part
+    # of its chunk before throwing; a per-chunk counter cannot see those bytes, so truncating
+    # relative to it releases the partial remainder as well as the slack — up to a whole chunk
+    # too much. Measured 2026-09-04: a 2 MiB slack left under 34 MiB, all 2000 appends
+    # committed, and the gate reported a setup error instead of a durability result.
+    assert re.search(r"final \w+ = handle\.lengthSync\(\);\s*\n\s*final \w+ = \w+ - slackBytes",
+                     support), (
+        "the ballast is truncated relative to a counter rather than the file's real length. "
+        "A partially written final chunk then frees more than the slack, and the append loop "
+        "never exhausts the disk"
+    )
+
+    test = _STORAGE_TEST.read_text(encoding="utf-8")
+    assert re.search(r"await fillDeviceStorage\(", test), (
+        "the storage phase does not fill the disk; the append loop would run with free space "
+        "and the gate would prove nothing"
+    )
+    assert re.search(
+        r"\}\s*finally\s*\{[^}]*await releaseDeviceStorage\(\)", test, re.DOTALL
+    ), (
+        "releaseDeviceStorage() is not inside a `finally`. A phase that fails must still hand "
+        "the space back, or the next run cannot install the APK"
+    )
+
+
+def test_the_storage_gate_places_no_ballast_from_the_runner():
+    """The Makefile must not fill the disk — it is the one actor that provably cannot.
+
+    Kept as a separate contract from the one above because they fail for opposite reasons: a
+    reader who reintroduces `dd` has not broken the test, they have broken the *ordering*, and
+    the message needs to say so.
+    """
+    joined = re.sub(r"\\\n\s*", " ", (ROOT / "Makefile").read_text(encoding="utf-8"))
+    offenders = [
+        line.strip()[:110]
+        for line in joined.splitlines()
+        if line.startswith("\t")
+        and re.search(r"dd\s+if=/dev/zero|BALLAST_MB", _QUOTED.sub(" ", line))
+    ]
+    assert not offenders, (
+        "the runner places a ballast again. An APK cannot be installed onto a full disk and "
+        f"`flutter drive` always installs, so this can only ever fail: {offenders}"
+    )
+
+
 def test_the_adb_binary_is_derived_from_one_sdk_root():
     """One canonical SDK variable, and `ADB` computed from it — never a second literal.
 

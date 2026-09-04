@@ -501,20 +501,14 @@ mobile-device-kill: device-gate-preflight ## M8->M9 gate, kill. Needs a connecte
 # untouched.
 .PHONY: mobile-device-storage
 mobile-device-storage: device-gate-preflight ## M8->M9 gate, storage exhaustion. DISPOSABLE AVD ONLY.
-	@test -n "$(BALLAST_MB)" || { \
-		echo "BALLAST_MB is required. Measure first:  $(ADB) shell df /data"; \
-		echo "Then size it so free space lands just under one page allocation, e.g."; \
-		echo "  make mobile-device-storage BALLAST_MB=1400"; exit 1; }
-	@echo "==> free space before:"; $(ADB) shell df /data
-	$(ADB) shell dd if=/dev/zero of=/data/local/tmp/gate.ballast bs=1M count=$(BALLAST_MB)
 	@echo "==> phase A: a write under exhaustion must be refused as StorageFull"
+	@echo "    The test fills the disk itself, from inside the running app, and releases it in"
+	@echo "    a finally. There is no ballast to place here and no BALLAST_MB to size: an APK"
+	@echo "    cannot be installed onto a full disk, and the drive step always installs."
 	cd mobile && $(FLUTTER_HOST_RUN) pub get --enforce-lockfile && $(FLUTTER_HOST_RUN) drive --driver=test_driver/integration_test.dart \
 		--target=integration_test/outbox_storage_full_test.dart --keep-app-running \
 		-d $(MOBILE_DEVICE_ID) \
 		$(MOBILE_DART_DEFINES) --dart-define=GATE_PHASE=full
-	@echo "==> removing ballast (reversible, always)"
-	$(ADB) shell rm /data/local/tmp/gate.ballast
-	@echo "==> free space after:"; $(ADB) shell df /data
 	@echo "==> phase B: everything committed before the failure is still there"
 	cd mobile && $(FLUTTER_HOST_RUN) pub get --enforce-lockfile && $(FLUTTER_HOST_RUN) drive --driver=test_driver/integration_test.dart \
 		--target=integration_test/outbox_storage_full_test.dart --keep-app-running \

@@ -18,20 +18,25 @@
 /// WAL checkpointing degrades safely with no room for the `-wal` file; and, above all,
 /// **whether rows already committed survive the event**.
 ///
-/// ## Running it — external setup, not automated test code
+/// ## Running it — `make mobile-device-storage`, no arguments
 ///
-/// The ballast is placed and removed by the runner, on a **disposable AVD**. Automating it
-/// from inside Dart would mean the test could leave a device full if it crashed mid-run.
+/// **The ballast is written by this test, into the app's own data directory.** It was
+/// external once — `adb shell dd` placed by the runner before the run — and that is
+/// impossible: `flutter drive` installs the APK before any Dart executes, and an install
+/// needs a few hundred megabytes, so a disk filled beforehand fails with *"Requested
+/// internal only, but not enough space"*. Measured 2026-09-04 across three runs; neither
+/// `--no-build` (ignored, rebuilds) nor `--use-application-binary` (skips the build, still
+/// installs) avoids it. Filling from inside the running app is the only ordering that works.
 ///
-/// Use `make mobile-device-storage BALLAST_MB=<N>`, which runs exactly this:
+/// The objection the external design was defending against — *"the test could leave a device
+/// full if it crashed"* — is answered by `releaseDeviceStorage()` in a `finally`, which runs
+/// on a failed expectation as well as a passing one. It is still a **disposable AVD only**
+/// gate.
 ///
 /// ```
-/// adb shell df /data                                           # record free space first
-/// adb shell dd if=/dev/zero of=/data/local/tmp/gate.ballast bs=1M count=<N>
 /// flutter drive --driver=test_driver/integration_test.dart \
 ///   --target=integration_test/outbox_storage_full_test.dart --keep-app-running \
-///   --dart-define=GATE_PHASE=full
-/// adb shell rm /data/local/tmp/gate.ballast                    # always, reversible
+///   --dart-define=GATE_PHASE=full        # fills the disk itself, then releases it
 /// flutter drive --driver=test_driver/integration_test.dart \
 ///   --target=integration_test/outbox_storage_full_test.dart --keep-app-running \
 ///   --dart-define=GATE_PHASE=drained
@@ -47,21 +52,22 @@
 /// `--keep-app-running` leaves the install and its data in place; a rebuild between phases
 /// is an update-install, which preserves the data directory.
 ///
-/// Size `N` so free space lands just under one SQLite page allocation. Determinism comes from
-/// **measuring** free space first, never from guessing a number.
+/// No number is passed and none is measured: `fillDeviceStorage` writes until the filesystem
+/// refuses, then hands back a fixed slack. There is nothing to size and nothing to go stale.
 library;
 
 import 'package:districore/core/failure.dart';
 import 'package:districore/core/result.dart';
 import 'package:districore/domain/outbox/outbox_operation.dart';
+import 'package:districore/domain/outbox/outbox_repository.dart';
 import 'package:districore/domain/outbox/outbox_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'support/device_outbox.dart';
 
-/// Which half is running. Two processes, because the ballast is removed between them and
-/// only the runner can remove it.
+/// Which half is running. Two processes, because phase A releases the ballast as it ends and
+/// phase B must open the database it left behind in a process that never saw it.
 const String _phase = String.fromEnvironment('GATE_PHASE', defaultValue: 'full');
 
 /// Enough attempts to exhaust the remaining slack, few enough to end in seconds.
@@ -86,6 +92,24 @@ Future<void> _underExhaustion() async {
   final database = await openGateDatabase();
   final outbox = outboxOf(database);
 
+  // **The disk is filled here, from inside the running app, and not by the runner.**
+  // `flutter drive` installs the APK before any Dart runs, and an install cannot happen on
+  // a full disk — so the fill has to come after it. `releaseDeviceStorage` is in a `finally`
+  // because a phase that fails must still hand the space back; otherwise the next run cannot
+  // install either. See `fillDeviceStorage` for the three measurements behind this.
+  final ballastBytes = await fillDeviceStorage();
+  // ignore: avoid_print — the number a reviewer needs to see the disk really was filled.
+  print('GATE:storage ballast=${ballastBytes}B slack=${deviceStorageSlackBytes}B');
+  try {
+    await _appendUntilRefused(outbox);
+  } finally {
+    await releaseDeviceStorage();
+  }
+}
+
+/// The append loop and its assertions, unchanged. Extracted only so the ballast above can
+/// wrap it in a `finally` without indenting the assertions this gate exists for.
+Future<void> _appendUntilRefused(OutboxRepository outbox) async {
   var committed = 0;
   Failure? refusal;
 
@@ -103,6 +127,12 @@ Future<void> _underExhaustion() async {
     );
   }
 
+  // Printed before the guard below, so a failure says how far the loop got rather than only
+  // that it did not finish. A run that commits 2000 and refuses none is a slack problem; one
+  // that commits 0 is the opposite problem.
+  // ignore: avoid_print
+  print('GATE:storage committed=$committed refusal=${refusal.runtimeType}');
+
   // **The anti-vacuity guard, and the reason this test is worth writing.** A storage gate
   // that passes on a device with free space proves nothing at all. If no write was refused,
   // the ballast did not exhaust the partition the app writes to — which is a setup error,
@@ -110,9 +140,10 @@ Future<void> _underExhaustion() async {
   expect(
     refusal,
     isNotNull,
-    reason: 'no write was refused after $_attempts appends: /data was not actually full, '
-        'or the ballast is on a different partition from ${await deviceDatabasePath()}. '
-        'Re-measure with `adb shell df` and enlarge the ballast',
+    reason: 'no write was refused after $_attempts appends: the filesystem holding '
+        '${await deviceDatabasePath()} was not actually full. fillDeviceStorage writes into '
+        'the same directory as the database, so a partition mismatch is no longer possible; '
+        'suspect deviceStorageSlackBytes being larger than the loop can consume',
   );
 
   // D-C3, and the distinction `failure.dart` calls out: `StorageFull` and `Offline` "demand

@@ -109,9 +109,11 @@ chosen with them in view, not so that they are quietly closed.
 | 8 | **FR-SYN-010 / NFR-PER-004 — TD-41** | **Open** (below) |
 
 > **One device gate has run. Item 7 is not it.** `make mobile-device-encryption` closed
-> NFR-SEC-008 on 2026-08-25 — see the note below. **`make mobile-device-kill` PASSED on
-> 2026-09-01** (`M8_Design_Review` §5.6.1), so §19.2's *kill* and *restart* clauses are
-> discharged and only **storage exhaustion** remains. `00` §19.2's durability gate needs
+> NFR-SEC-008 on 2026-08-25 — see the note below. **`00` §19.2's durability gate is now
+> CLOSED**: `make mobile-device-kill` PASSED 2026-09-01 (`M8_Design_Review` §5.6.1) and
+> `make mobile-device-storage` PASSED 2026-09-04 (§5.6.2). Kill, restart and storage exhaustion
+> are all discharged, on an `x86_64` emulator and nothing else (**TD-45**). `00` §19.2's
+> durability gate needs
 > `make mobile-device-kill` and `make mobile-device-storage`, which exist in the Makefile and
 > still have **no recorded run**. **Neither gate may be cited as evidence for the other**, and
 > the encryption result does not shrink this list: all eight items above stand.
@@ -253,6 +255,7 @@ it can prove.**
 | **TD-43** | **New. `PRAGMA key = '$key'` is unescaped string interpolation** in `mobile/lib/data/db/connection.dart`. Safe today only because `PlatformDatabaseKey._mint()` emits 64 hexadecimal characters — **safe by accident, not by construction**. Nothing enforces the key's shape at the boundary that consumes it | M10 |
 | **TD-44** | **New. `libsqlite3-0` in `docker/flutter.Dockerfile` is very likely unnecessary** since `package:sqlite3` 3.x bundles its own library through a build hook. Its justifying comment has been corrected in place; **the package is retained until disproved**, because disproving it costs an image rebuild and a full gate run, and removing it on the strength of a comment is the reasoning that left `sqlcipher_flutter_libs` in the tree for a milestone | M10 |
 | **TD-45** | **New. `arm64` and physical hardware are unproven.** The encryption gate (D-M9-8) covers **`android-x64` on a Pixel 8a API 34 emulator only**. The same is true of any device gate run on that AVD | M10 |
+| **TD-46** | **New. `storage_failure.dart` imports `package:drift/remote.dart`, which drift marks experimental.** `flutter analyze` reports `experimental_member_use`; the gate passes it only because `--no-fatal-warnings` is set. Deliberate: `DriftRemoteException` is the wrapper `NativeDatabase.createInBackground` puts around every error from the background isolate, and without it a full disk is not classified at all — the app crashes instead of returning `StorageFull` (`M8_Design_Review` §5.6.2) | M10 |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `FLUTTER_SHA256` is an optional build-arg and the build prints the checksum it downloaded; `uv.lock` gives the Python side the stronger guarantee. Closing it is one paste from a `make mobile-image` run | M8, before task 3 |
 | **TD-36** | **New, and the most consequential.** The seven report endpoints **emit money as JSON floats**, against AD-02 — whose rationale names Dart and whose client obligation is C-1. `COERCE_DECIMAL_TO_STRING` is set but reaches only `serializers.DecimalField`; `api.v1.report_views._as_json` hand-builds its dict, so DRF's encoder renders `Decimal("1180.00")` as `1180.0`. **Measured, not inferred.** The existing assertion reads `Decimal(str(...))`, and that `str()` makes it pass whichever type arrives — which is how this survived four reviews and a blocking type gate. **Breaking change to a published response type: its own change, its own verify run.** Fix by routing `_as_json`'s numeric cells through `money_string`, added in task 0 for exactly this reuse | **M8, before task 8** |
 | **TD-32** | **New. Retire the `==` dev pins**, now superseded by `uv.lock`. Their own change, their own verify run — and keep the pytest-django incident narrative when the comment block goes | M8 |

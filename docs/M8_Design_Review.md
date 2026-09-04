@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.9.0** |
-| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. `make mobile-device-kill` PASSED 2026-09-01 (§5.6.1); `make mobile-device-storage` still unrun. Next: task 4 M6, frozen at §14.12, not yet implemented** |
+| Version | **1.10.0** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). Next: task 4 M6, frozen at §14.12, not yet implemented** |
 | Date | 2026-08-16 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
@@ -27,6 +27,7 @@
 | **1.6.2** | **2026-08-11** | **§14.11 — Task 3 gate contradiction resolved.** §10's task-3 Gate cell claimed *"Kill · restart · storage exhaustion, at every write boundary"*, which §9 and `00` §19.1 assign to `integration_test/` at the **M8→M9** boundary. Task 3's gate corrected to the hermetic subset. **No architectural decision changed; no code changed** |
 | **1.8.0** | **2026-08-25** | **§5.6 amended in place — the cipher is SQLite3MultipleCiphers, not SQLCipher.** Authority: **D-M9-8** (`M9_Design_Review` v1.3.0). **The original §5.6 paragraph is preserved verbatim**; the amendment is appended beneath it. Drift, the ADR's conclusion and all of its reasoning are unchanged, as are the schema, the migrations and the key source (Android keystore via `PlatformDatabaseKey`). **`02` is not amended** — FR-SYN-016 and NFR-SEC-008 name no cipher. `chacha20` and SQLite `3.53.4` are recorded as **observations, not requirements**. Encryption proven on a **Pixel 8a API 34 emulator, `android-x64` only**; **`00` §19.2's durability gate remains open**. The header ADR row, §11.2 item 1 and §13 item 7 updated mechanically. **Minor, not patch: an architectural decision changed** (1.6.1's rule, applied in the opposite direction). Documentation only — the code it records was built and verified beforehand |
 | **1.9.0** | **2026-09-01** | **§5.6.1 added — the kill gate's first recorded run, and it PASSED.** `make mobile-device-kill` on `emulator-5554` (Pixel 8a, API 34, x86_64), host Windows Flutter 3.44.7 reached from WSL through `scripts/win-flutter.sh`. Phase 1 reached `GATE-P1: KILL-NOW` and died; phase 2 found the database mid-WAL (4096 B / 119512 B / `-shm` present) and **all tests passed** — five committed appends present, three rows still `IN_FLIGHT`, the claim positionally on 1–3, the sequence unbroken (**D-C1**). This discharges `02` NFR-OFF-005 by its own stated method. §5.6's gate-status paragraph corrected from *"NOT closed"* to **partly closed**: `make mobile-device-storage` has still never run, so §19.2's *storage exhaustion* clause remains open, and `M9_Design_Review` TD-42's *"no shell where both `make` and `flutter` work"* is retired while its CI half stands. **Minor, not patch: new evidence closes half a gate.** Documentation only |
+| **1.10.0** | **2026-09-04** | **§5.6.2 added — the storage gate's first recorded run, and it PASSED. `00` §19.2 is now CLOSED.** `make mobile-device-storage` on a disposable API 34 AVD: 8.56 GB of ballast written by the app itself, 94 appends committed into a 2 MiB slack, the 95th refused as **StorageFull** and nothing else (**D-C3**); phase B reopened the database and found all 94 present, PENDING, decodable, sequence continuing (**D-C1**, **BR-014**, **NFR-OFF-005**). **The gate found a real defect in shipping code**: `SQLITE_FULL` at COMMIT arrives three wrappers deep through the background isolate — `DriftRemoteException` -> `CouldNotRollBackException` -> `SqliteException(13)` — so a full device crashed rather than returning StorageFull; `storage_failure.dart` now walks the cause chain with the same two result codes. §5.6's gate status corrected from *partly closed* to **closed**. New **TD-46** records the deliberate `experimental_member_use` on `drift/remote.dart`. **Minor, not patch: new evidence closes a gate.** |
 
 ---
 
@@ -489,12 +490,13 @@ devices in the field.
 > the one emulator database was plaintext and had to be cleared regardless. That condition never
 > triggered, which is exactly why this was settled before M11 rather than after.
 >
-> **Gate status, stated precisely** *(updated 2026-09-01)*. The **encryption** gate is closed.
+> **Gate status, stated precisely** *(updated 2026-09-04)*. The **encryption** gate is closed.
 > **`00` §19.2's durability gate — *"Outbox survives kill, restart and storage exhaustion"* —
-> is PARTLY closed.** `make mobile-device-kill` **passed on 2026-09-01**, Pixel 8a API 34
-> emulator, evidence in §5.6.1. `make mobile-device-storage` **still has no recorded run**, so
-> the *storage exhaustion* clause of §19.2 remains open. Nothing in this amendment may be cited
-> as evidence for either; §5.6.1 is the only record of the kill result.
+> is CLOSED.** `make mobile-device-kill` passed on 2026-09-01 (§5.6.1) and
+> `make mobile-device-storage` passed on 2026-09-04 (§5.6.2). All three clauses are
+> discharged. Nothing in this amendment may be cited as evidence for either; §5.6.1 and §5.6.2
+> are the only records. **Coverage is still one emulator**: Pixel 8a API 34, `x86_64`. TD-45
+> stands — `arm64` and physical hardware remain unproven.
 
 
 ### 5.6.1 Kill-gate evidence — `make mobile-device-kill`, 2026-09-01
@@ -542,6 +544,75 @@ sequence continued without reuse (**D-C1**).
 
 **Not claimed by this run:** storage exhaustion (`make mobile-device-storage`, never run),
 `arm64`, physical hardware, and any device other than the one named above. **TD-45** stands.
+
+
+### 5.6.2 Storage-gate evidence — `make mobile-device-storage`, 2026-09-04
+
+**VERIFIED.** First recorded run. Closes the *storage exhaustion* clause of `00` §19.2 and,
+with §5.6.1, the whole of it. Discharges **D-C3** against a real exhaustion rather than a
+constructed `SqliteException`, which is what `M8_Design_Review` §14.11 said only a device could
+do: *"the first is a mapping and needs no device; the second is a system property and cannot be
+faked without one."*
+
+| Field | Value |
+| --- | --- |
+| Command | `make mobile-device-storage`, run from WSL, no arguments |
+| Device | `emulator-5554` — `districore_storage`, a **disposable** AVD, API 34, Google APIs, x86_64 |
+| Toolchain | host Windows Flutter 3.44.7 via `scripts/win-flutter.sh`; Gradle 9.1.0; JDK 18 |
+| Result | **passed, both phases** |
+
+Phase A — a write under exhaustion:
+
+```
+GATE:storage ballast=9204170752B slack=2097152B
+GATE:storage committed=94 refusal=StorageFull
+01:01 +2: All tests passed!
+```
+
+8.56 GB written by the app into its own data directory until the filesystem refused, then
+2 MiB handed back. 94 appends committed into that slack — about 22 KiB each once the WAL is
+counted — and the 95th was refused **as `StorageFull` and not as anything else**. That
+narrowness is D-C3's whole content: `StorageFull` and `Offline` *"demand opposite behaviour"*,
+and telling a salesman to wait for signal when the disk is full is the defect being excluded.
+
+Phase B — after the ballast is released:
+
+```
+00:00 +0: storage exhaustion — drained
+00:03 +2: All tests passed!
+```
+
+A second process reopened the database and found all 94 rows present, every one `PENDING`,
+every payload decoding, the sequence continuing from the highest survivor (**D-C1**). Nothing
+committed before the exhaustion was lost, which is `BR-014` and `NFR-OFF-005`.
+
+#### The defect this gate found in shipping code
+
+**On a genuinely full device the outbox crashed instead of returning `StorageFull`.**
+`SQLITE_FULL` raised at `COMMIT` never reached `DriftOutboxRepository.append` as a bare
+`SqliteException`. `connection.dart` opens the database with
+`NativeDatabase.createInBackground`, so it runs in a spawned isolate and every error arrives
+three wrappers deep:
+
+```
+DriftRemoteException.remoteCause
+  -> CouldNotRollBackException.cause      (SQLite had already rolled back; drift's own
+       -> SqliteException(13)              ROLLBACK then found no transaction)
+```
+
+`storageFailureFor` matched only a bare `SqliteException`, returned `null`, and `append`
+rethrew. It now walks the `cause` chain and applies **the identical two result codes** at each
+level — unwrapping can reveal a `StorageFull` a wrapper hid, never invent one, and
+`test/storage_failure_test.dart` pins that with a wrapped constraint violation that must still
+classify as nothing.
+
+Verified from drift 2.34.3's own source rather than from memory, twice over: that
+`CouldNotRollBackException.cause` is the *original* error and `exception` is the rollback's own
+failure, and that the isolate channel sets `serialize = false` — so the exception crosses as a
+live object and matching it by type is sound rather than lucky.
+
+**Not claimed by this run:** `arm64`, physical hardware, and any device other than the one
+named above. **TD-45 stands.**
 
 ---
 

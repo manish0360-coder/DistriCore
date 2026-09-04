@@ -713,7 +713,7 @@ Drift, so is the schema, so is every migration.
 | | |
 | --- | --- |
 | Target | **Pixel 8a API 34 emulator, `android-x64`** |
-| **Not covered** | **`arm64`, and physical hardware of any kind** (TD-45) |
+| **Not covered** | **`arm64`, and physical hardware of any kind** (TD-45) — unchanged by the 2026-09-04 storage gate, which also ran on `x86_64` |
 | Artefact | `lib/x86_64/libsqlite3mc.so` present; `libsqlite3.so` and `libsqlcipher.so` absent |
 | `PRAGMA cipher` | `chacha20` |
 | `PRAGMA sqlite_version` | `3.53.4` |
@@ -738,7 +738,8 @@ Drift, so is the schema, so is every migration.
 | **TD-42** | **No Android SDK or JDK in the pinned toolchain image.** `grep -inE "android\|jdk\|sdkmanager\|adb" docker/flutter.Dockerfile` returns nothing, so every Android artefact is produced by an **unpinned host toolchain** that `make verify` cannot see, and no device gate can run in CI. **Amended 2026-09-01:** the second half of this — *"no shell where both `make` and `flutter` work"* — is **no longer true**. `make` in WSL reaches the Windows Flutter launcher through `scripts/win-flutter.sh`, and `make mobile-device-kill` passed that way (`M8_Design_Review` §5.6.1). The **first** half stands unchanged: the pinned image still carries no Android SDK or JDK, so device gates remain host-dependent and cannot run in CI | a gap in the gate with a known fix nobody has costed |
 | **TD-43** | **`PRAGMA key = '$key'` is unescaped string interpolation** in `connection.dart`. Safe today only because `PlatformDatabaseKey._mint()` emits 64 hexadecimal characters — safe by accident, not by construction | latent; not currently reachable |
 | **TD-44** | **`libsqlite3-0` in `docker/flutter.Dockerfile` is very likely unnecessary** since `package:sqlite3` 3.x bundles its own library through the build hook. Its justifying comment is already false | removal needs an image rebuild and a full gate run to disprove |
-| **TD-45** | **`arm64` and physical hardware are unproven.** The encryption gate covers `android-x64` on an emulator only | a coverage gap, not a defect |
+| **TD-45** | **`arm64` and physical hardware are unproven.** The encryption gate covers `android-x64` on an emulator only. **Widened 2026-09-04:** the kill and storage gates are now proven too, and both on emulators as well — `00` §19.2 is closed on `x86_64` and on nothing else | a coverage gap, not a defect |
+| **TD-46** | **`lib/data/outbox/storage_failure.dart` imports `package:drift/remote.dart`, which drift marks experimental** — `flutter analyze` reports `experimental_member_use` and the gate passes it only because `--no-fatal-warnings` is set. Taken deliberately: `DriftRemoteException` is the wrapper `NativeDatabase.createInBackground` puts around every error from the background isolate, so without it a full disk is not classified at all and the app crashes instead of returning `StorageFull` — the defect `M8_Design_Review` §5.6.2 records. The exposure is one type name and one field; if drift renames either, the analyzer says so before a device does | accepted cost, not an oversight |
 
 #### 8. What this decision authorises
 

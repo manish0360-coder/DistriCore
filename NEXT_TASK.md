@@ -2,13 +2,19 @@
 
 ## The immediate next action
 
-**Run the remaining half of the M8 → M9 durability gate: `make mobile-device-storage`.**
+**`00` §19.2's durability gate is CLOSED. The next action is a decision, not a run.**
 
-> **Updated 2026-09-01.** `make mobile-device-kill` **has now been run, and PASSED** — first
-> recorded run, Pixel 8a API 34 emulator, evidence quoted verbatim in `M8_Design_Review`
-> §5.6.1. `00` §19.2's *kill* and *restart* clauses are discharged; its **storage exhaustion**
-> clause is not, because `make mobile-device-storage` has still never run. The paragraphs
-> below described the state before that run and are otherwise unchanged.
+> **Updated 2026-09-04.** Both halves have now been run and both PASSED:
+> `make mobile-device-kill` on 2026-09-01 (`M8_Design_Review` §5.6.1) and
+> `make mobile-device-storage` on 2026-09-04 (§5.6.2). Kill, restart and storage exhaustion are
+> all discharged. The storage gate found a real defect in shipping code on the way — a full
+> disk crashed the outbox instead of returning `StorageFull` — which is recorded in §5.6.2 and
+> fixed.
+>
+> **What this does not do:** it closes no milestone, and it does not shorten the open-decision
+> list below. Coverage is `x86_64` emulator only (**TD-45**), and the device gates still cannot
+> run in CI (**TD-42**). The paragraphs that follow described the state before these runs and
+> are otherwise unchanged.
 
 **It needs no ruling from anyone.** Both targets exist, both are written, and
 `M8_Design_Review` §10.1 says this is the one task that **cannot** slip. What was missing was
