@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M9 — Sync.** Four increments committed (M9.1–M9.4, below); HEAD is `bf94b8e`. The working tree passes the full mobile verification suite (**317 tests**). **One requirement closed on 2026-08-25 — encryption at rest** (FR-SYN-016, NFR-SEC-008; D-M9-8), proven on a device and uncommitted at the time of writing. **That closes a requirement, not a milestone and not a gate.** **M9 is not closed:** several FR-SYN requirements are unbuilt, no recorded evidence was found for two documented gates, and two corpus contradictions are open — see *Open at M9*. **The next action is a decision, not an implementation** (`NEXT_TASK.md`) |
+| Current milestone | **M9 — Sync.** Four increments committed (M9.1–M9.4, below); **HEAD is `e2fbc07`** *(was `bf94b8e` — this row was seven commits stale until 2026-09-04)*. The working tree passes the full mobile verification suite (**324 tests** at `e2fbc07`; it was **317** when this row was written). **One requirement closed on 2026-08-25 — encryption at rest** (FR-SYN-016, NFR-SEC-008; D-M9-8), proven on a device and uncommitted at the time of writing. **That closes a requirement, not a milestone and not a gate.** **M9 is not closed:** several FR-SYN requirements are unbuilt and two corpus contradictions are open — see *Open at M9*. **Both documented gates now have recorded evidence** (`docs/M8_Verification_Report.md`, `docs/M9_Verification_Report.md`), which closes two rows of that register and no requirement. **The next action is a decision, not an implementation** (`NEXT_TASK.md`) |
 | Last closed | **M7 — Reporting**, verified 8/8, plus the identity fix, the owner bootstrap, TD-30, TD-27, TD-21 and TD-2/TD-18 |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -45,10 +45,14 @@ roadmap entries. There is no M9.5 and none is proposed here.
 
 Gates, from `00` §19.2, verbatim:
 
-| Gate | Condition |
-| --- | --- |
-| M8 → M9 | *"Outbox survives kill, restart and storage exhaustion"* |
-| M9 → M10 | *"Adversarial sync suite passes: zero loss, zero duplicates"* |
+| Gate | Condition | State |
+| --- | --- | --- |
+| M8 → M9 | *"Outbox survives kill, restart and storage exhaustion"* | **PASSED** 2026-09-01 / 2026-09-04 — `docs/M8_Verification_Report.md` |
+| M9 → M10 | *"Adversarial sync suite passes: zero loss, zero duplicates"* | **PASSED** 2026-09-04 — `docs/M9_Verification_Report.md` |
+
+> **A passed gate is not a closed milestone.** Both conditions above now hold. M8 still has two
+> uncommitted tasks and M9 still has six open items, five of them questions no engineer may
+> answer alone. The gates and the milestones are tracked separately on purpose.
 
 ## Committed implementation history — M8 Phase 2 and M9
 
@@ -104,16 +108,17 @@ chosen with them in view, not so that they are quietly closed.
 | 3 | **Orphaned `RECEIVED` recovery.** `05` §11.5: *"not specified and is not built … Deferred to M9.4/M10 by ruling."* M9.4 shipped without it, so it has arrived at M10 by default rather than by decision | **Open** |
 | 4 | **FR-SYN-007 remainder / stock.** `02` requires *"customers on assigned routes, products, prices, schemes and stock snapshot"*. **D-M9.4-2** implements customers and deliveries only; **D-M9.4-1** records the stock snapshot as an unclosed **CONTRACT GAP** against `04` N-03/E-01 and ADR-008 | **Open — recorded gap** |
 | 5 | **FR-SYN-005 / 013 / 014 — conflict console.** `02` FR-SYN-005: *"MUST … persist it as a `SyncConflict` in `PENDING_RESOLUTION`"* (also BR-014). `05` §11.4: *"**No conflict resolution console is built, because none is needed**"*. `SyncConflict` occurs **only in `02`** — no table in `04`, no endpoint in `05`, no model in `backend/sync` | **Open — direct contradiction between `02` and `05`** |
-| 6 | **M9 → M10 gate.** `backend/tests/adversarial/` holds 13 suites and **none is a sync suite** | **The suite does not exist** — observed absence of the artefact the gate names |
-| 7 | **M8 → M9 gate.** Assigned to M8 task 10 (`M8_Design_Review` §10), which §14.11 also carries process-kill and real storage exhaustion for. §10.1: *"task 8 is the first thing that can move to M8.1 without breaking the milestone gate — **task 10 cannot**."* No commit | **No recorded evidence of this gate was found in the repository** — no commit, and no `M8_Verification_Report.md` where M0–M7 each have one |
+| 6 | **M9 → M10 gate.** *Superseded 2026-09-04: this row read* **"13 suites and none is a sync suite"** *and was true at `bf94b8e`. `4d4854e` (2026-08-22) added* `test_sync_integrity.py`*; the tree now holds **18** suites.* | **CLOSED** — `test_sync_integrity.py` **11/11**, all five fault classes of `02` §25.2 injected; `docs/M9_Verification_Report.md` §3 |
+| 7 | **M8 → M9 gate.** Assigned to M8 task 10 (`M8_Design_Review` §10), which §14.11 also carries process-kill and real storage exhaustion for | **CLOSED** — `make mobile-device-kill` passed 2026-09-01 (§5.6.1), `make mobile-device-storage` passed 2026-09-04 (§5.6.2); `docs/M8_Verification_Report.md`. **The storage gate found a real defect in shipping code**: a full disk crashed the outbox instead of returning `StorageFull`. Coverage is `x86_64` emulator only (**TD-45**) |
 | 8 | **FR-SYN-010 / NFR-PER-004 — TD-41** | **Open** (below) |
 
-> **One device gate has run. Item 7 is not it.** `make mobile-device-encryption` closed
-> NFR-SEC-008 on 2026-08-25 — see the note below. **`00` §19.2's durability gate is now
-> CLOSED**: `make mobile-device-kill` PASSED 2026-09-01 (`M8_Design_Review` §5.6.1) and
-> `make mobile-device-storage` PASSED 2026-09-04 (§5.6.2). Kill, restart and storage exhaustion
-> are all discharged, on an `x86_64` emulator and nothing else (**TD-45**). `00` §19.2's
-> durability gate needs
+> **All three device gates have now run.** `make mobile-device-encryption` closed NFR-SEC-008 on
+> 2026-08-25 — see the note below — and it was never evidence for item 7, which is why this
+> paragraph used to say so. **`00` §19.2's durability gate is CLOSED**: `make mobile-device-kill`
+> PASSED 2026-09-01 (`M8_Design_Review` §5.6.1) and `make mobile-device-storage` PASSED
+> 2026-09-04 (§5.6.2), recorded in `docs/M8_Verification_Report.md`. Kill, restart and storage
+> exhaustion are all discharged, on an `x86_64` emulator and nothing else (**TD-45**). `00`
+> §19.2's durability gate needs
 > `make mobile-device-kill` and `make mobile-device-storage`, which exist in the Makefile and
 > still have **no recorded run**. **Neither gate may be cited as evidence for the other**, and
 > the encryption result does not shrink this list: all eight items above stand.

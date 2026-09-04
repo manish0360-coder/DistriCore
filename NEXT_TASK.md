@@ -2,23 +2,28 @@
 
 ## The immediate next action
 
-**`00` §19.2's durability gate is CLOSED. The next action is a decision, not a run.**
+**Both of `00` §19.2's gates now pass and both are recorded. The next action is a decision,
+and it is not one an engineer may take.**
 
-> **Updated 2026-09-04.** Both halves have now been run and both PASSED:
-> `make mobile-device-kill` on 2026-09-01 (`M8_Design_Review` §5.6.1) and
-> `make mobile-device-storage` on 2026-09-04 (§5.6.2). Kill, restart and storage exhaustion are
-> all discharged. The storage gate found a real defect in shipping code on the way — a full
-> disk crashed the outbox instead of returning `StorageFull` — which is recorded in §5.6.2 and
-> fixed.
+> **Updated 2026-09-04.** The M8 → M9 gate passed on 2026-09-01 and 2026-09-04
+> (`docs/M8_Verification_Report.md`), and the M9 → M10 gate passed on 2026-09-04
+> (`docs/M9_Verification_Report.md`) — `make verify` **8/8**, 1108 passed, coverage **94.42%**,
+> `test_sync_integrity.py` **11/11** across all five fault classes of `02` §25.2.
 >
-> **What this does not do:** it closes no milestone, and it does not shorten the open-decision
-> list below. Coverage is `x86_64` emulator only (**TD-45**), and the device gates still cannot
-> run in CI (**TD-42**). The paragraphs that follow described the state before these runs and
-> are otherwise unchanged.
+> **Two rows of the table below are struck out; six remain, and five of those are questions no
+> engineer may answer alone.** Both gates found real defects on the way — a full disk crashed
+> the outbox instead of returning `StorageFull`, and an interrupted operation told the device to
+> delete work the server had never performed. Each is recorded where it was found.
+>
+> **What this does not do:** it closes no milestone. A passed gate is a stated condition holding,
+> not a milestone's requirements being built. M8 tasks 6 and 8 have no commit; M9's five
+> contradictions and gaps are untouched. Coverage is `x86_64` emulator only (**TD-45**) and the
+> device gates still cannot run in CI (**TD-42**).
 
-**It needs no ruling from anyone.** Both targets exist, both are written, and
-`M8_Design_Review` §10.1 says this is the one task that **cannot** slip. What was missing was
-never a decision — it was a run. The encryption work of 2026-08-25 settled that question in
+**Superseded, kept for the reasoning.** *This paragraph said: "It needs no ruling from anyone.
+Both targets exist, both are written, and `M8_Design_Review` §10.1 says this is the one task that
+**cannot** slip. What was missing was never a decision — it was a run." That was correct, and the
+runs happened on 2026-09-01 and 2026-09-04.* The encryption work of 2026-08-25 settled that question in
 practice: `make mobile-device-encryption` executed on the Pixel 8a API 34 emulator and closed
 NFR-SEC-008, so the harness, the AVD and the by-hand invocation path are all known to work
 (TD-42 records that they cannot yet run in CI).
@@ -27,18 +32,19 @@ NFR-SEC-008, so the harness, the AVD and the by-hand invocation path are all kno
 action is a decision, not an implementation."* That was true when every open item needed a
 Product Architect. It is no longer true of **all** of them: D-M9-4, D-M9-6, D-M9-7 and D-M9-8
 have since been ruled, and the encryption defect was found by *running the thing*, not by
-deciding anything. Item 4 below is now in the same category.
+deciding anything. **Items 4 and 5 below proved to be in the same category and are now closed** —
+each was found to hide a real defect, not merely a missing signature.
 
 **No milestone number is proposed here, and none should be invented.**
 `docs/00_Engineering_Foundation.md` §19.1 defines **M9 = Sync** and **M10 = Hardening** and
 defines no sub-milestones; `M9.1`–`M9.4` are working labels for four commits, not roadmap
 entries. There is no M9.5.
 
-**The next milestone still cannot be selected.** **Eight items are open and five of them remain
+**The next milestone still cannot be selected.** **Six items are open and five of them remain
 questions no engineer may answer alone** — two are direct contradictions between frozen
-documents. They are listed in `PROJECT_STATE.md` under *Open at M9*, unresolved and
-deliberately so. **Running the durability gate does not shorten that list**; it discharges the
-one item that was waiting on nobody.
+documents. They are listed in `PROJECT_STATE.md` under *Open at M9*, unresolved and deliberately
+so. **Running the two gates did not shorten that list by any decision**; it discharged the two
+items that were waiting on nobody, which is exactly what a gate can do and all it can do.
 
 **What still needs a decision, before any code:**
 
@@ -47,8 +53,8 @@ one item that was waiting on nobody.
 | 1 | **FR-SYN-005/013/014 vs `05` §11.4.** `02` requires a `SyncConflict` in `PENDING_RESOLUTION`; `05` says *"no conflict resolution console is built, because none is needed"*. `SyncConflict` exists in no schema and no contract | Product Architect |
 | 2 | **FR-SYN-009.** `05` §11.5 claims coverage that **D-M9.3-1** makes unreachable — the endpoint reads `device_id` from the JWT and can only ever describe the caller's own device | Product Architect |
 | 3 | **FR-RPT-009 sync health report.** Placed *at M9* by ruling **A-5** and `M7_Design_Review` §C-4. Unbuilt, and unspecified in `05` | Product Architect |
-| 4 | **M8 → M9 gate** (M8 task 10) — **no recorded evidence of this gate was found in the repository**, and `M8_Design_Review` §10.1 says this one **cannot** slip. **This is the immediate next action above: it needs a run, not a ruling.** *A different device gate — `make mobile-device-encryption` — did run on 2026-08-25 and closed NFR-SEC-008 (D-M9-8). It is not this gate and is not evidence for it.* M8 tasks 6 and 8 also have no commit | Engineering *(the gate)* + Product *(tasks 6 and 8)* |
-| 5 | **M9 → M10 gate** — no adversarial sync suite exists | Engineering |
+| 4 | ~~**M8 → M9 gate** (M8 task 10)~~ — **CLOSED 2026-09-04.** `make mobile-device-kill` passed 2026-09-01, `make mobile-device-storage` passed 2026-09-04; `docs/M8_Verification_Report.md`. *M8 tasks 6 and 8 still have no commit and remain open* | ~~Engineering~~ + Product *(tasks 6 and 8)* |
+| 5 | ~~**M9 → M10 gate** — no adversarial sync suite exists~~ — **CLOSED 2026-09-04.** The suite has existed since `4d4854e` (2026-08-22); this line was written against `bf94b8e` and was seven commits stale. 11/11, `docs/M9_Verification_Report.md` | ~~Engineering~~ |
 | 6 | **FR-SYN-007 remainder / stock snapshot** — D-M9.4-1's recorded CONTRACT GAP | Product Architect |
 | 7 | **Orphaned `RECEIVED` recovery** — deferred by `05` §11.5 *"to M9.4/M10"*; M9.4 has passed, so it landed on M10 by default | Engineering |
 | 8 | **TD-41 / FR-SYN-010** — launch-only trigger, no connectivity mechanism | Engineering |
@@ -69,8 +75,9 @@ one item that was waiting on nobody.
 > **M9 has four committed increments** (M9.1–M9.4) and is **not closed**. Commit-by-commit
 > history and the open items are in `PROJECT_STATE.md`.
 >
-> The working tree passes the full mobile verification suite (**317 tests**); it was **305** at
-> commit `bf94b8e`. **Encryption at rest is closed** (FR-SYN-016, NFR-SEC-008; D-M9-8) —
+> The working tree passes the full mobile verification suite — **324 tests** at `e2fbc07`,
+> measured by `make mobile-verify` on 2026-09-04. It was **317** when this note was written
+> and **305** at commit `bf94b8e`. **Encryption at rest is closed** (FR-SYN-016, NFR-SEC-008; D-M9-8) —
 > `sqlite3mc` via the build hook, keyed from the Android keystore, with `chacha20` and SQLite
 > `3.53.4` **observed and recorded, not required**. Proven on a **Pixel 8a API 34 emulator,
 > `android-x64` only — not arm64 and not physical hardware** (TD-45). **It closes a
