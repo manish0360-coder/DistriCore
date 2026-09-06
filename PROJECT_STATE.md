@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Phase | **Phase 1 — Implementation** |
-| Current milestone | **M9 — Sync.** Four increments committed (M9.1–M9.4, below); **HEAD is `95214e2`** *(was `bf94b8e` — this row was seven commits stale until 2026-09-04)*. The working tree passes the full mobile verification suite (**352 tests**; 346 at `1daac33`, 324 at `e2fbc07`, 317 when this row was written). **TD-41's retry cadence shipped in `8a3cee2`, and its FR-SYN-010 acceptance (B1) passed on a device on 2026-09-06.** **One requirement closed on 2026-08-25 — encryption at rest** (FR-SYN-016, NFR-SEC-008; D-M9-8), proven on a device and uncommitted at the time of writing. **That closes a requirement, not a milestone and not a gate.** **M9 is not closed:** several FR-SYN requirements are unbuilt and two corpus contradictions are open — see *Open at M9*. **Both documented gates now have recorded evidence** (`docs/M8_Verification_Report.md`, `docs/M9_Verification_Report.md`), which closes two rows of that register and no requirement. **The next action is a decision, not an implementation** (`NEXT_TASK.md`) |
+| Current milestone | **M9 — Sync.** Four increments committed (M9.1–M9.4, below); **HEAD is `95214e2`** *(was `bf94b8e` — this row was seven commits stale until 2026-09-04)*. The working tree passes the full mobile verification suite (**352 tests**; 346 at `1daac33`, 324 at `e2fbc07`, 317 when this row was written). **TD-41's retry cadence shipped in `8a3cee2`, and its FR-SYN-010 acceptance (B1) passed on a device on 2026-09-06.** **One requirement closed on 2026-08-25 — encryption at rest** (FR-SYN-016, NFR-SEC-008; D-M9-8), proven on a device and uncommitted at the time of writing. **That closes a requirement, not a milestone and not a gate.** **M9 is not closed:** several FR-SYN requirements are unbuilt and two corpus contradictions are open — see *Open at M9*. **Both documented gates now have recorded evidence** (`docs/M8_Verification_Report.md`, `docs/M9_Verification_Report.md`), which closes two rows of that register and no requirement. **FR-RPT-009 closed 2026-09-06 (D-M9-10)** — `GET /reports/sync-health`, no model and no migration. **The remaining M9 items are decisions, not implementations** (`NEXT_TASK.md`) |
 | Last closed | **M7 — Reporting**, verified 8/8, plus the identity fix, the owner bootstrap, TD-30, TD-27, TD-21 and TD-2/TD-18 |
 | Edition | 1a — **back end feature-complete, and installable for the first time** |
 | Design corpus | `docs/00`–`05`, frozen · `02` at v0.2.0 · amended by ADR-0007, ADR-0008, ADR-0009 |
@@ -51,7 +51,7 @@ Gates, from `00` §19.2, verbatim:
 | M9 → M10 | *"Adversarial sync suite passes: zero loss, zero duplicates"* | **PASSED** 2026-09-04 — `docs/M9_Verification_Report.md` |
 
 > **A passed gate is not a closed milestone.** Both conditions above now hold. M8 still has two
-> uncommitted tasks and M9 still has six open items, five of them questions no engineer may
+> uncommitted tasks and M9 still has five open items, four of them questions no engineer may
 > answer alone. The gates and the milestones are tracked separately on purpose.
 
 ## Committed implementation history — M8 Phase 2 and M9
@@ -103,7 +103,7 @@ chosen with them in view, not so that they are quietly closed.
 
 | # | Item | State |
 | --: | --- | --- |
-| 1 | **FR-RPT-009 — sync health report** (FR-SYN-015). `02:737` ruling **A-5** and `M7_Design_Review` §C-4 both place it *at M9*. No implementation in `backend/reporting`; **no endpoint in `05`** | **Open** |
+| 1 | **FR-RPT-009 — sync health report** (FR-SYN-015) | **CLOSED 2026-09-06 — D-M9-10.** `GET /reports/sync-health` (`05` §9.11.2), per-device counts with the FR-SYN-015 conflict proportion. **No model, no field, no migration**: `sync_operation` already recorded every column. FR-SYN-015's Edition-1 quantity is `REJECTED ÷ settled`, proposed as `02` amendment **S-7** and **not yet written**. Proven by `make verify` against seeded rows — **no field-fleet evidence is claimed** |
 | 2 | **FR-SYN-009 — `SALESMGR`/`ADMIN` per-device view.** `05` §11.5 is captioned *"(FR-SYN-008/009)"*, but **D-M9.3-1** freezes `device_id` as taken from the JWT *"never from the request"*, so the endpoint can only ever show the caller's own device. No other surface exists | **Open — apparent contradiction inside `05` §11.5** |
 | 3 | **Orphaned `RECEIVED` recovery.** `05` §11.5: *"not specified and is not built … Deferred to M9.4/M10 by ruling."* M9.4 shipped without it, so it has arrived at M10 by default rather than by decision | **Open** |
 | 4 | **FR-SYN-007 remainder / stock.** `02` requires *"customers on assigned routes, products, prices, schemes and stock snapshot"*. **D-M9.4-2** implements customers and deliveries only; **D-M9.4-1** records the stock snapshot as an unclosed **CONTRACT GAP** against `04` N-03/E-01 and ADR-008 | **Open — recorded gap** |

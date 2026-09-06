@@ -36,6 +36,7 @@ REPORTS = [
     "v1:report-receivables",
     "v1:report-top-customers",
     "v1:report-order-status",
+    "v1:report-sync-health",
 ]
 
 
@@ -296,7 +297,10 @@ def test_the_dashboard_is_absent_from_the_report_csv_suite():
     that list would be given an export by a test rather than by a decision.
     """
     assert "v1:dashboard" not in REPORTS
-    assert len(REPORTS) == 7, "the seven reports export CSV; the dashboard is not one of them"
+    assert len(REPORTS) == 8, (
+        "the eight reports export CSV; the dashboard is not one of them. "
+        "sync-health joined them at M9 (FR-RPT-009, 02 ruling A-5)"
+    )
 
 
 def test_the_dashboard_requires_authentication(api):

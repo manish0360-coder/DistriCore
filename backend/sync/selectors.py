@@ -300,3 +300,49 @@ def device_status(*, device_id: str) -> dict[str, Any]:
             for client_uuid, operation_type, error_code, client_created_at in rejected
         ],
     }
+
+
+def fleet_status(
+    *, date_from: datetime | None = None, date_to: datetime | None = None
+) -> list[dict[str, Any]]:
+    """Per-device operation counts across **every** device — `05` §9.11.2, FR-RPT-009.
+
+    **The sibling of `device_status`, and it lives here for the same reason.** `sync` owns
+    `SyncOperation`; N-02 forbids another module importing it, and `reporting` already reaches
+    `billing`, `inventory`, `orders` and `receivables` through their selectors and never
+    through their models. So the read belongs on this side of the boundary and the *metric*
+    belongs to `reporting`, which owns FR-SYN-015's definition.
+
+    **Counts only — no derived rate.** This function states what happened; it does not decide
+    what a "conflict" is. That decision is `01` §10.3's and it is applied one layer up, where
+    it can be stated in the report's own `definition` and travel into the CSV (M7-1).
+
+    **Deliberately unscoped by device.** `device_status` is scoped by a `device_id` its caller
+    takes from the JWT (D-M9.3-1); this is the fleet view, and its authorisation is the
+    `_internal` rule the report applies before calling. Keeping the two functions separate is
+    what stops a device-facing endpoint ever growing a fleet-wide branch by accident.
+
+    Ordered by `device_id` so the report and its CSV are stable between runs.
+    """
+    operations = SyncOperation.objects.all()
+    if date_from is not None:
+        operations = operations.filter(received_at__gte=date_from)
+    if date_to is not None:
+        operations = operations.filter(received_at__lte=date_to)
+
+    grouped = (
+        operations.values("device_id")
+        .annotate(
+            last_sync_at=Max("received_at"),
+            accepted=Count("id", filter=Q(status=SyncOperation.Status.ACCEPTED)),
+            duplicate=Count("id", filter=Q(status=SyncOperation.Status.DUPLICATE)),
+            deferred=Count("id", filter=Q(status=SyncOperation.Status.DEFERRED)),
+            rejected=Count("id", filter=Q(status=SyncOperation.Status.REJECTED)),
+            # `RECEIVED` is recorded-but-not-resolved (`05` §11.5). It is reported so a
+            # persistent value is visible as an orphan, and excluded from the denominator
+            # one layer up because it is not yet a synchronised transaction.
+            in_flight=Count("id", filter=Q(status=SyncOperation.Status.RECEIVED)),
+        )
+        .order_by("device_id")
+    )
+    return list(grouped)

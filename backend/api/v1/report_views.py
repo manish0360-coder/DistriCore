@@ -155,6 +155,19 @@ class StockReportView(_ReportView):
         return {"as_of": _parse_date(request, "as_of")}
 
 
+class SyncHealthReportView(_ReportView):
+    """FR-RPT-009 / FR-SYN-015 — `05` §9.11.2.
+
+    **Parameters are inherited and that is the whole security story.** The base returns
+    `date_from` and `date_to` only, so a `?device_id=` on the query string is ignored: this
+    report is fleet-wide by construction and has no per-device branch to escape into.
+    `GET /sync/status` remains the device-scoped view, and its `device_id` comes from the JWT
+    (D-M9.3-1), never from a request.
+    """
+
+    build = staticmethod(report_selectors.sync_health)
+
+
 class StockVarianceReportView(_ReportView):
     build = staticmethod(report_selectors.stock_variance)
 

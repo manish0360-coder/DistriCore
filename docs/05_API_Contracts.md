@@ -579,6 +579,7 @@ Enforced in `services.py` on every request (N-01, N-06). ● full · ◐ own rec
 | GET | `/reports/receivables` | Balance, ageing bucket and oldest unpaid per customer |
 | GET | `/reports/top-customers` | `?limit=10&date_from=` — the Top 10 ranking |
 | GET | `/reports/order-status` | Pipeline counts by status |
+| GET | `/reports/sync-health` | **Added.** `?date_from=&date_to=` — one row per device: settled operations, the `REJECTED` count, and the FR-SYN-015 conflict proportion. §9.11.2 |
 
 All **reports** accept `?format=csv` (FR-RPT-012). The dashboard below does not, and is not a report.
 
@@ -636,6 +637,52 @@ and says so per metric with `is_live`.
 > own reasoning — that a non-reproducible figure must not acquire the authority of a
 > **document** — is an argument about *export*, not about *access*. The export stays refused.
 > Kept struck rather than deleted: the reasoning was sound and only its scope was wrong.
+
+#### 9.11.2 Sync health — FR-RPT-009 / FR-SYN-015
+
+> **Added 2026-09-06** by `M9_Design_Review.md` §D-M9-10 (FR-RPT-009, delivered at M9 per `02`
+> ruling **A-5**). **Purely additive.** No existing path, parameter, response field or role
+> changes, and **no new storage**: every column is derived from `sync_operation` (`04` T-26),
+> which M9.1 already writes.
+
+**Audience and authorisation.** `S1`, through the same `_internal` rule the other seven reports
+use — **`OWNER`, `SALESMAN`, `DELIVERY`; `RETAILER` is refused.** That admits field roles to a
+fleet-wide operational view, which is the **existing** reporting authorisation model rather than
+a decision taken here; narrowing it is a corpus question for all eight reports, not for this one.
+**`SALESMGR` is not an implemented role** — `04` T-02 seeds four, and the code appears nowhere in
+`04` or `05` — so this endpoint does not serve FR-SYN-009, which D-M9-7 moved to `Rel = v2.0`.
+
+**Parameters.** `?date_from=` and `?date_to=` (inclusive dates, the shape every period report
+uses). Both optional; omitted means all history. `?format=csv` per FR-RPT-012.
+
+**Scope of a row.** One row per `device_id` seen in the period, ordered by device.
+
+| Column | Meaning |
+| --- | --- |
+| `device_id` | `sync_operation.device_id` — the device as attributed by PU-4, never from a request |
+| `last_sync_at` | `MAX(received_at)` in the period |
+| `accepted` | `status = 'ACCEPTED'` |
+| `duplicate` | `status = 'DUPLICATE'` — a replay, which BR-012 and `05` C-4 define as **success** |
+| `deferred` | `status = 'DEFERRED'` — held and auto-retried |
+| `rejected` | `status = 'REJECTED'` — the only Edition-1 outcome needing a human |
+| `in_flight` | `status = 'RECEIVED'` — recorded before the business operation completed. **Excluded from the denominator**; a persistent value here is an orphan |
+| `settled` | `accepted + duplicate + deferred + rejected` — the denominator |
+| `conflict_rate` | `rejected / settled`, as a percentage. **Empty when `settled = 0`** |
+
+**The conflict proportion.** `01` §10.3's metric is *"sync conflicts requiring manual
+intervention ≤ 1% of synchronised transactions"*. Edition 1's `02` §5.3 taxonomy reduces to
+`SC-DUPLICATE` and `SC-SEQUENCE`, **both marked automatic**, so neither is in the numerator;
+`05` §11.4 confirms *"only the two automatic classes exist in Version 1"*. `REJECTED` is what
+remains: never auto-retried, carrying a mandatory `error_code` (`04` T-26), and which §11.2
+obliges the client to flag to a user. This is S-5's reasoning applied to FR-SYN-015 and is
+**proposed as `02` amendment S-7**; until S-7 is ratified the report states its definition in
+its own `definition` field, which the CSV carries (M7-1).
+
+**Empty denominator.** `conflict_rate` is **blank, never `0%`**. A fleet that has synchronised
+nothing has not demonstrated integrity, and printing zero would assert a measurement never made.
+
+**Empty fleet.** No `sync_operation` rows in the period yields a report with **zero rows** and no
+total line — a valid, empty report, not an error.
 
 ### 9.12 System
 

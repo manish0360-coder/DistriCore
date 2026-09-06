@@ -40,7 +40,7 @@ each was found to hide a real defect, not merely a missing signature.
 defines no sub-milestones; `M9.1`–`M9.4` are working labels for four commits, not roadmap
 entries. There is no M9.5.
 
-**The next milestone still cannot be selected.** **Six items are open and five of them remain
+**The next milestone still cannot be selected.** **Five items are open and four of them remain
 questions no engineer may answer alone** — two are direct contradictions between frozen
 documents. They are listed in `PROJECT_STATE.md` under *Open at M9*, unresolved and deliberately
 so. **Running the two gates did not shorten that list by any decision**; it discharged the two
@@ -52,7 +52,7 @@ items that were waiting on nobody, which is exactly what a gate can do and all i
 | --: | --- | --- |
 | 1 | **FR-SYN-005/013/014 vs `05` §11.4.** `02` requires a `SyncConflict` in `PENDING_RESOLUTION`; `05` says *"no conflict resolution console is built, because none is needed"*. `SyncConflict` exists in no schema and no contract | Product Architect |
 | 2 | **FR-SYN-009.** `05` §11.5 claims coverage that **D-M9.3-1** makes unreachable — the endpoint reads `device_id` from the JWT and can only ever describe the caller's own device | Product Architect |
-| 3 | **FR-RPT-009 sync health report.** Placed *at M9* by ruling **A-5** and `M7_Design_Review` §C-4. Unbuilt, and unspecified in `05` | Product Architect |
+| ~~3~~ | ~~**FR-RPT-009 sync health report**~~ — **CLOSED 2026-09-06 (D-M9-10).** `GET /reports/sync-health`, specified in `05` §9.11.2 and built. **No model, no field, no migration** — `sync_operation` already recorded every column. FR-SYN-015's Edition-1 quantity (`REJECTED ÷ settled`) is proposed as `02` amendment **S-7** and is **not yet written** | ~~Product Architect~~ *(S-7 ratification outstanding)* |
 | 4 | ~~**M8 → M9 gate** (M8 task 10)~~ — **CLOSED 2026-09-04.** `make mobile-device-kill` passed 2026-09-01, `make mobile-device-storage` passed 2026-09-04; `docs/M8_Verification_Report.md`. *M8 tasks 6 and 8 still have no commit and remain open* | ~~Engineering~~ + Product *(tasks 6 and 8)* |
 | 5 | ~~**M9 → M10 gate** — no adversarial sync suite exists~~ — **CLOSED 2026-09-04.** The suite has existed since `4d4854e` (2026-08-22); this line was written against `bf94b8e` and was seven commits stale. 11/11, `docs/M9_Verification_Report.md` | ~~Engineering~~ |
 | 6 | **FR-SYN-007 remainder / stock snapshot** — D-M9.4-1's recorded CONTRACT GAP | Product Architect |

@@ -33,6 +33,7 @@ from inventory import selectors as inventory_selectors
 from orders import selectors as order_selectors
 from receivables import selectors as receivable_selectors
 from reporting.tables import Column, Dashboard, Metric, ReportTable
+from sync import selectors as sync_selectors
 
 ZERO_MONEY = Decimal("0.00")
 ZERO_QUANTITY = Decimal("0.000")
@@ -693,6 +694,119 @@ def statement_table(
     )
 
 
+# --------------------------------------------------------------------- 9. sync health
+#: **FR-SYN-015's Edition-1 quantity, carried by the report that publishes it (M7-1).**
+#:
+#: `01` §10.3 measures *"sync conflicts requiring manual intervention <= 1% of synchronised
+#: transactions"*. `02` §5.3 marks both Edition-1 classes — `SC-DUPLICATE` and `SC-SEQUENCE` —
+#: **automatic**, and `05` §11.4 confirms *"only the two automatic classes exist in Version 1"*.
+#: Neither requires intervention, so neither is in the numerator. `REJECTED` is what remains:
+#: never auto-retried, carrying a mandatory `error_code` (`04` T-26), and which `05` §11.2
+#: obliges the client to flag to a user.
+#:
+#: This is S-5's reasoning applied to FR-SYN-015 and is **proposed as `02` amendment S-7**.
+#: Until S-7 is ratified the definition travels with the data rather than living in a document
+#: the CSV never reaches.
+SYNC_HEALTH_DEFINITION = (
+    "Conflict proportion = REJECTED / settled, where settled = ACCEPTED + DUPLICATE + "
+    "DEFERRED + REJECTED. Vision 10.3 measures conflicts requiring manual intervention; "
+    "02 5.3 marks SC-DUPLICATE and SC-SEQUENCE automatic, so neither counts. RECEIVED is "
+    "recorded but not yet resolved and is excluded from the denominator, and reported "
+    "separately as in-flight. Blank when nothing settled: a fleet that has synchronised "
+    "nothing has demonstrated nothing. Target (Vision 10.3): at or below 1%."
+)
+
+#: Two decimal places, so a 1% target is legible at fleet sizes the DR-8 envelope allows.
+_RATE_PLACES = Decimal("0.01")
+
+
+def _conflict_rate(rejected: int, settled: int) -> Decimal | None:
+    """The FR-SYN-015 proportion as a percentage, or ``None`` when nothing settled.
+
+    **``None``, never zero.** A fleet with no settled operations has not demonstrated
+    integrity, and rendering `0%` would assert a measurement that was never made. `csv._format`
+    already renders `None` as empty — *"None is empty, never 'None'"* — so the honest answer
+    reaches both the screen and the export without a special case.
+    """
+    if settled <= 0:
+        return None
+    return (Decimal(rejected) * 100 / Decimal(settled)).quantize(_RATE_PLACES)
+
+
+def sync_health(
+    actor: Any, *, date_from: date | None = None, date_to: date | None = None
+) -> ReportTable:
+    """FR-RPT-009 / FR-SYN-015 — `05` §9.11.2. Delivered at M9 by `02` ruling **A-5**.
+
+    **Reads `sync_operation` and nothing else.** M9.1 already records every column this needs
+    (`04` T-26), so a report that makes the fleet's sync visible costs no model, no field and
+    no migration. The counts come from `sync.selectors.fleet_status` — N-02: cross-module
+    access through the owning module, never through its models.
+    """
+    _internal(actor)
+
+    devices = sync_selectors.fleet_status(
+        date_from=_start_of(date_from), date_to=_end_of(date_to)
+    )
+
+    rows: list[dict[str, Any]] = []
+    fleet = {"accepted": 0, "duplicate": 0, "deferred": 0, "rejected": 0, "in_flight": 0}
+    for device in devices:
+        for key in fleet:
+            fleet[key] += device[key]
+        settled = (
+            device["accepted"] + device["duplicate"] + device["deferred"] + device["rejected"]
+        )
+        rows.append(
+            {
+                "device_id": device["device_id"],
+                "last_sync_at": device["last_sync_at"],
+                "accepted": device["accepted"],
+                "duplicate": device["duplicate"],
+                "deferred": device["deferred"],
+                "rejected": device["rejected"],
+                "in_flight": device["in_flight"],
+                "settled": settled,
+                "conflict_rate": _conflict_rate(device["rejected"], settled),
+            }
+        )
+
+    fleet_settled = (
+        fleet["accepted"] + fleet["duplicate"] + fleet["deferred"] + fleet["rejected"]
+    )
+    return ReportTable(
+        key="sync-health",
+        title="Sync health",
+        columns=(
+            Column("device_id", "Device"),
+            Column("last_sync_at", "Last sync"),
+            Column("accepted", "Accepted", numeric=True),
+            Column("duplicate", "Duplicate", numeric=True),
+            Column("deferred", "Deferred", numeric=True),
+            Column("rejected", "Rejected", numeric=True),
+            Column("in_flight", "In flight", numeric=True),
+            Column("settled", "Settled", numeric=True),
+            Column("conflict_rate", "Conflict %", numeric=True),
+        ),
+        rows=tuple(rows),
+        definition=SYNC_HEALTH_DEFINITION,
+        # **No total row on an empty fleet.** A "Total 0" line would look like a measured zero.
+        total=(
+            {
+                "device_id": "",
+                "last_sync_at": None,
+                **fleet,
+                "settled": fleet_settled,
+                "conflict_rate": _conflict_rate(fleet["rejected"], fleet_settled),
+            }
+            if rows
+            else None
+        ),
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
 # --------------------------------------------------------------------------- dashboard
 def dashboard(actor: Any, *, today: date | None = None) -> Dashboard:
     """Four numbers, four different questions, no number a slice of another (D-4, M7-8).
@@ -758,6 +872,7 @@ def dashboard(actor: Any, *, today: date | None = None) -> Dashboard:
 __all__ = [
     "SALES_DEFINITION",
     "SALES_GROUPINGS",
+    "SYNC_HEALTH_DEFINITION",
     "UNCATEGORISED",
     "Column",
     "Dashboard",
@@ -771,5 +886,6 @@ __all__ = [
     "statement_table",
     "stock_position",
     "stock_variance",
+    "sync_health",
     "top_customers",
 ]

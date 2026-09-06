@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M9_Design_Review` |
-| Version | **1.5.0** |
-| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45. D-M9-9 ruled 2026-09-05 — the FR-SYN-010 trigger is a fixed-cadence retry; **gives TD-41 a mechanism without discharging FR-SYN-010**, folds in FR-SYN-017, opens TD-47. **B1 measured and PASSED 2026-09-06 (§5.1): 67 046 ms of 120 000 ms; FR-SYN-010 is satisfied at the measured configuration, TD-45 and TD-47 unchanged.**| 
+| Version | **1.6.0** |
+| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45. D-M9-9 ruled 2026-09-05 — the FR-SYN-010 trigger is a fixed-cadence retry; **gives TD-41 a mechanism without discharging FR-SYN-010**, folds in FR-SYN-017, opens TD-47. **B1 measured and PASSED 2026-09-06 (§5.1): 67 046 ms of 120 000 ms; FR-SYN-010 is satisfied at the measured configuration, TD-45 and TD-47 unchanged. D-M9-10 ruled 2026-09-06 — FR-RPT-009 delivered at M9 per A-5; proposes `02` amendment S-7.**|
 | Date | 2026-08-21 |
 | Milestone | M9 — Sync (`00` §19.1) |
 | Scope | Push receiver · mobile drain · server sync status · pull and device cache · **the Edition-1 conflict model** |
@@ -885,6 +885,81 @@ the rate limit; the trigger exists **and is wired**; the ordering is stated exac
 mutation-tested against a deliberate violation before being trusted.
 
 ---
+
+---
+
+### D-M9-10 — FR-RPT-009 is delivered at M9, and FR-SYN-015's Edition-1 quantity is named
+
+*Ruled and implemented 2026-09-06. Authorises `02` amendment **S-7**, proposed below and **not
+yet written**.*
+
+#### 1. Why now
+
+`02` ruling **A-5** placed FR-RPT-009 *"at M9, beside the sync mechanism"*. M9's mechanism is
+now built and measured — TD-41 shipped, both `00` §19.2 gates passed, B1 passed — and the report
+was the last v1.0 requirement in this milestone with no implementation and **no endpoint in
+`05`**. A repository audit settled the cost question: `sync_operation` (`04` T-26) already
+records every column the report needs, and `reporting` already has `ReportTable`, CSV and
+scoping serving seven endpoints. **No model, no field, no migration.**
+
+#### 2. The metric — proposed `02` amendment S-7
+
+FR-SYN-015 asks for *"the proportion of synchronised transactions that raised a conflict, as the
+measure for Vision §10.3."* `01` §10.3's metric is **"sync conflicts requiring manual
+intervention ≤ 1% of synchronised transactions"**, and that phrase decides every open question:
+
+| Class | `02` §5.3 | In the numerator? |
+| --- | --- | --- |
+| `SC-DUPLICATE` | *"Acknowledge as accepted; create nothing"* — **automatic** | **No** |
+| `SC-SEQUENCE` | *"Held; retried automatically"* — **automatic** | **No** |
+| The four human classes | `05` §11.4: *"only the two automatic classes exist in Version 1"* | Not in Edition 1 |
+| **`REJECTED`** | never auto-retried; mandatory `error_code` (`04` T-26); `05` §11.2 obliges the client to flag it | **Yes** |
+
+> **S-7 (proposed).** FR-SYN-015's Edition-1 quantity is `REJECTED ÷ settled`, where `settled =
+> ACCEPTED + DUPLICATE + DEFERRED + REJECTED`. `RECEIVED` is excluded from the denominator —
+> `05` §11.5 defines it as *"business processing not completed"*, i.e. not yet synchronised —
+> and is reported separately, because a persistent value there is an orphan. With no settled
+> operations the proportion is **undefined and reported blank, never `0%`**.
+
+This is **S-5's reasoning applied to FR-SYN-015**: S-5 resolved FR-SYN-008's undefined *"count
+of unresolved conflicts"* to `status = 'REJECTED'` by the same route. **`02` is unmodified.**
+Until S-7 is ratified the definition travels in the report's own `definition` field and into the
+CSV (M7-1), so no reader can meet the number without meeting its meaning.
+
+#### 3. Where the code went, and why
+
+`sync.selectors.fleet_status` holds the counts because **N-02** forbids `reporting` importing
+another module's models, and `reporting/selectors.py` already reaches `billing`, `inventory`,
+`orders` and `receivables` through their selectors and never through their models. It is the
+sibling of `device_status`, which serves `/sync/status` for one device.
+
+**The import-linter contract would not have caught the shortcut.** `pyproject.toml`'s N-01/N-02
+contract lists only `api` and `webadmin` as source modules, so `reporting` importing
+`sync.models` would have passed `make verify` while breaking the documented rule. The rule was
+followed because it is written down, not because CI enforces it here.
+
+`reporting` owns the **metric**, `sync` owns the **data**. FR-SYN-015 is a reporting requirement;
+what a conflict *is* is not a fact about the sync table.
+
+#### 4. Authorisation — the existing rule, unchanged
+
+`_internal(actor)` — **`OWNER`, `SALESMAN`, `DELIVERY`; `RETAILER` refused** — identical to the
+seven existing reports, and enforced in the selector so both delivery layers inherit it (N-01).
+
+**`SALESMGR` is not an implemented role.** `core/permissions.py` seeds four (`04` T-02) and the
+code appears **8× in `02`, 0× in `04`, 0× in `05`**. This endpoint therefore does **not** serve
+FR-SYN-009, which **D-M9-7** already moved to `Rel = v2.0`.
+
+That the existing rule admits field roles to a fleet-wide view is **recorded, not decided here**.
+Narrowing it is a question for all eight reports and belongs to the Product Architect.
+
+#### 5. What this does **not** do
+
+1. **No stock snapshot.** D-M9.4-1's CONTRACT GAP on FR-SYN-007 is untouched and still open.
+2. **Nothing about TD-47, TD-45 or TD-48.** All three stand exactly as recorded.
+3. **No field-device evidence.** The report is server-side; `make verify` is its whole gate.
+4. **No claim about production fleets.** It is proven against seeded rows, not against 50 real
+   devices at the DR-8 envelope, which `01` §16.3 **CF-4** still calls provisional anyway.
 
 ## 7. Explicitly preserved
 
