@@ -29,6 +29,7 @@ from core.fields import to_money
 from reporting import csv as report_csv
 from reporting import selectors as report_selectors
 from reporting.tables import Dashboard, ReportTable
+from sync import selectors as sync_selectors
 
 #: Both renderers must be declared on any view that honours `?format=csv`. DRF negotiates
 #: that parameter against this list and raises ``Http404`` when nothing matches — see
@@ -158,14 +159,31 @@ class StockReportView(_ReportView):
 class SyncHealthReportView(_ReportView):
     """FR-RPT-009 / FR-SYN-015 — `05` §9.11.2.
 
-    **Parameters are inherited and that is the whole security story.** The base returns
-    `date_from` and `date_to` only, so a `?device_id=` on the query string is ignored: this
-    report is fleet-wide by construction and has no per-device branch to escape into.
-    `GET /sync/status` remains the device-scoped view, and its `device_id` comes from the JWT
-    (D-M9.3-1), never from a request.
+    **This view holds one end of each sibling, because nothing below it may.** `03` §2.1 puts
+    `reporting` and `sync` side by side at the top of the domain, and D-M9.1-2 states the
+    consequence: *"siblings cannot import each other."* The same section names the resolution —
+    `sync` *"is driven by the API layer alone"* — so the API layer is exactly where the counts
+    from one sibling meet the definition owned by the other.
+
+    **No business rule moves up here.** `parameters` fetches rows; `sync_health` applies
+    `_internal` and computes the FR-SYN-015 proportion. The view arranges, it does not derive
+    (N-01), and `build` still returns a `ReportTable` like the other seven.
+
+    **A `?device_id=` is ignored, and that is structural.** The only query parameters read are
+    the inherited dates, and `fleet_status` has no device argument to reach. `GET /sync/status`
+    remains the device-scoped view, and its `device_id` comes from the JWT (D-M9.3-1).
     """
 
     build = staticmethod(report_selectors.sync_health)
+
+    def parameters(self, request: Request) -> dict[str, Any]:
+        dates = super().parameters(request)
+        return {
+            **dates,
+            "device_rows": sync_selectors.fleet_status(
+                date_from=dates["date_from"], date_to=dates["date_to"]
+            ),
+        }
 
 
 class StockVarianceReportView(_ReportView):

@@ -9,9 +9,12 @@ conflicts"*. So the exclusions below are asserted individually rather than infer
 happy-path total.
 
 The report reads `sync_operation` (`04` T-26) and nothing else: **no model, no migration**.
-`sync.selectors.fleet_status` owns the counts because N-02 forbids `reporting` importing
-another module's models; `reporting` owns the *definition*, because FR-SYN-015 is a reporting
-requirement rather than a sync one.
+
+**The composition under test is the one the API layer performs.** `03` §2.1 makes `reporting`
+and `sync` siblings — D-M9.1-2: *"siblings cannot import each other"* — so `sync.fleet_status`
+produces the counts, `reporting.sync_health` owns the FR-SYN-015 definition, and the delivery
+layer holds one end of each. `_health` below wires them exactly as `SyncHealthReportView` does,
+so these tests exercise the real path rather than a shortcut the application never takes.
 """
 
 from __future__ import annotations
@@ -50,6 +53,16 @@ def _operation(device: str, status: str, *, user) -> SyncOperation:
     )
 
 
+def _health(actor, *, date_from=None, date_to=None):
+    """The API layer's composition, in one place — see `SyncHealthReportView.parameters`."""
+    return report_selectors.sync_health(
+        actor,
+        device_rows=sync_selectors.fleet_status(date_from=date_from, date_to=date_to),
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
 def _row(table, device: str) -> dict:
     return next(row for row in table.rows if row["device_id"] == device)
 
@@ -66,7 +79,7 @@ def test_counts_every_status_for_one_device(owner):
     ):
         _operation(DEVICE_A, status, user=owner)
 
-    table = report_selectors.sync_health(owner)
+    table = _health(owner)
     row = _row(table, DEVICE_A)
 
     assert (row["accepted"], row["duplicate"], row["deferred"]) == (1, 1, 1)
@@ -79,7 +92,7 @@ def test_multiple_devices_aggregate_separately_and_total(owner):
         _operation(DEVICE_A, SyncOperation.Status.ACCEPTED, user=owner)
     _operation(DEVICE_B, SyncOperation.Status.REJECTED, user=owner)
 
-    table = report_selectors.sync_health(owner)
+    table = _health(owner)
 
     assert [row["device_id"] for row in table.rows] == [DEVICE_A, DEVICE_B]
     assert _row(table, DEVICE_A)["settled"] == 3
@@ -96,7 +109,7 @@ def test_rejected_is_the_numerator(owner):
         _operation(DEVICE_A, SyncOperation.Status.ACCEPTED, user=owner)
     _operation(DEVICE_A, SyncOperation.Status.REJECTED, user=owner)
 
-    row = _row(report_selectors.sync_health(owner), DEVICE_A)
+    row = _row(_health(owner), DEVICE_A)
 
     assert row["settled"] == 4
     assert row["conflict_rate"] == Decimal("25.00")
@@ -111,7 +124,7 @@ def test_duplicate_is_not_a_conflict(owner):
     _operation(DEVICE_A, SyncOperation.Status.ACCEPTED, user=owner)
     _operation(DEVICE_A, SyncOperation.Status.DUPLICATE, user=owner)
 
-    row = _row(report_selectors.sync_health(owner), DEVICE_A)
+    row = _row(_health(owner), DEVICE_A)
 
     assert row["duplicate"] == 1
     assert row["settled"] == 2
@@ -127,7 +140,7 @@ def test_deferred_the_sc_sequence_outcome_is_not_a_conflict(owner):
     _operation(DEVICE_A, SyncOperation.Status.DEFERRED, user=owner)
     _operation(DEVICE_A, SyncOperation.Status.REJECTED, user=owner)
 
-    row = _row(report_selectors.sync_health(owner), DEVICE_A)
+    row = _row(_health(owner), DEVICE_A)
 
     assert row["deferred"] == 1
     assert row["settled"] == 2
@@ -144,7 +157,7 @@ def test_received_is_excluded_from_the_denominator(owner):
     for _ in range(9):
         _operation(DEVICE_A, SyncOperation.Status.RECEIVED, user=owner)
 
-    row = _row(report_selectors.sync_health(owner), DEVICE_A)
+    row = _row(_health(owner), DEVICE_A)
 
     assert row["in_flight"] == 9
     assert row["settled"] == 1
@@ -159,7 +172,7 @@ def test_a_zero_denominator_is_undefined_never_zero(owner):
     """
     _operation(DEVICE_A, SyncOperation.Status.RECEIVED, user=owner)
 
-    row = _row(report_selectors.sync_health(owner), DEVICE_A)
+    row = _row(_health(owner), DEVICE_A)
 
     assert row["settled"] == 0
     assert row["conflict_rate"] is None
@@ -167,7 +180,7 @@ def test_a_zero_denominator_is_undefined_never_zero(owner):
 
 def test_an_empty_fleet_reports_no_rows_and_no_total(owner):
     """A valid empty report, not an error — and no `Total 0` line to misread as measured."""
-    table = report_selectors.sync_health(owner)
+    table = _health(owner)
 
     assert table.rows == ()
     assert table.total is None
@@ -176,7 +189,7 @@ def test_an_empty_fleet_reports_no_rows_and_no_total(owner):
 # ------------------------------------------------------------------ the contract
 def test_the_report_carries_its_own_definition(owner):
     """12 — M7-1. A figure whose meaning lives elsewhere becomes folklore once it is emailed."""
-    table = report_selectors.sync_health(owner)
+    table = _health(owner)
 
     assert table.definition == report_selectors.SYNC_HEALTH_DEFINITION
     assert "REJECTED" in table.definition
@@ -188,7 +201,7 @@ def test_rows_are_not_empty_when_operations_exist(owner):
     returned nothing, they would all pass while the report was blank."""
     _operation(DEVICE_A, SyncOperation.Status.ACCEPTED, user=owner)
 
-    table = report_selectors.sync_health(owner)
+    table = _health(owner)
 
     assert table.rows, "operations exist but the report is empty"
     assert table.columns
@@ -198,7 +211,7 @@ def test_rows_are_not_empty_when_operations_exist(owner):
 def test_a_retailer_is_refused(retailer):
     """10 — the boundary `_internal` already draws for all seven existing reports."""
     with pytest.raises(PermissionDenied):
-        report_selectors.sync_health(retailer)
+        _health(retailer)
 
 
 def test_an_internal_role_may_read_the_fleet(owner):
@@ -206,7 +219,7 @@ def test_an_internal_role_may_read_the_fleet(owner):
     _operation(DEVICE_A, SyncOperation.Status.ACCEPTED, user=owner)
     _operation(DEVICE_B, SyncOperation.Status.ACCEPTED, user=owner)
 
-    table = report_selectors.sync_health(owner)
+    table = _health(owner)
 
     assert {row["device_id"] for row in table.rows} == {DEVICE_A, DEVICE_B}
 

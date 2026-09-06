@@ -11,7 +11,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from django.db.models import Count, Max, Q, QuerySet
@@ -303,7 +303,7 @@ def device_status(*, device_id: str) -> dict[str, Any]:
 
 
 def fleet_status(
-    *, date_from: datetime | None = None, date_to: datetime | None = None
+    *, date_from: date | None = None, date_to: date | None = None
 ) -> list[dict[str, Any]]:
     """Per-device operation counts across **every** device — `05` §9.11.2, FR-RPT-009.
 
@@ -314,8 +314,11 @@ def fleet_status(
     belongs to `reporting`, which owns FR-SYN-015's definition.
 
     **Counts only — no derived rate.** This function states what happened; it does not decide
-    what a "conflict" is. That decision is `01` §10.3's and it is applied one layer up, where
-    it can be stated in the report's own `definition` and travel into the CSV (M7-1).
+    what a "conflict" is. That decision is `01` §10.3's and it belongs to `reporting`.
+    **`reporting` cannot call this and `sync` cannot call `reporting`** — `03` §2.1 makes them
+    siblings, and D-M9.1-2 says so in terms: *"siblings cannot import each other, so `reporting`
+    and `sync` stay independent."* The API layer, which `03` §2.1 names as the only thing that
+    drives `sync`, holds one end of each and passes these rows to the report.
 
     **Deliberately unscoped by device.** `device_status` is scoped by a `device_id` its caller
     takes from the JWT (D-M9.3-1); this is the fleet view, and its authorisation is the
@@ -324,11 +327,14 @@ def fleet_status(
 
     Ordered by `device_id` so the report and its CSV are stable between runs.
     """
+    # `__date` rather than start/end-of-day arithmetic: the contract takes **inclusive
+    # dates**, and casting the column is the one form that cannot silently drop the last day
+    # by comparing a date against midnight.
     operations = SyncOperation.objects.all()
     if date_from is not None:
-        operations = operations.filter(received_at__gte=date_from)
+        operations = operations.filter(received_at__date__gte=date_from)
     if date_to is not None:
-        operations = operations.filter(received_at__lte=date_to)
+        operations = operations.filter(received_at__date__lte=date_to)
 
     grouped = (
         operations.values("device_id")

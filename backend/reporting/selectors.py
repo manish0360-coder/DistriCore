@@ -18,6 +18,7 @@ the caller states the period.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
@@ -33,7 +34,6 @@ from inventory import selectors as inventory_selectors
 from orders import selectors as order_selectors
 from receivables import selectors as receivable_selectors
 from reporting.tables import Column, Dashboard, Metric, ReportTable
-from sync import selectors as sync_selectors
 
 ZERO_MONEY = Decimal("0.00")
 ZERO_QUANTITY = Decimal("0.000")
@@ -734,20 +734,34 @@ def _conflict_rate(rejected: int, settled: int) -> Decimal | None:
 
 
 def sync_health(
-    actor: Any, *, date_from: date | None = None, date_to: date | None = None
+    actor: Any,
+    *,
+    device_rows: Sequence[Mapping[str, Any]],
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> ReportTable:
     """FR-RPT-009 / FR-SYN-015 — `05` §9.11.2. Delivered at M9 by `02` ruling **A-5**.
 
-    **Reads `sync_operation` and nothing else.** M9.1 already records every column this needs
-    (`04` T-26), so a report that makes the fleet's sync visible costs no model, no field and
-    no migration. The counts come from `sync.selectors.fleet_status` — N-02: cross-module
-    access through the owning module, never through its models.
+    **The rows arrive as an argument, and that is the architecture rather than a convenience.**
+    `03` §2.1 makes `reporting` and `sync` **siblings** at the top of the domain — D-M9.1-2:
+    *"siblings cannot import each other, so `reporting` and `sync` stay independent"* — so this
+    module cannot reach `sync_operation` by any route. The first version of this function
+    imported `sync.selectors` and broke that contract; `lint-imports` caught it.
+
+    So the dependency is inverted. `sync.selectors.fleet_status` produces the counts, the API
+    layer — which `03` §2.1 names as the only thing that drives `sync` — supplies them here, and
+    this function owns what `reporting` is for: **the definition of the number**. FR-SYN-015 is
+    a reporting requirement, and what counts as a conflict is not a fact about the sync table.
+
+    Passing rows in is `reporting`'s own idiom, not a new one: `_sales_by_day`,
+    `_sales_by_customer` and `_sales_by_product` all take their querysets as arguments.
+
+    Authorisation stays **here**, in the selector, so it cannot be bypassed by reaching this
+    function through the other delivery layer (N-01) — the same reason `_internal` exists.
     """
     _internal(actor)
 
-    devices = sync_selectors.fleet_status(
-        date_from=_start_of(date_from), date_to=_end_of(date_to)
-    )
+    devices = device_rows
 
     rows: list[dict[str, Any]] = []
     fleet = {"accepted": 0, "duplicate": 0, "deferred": 0, "rejected": 0, "in_flight": 0}

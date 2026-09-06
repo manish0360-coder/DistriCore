@@ -926,20 +926,52 @@ of unresolved conflicts"* to `status = 'REJECTED'` by the same route. **`02` is 
 Until S-7 is ratified the definition travels in the report's own `definition` field and into the
 CSV (M7-1), so no reader can meet the number without meeting its meaning.
 
-#### 3. Where the code went, and why
+#### 3. Where the code went, and why — corrected after a failed gate
 
-`sync.selectors.fleet_status` holds the counts because **N-02** forbids `reporting` importing
-another module's models, and `reporting/selectors.py` already reaches `billing`, `inventory`,
-`orders` and `receivables` through their selectors and never through their models. It is the
-sibling of `device_status`, which serves `/sync/status` for one device.
+**The first implementation broke `03` §2.1 and `make verify` stage 5 caught it.**
 
-**The import-linter contract would not have caught the shortcut.** `pyproject.toml`'s N-01/N-02
-contract lists only `api` and `webadmin` as source modules, so `reporting` importing
-`sync.models` would have passed `make verify` while breaking the documented rule. The rule was
-followed because it is written down, not because CI enforces it here.
+```
+03 §2.1: module graph is layered and acyclic  BROKEN
+  reporting -> sync
+```
 
-`reporting` owns the **metric**, `sync` owns the **data**. FR-SYN-015 is a reporting requirement;
-what a conflict *is* is not a fact about the sync table.
+`reporting/selectors.py` imported `sync.selectors`. That satisfied N-02 — access through the
+owning module, not its models — but N-02 is not the only rule. `03` §2.1 places
+**`"reporting | sync"` as siblings** at the top of the domain, and D-M9.1-2 states the
+consequence in terms: *"`sync` sits at the top of the domain for the same reason `reporting`
+does: nothing may depend on it… **siblings cannot import each other, so `reporting` and `sync`
+stay independent**."* The traffic is forbidden in **both** directions.
+
+**The resolution is named in the same paragraph.** `sync` *"is driven by the API layer alone"* —
+so the API layer is the sanctioned holder of a reference to `sync`, and it is above `reporting`
+too. The dependency is therefore **inverted**:
+
+```
+sync.selectors.fleet_status(date_from, date_to)      -> counts, no metric
+reporting.selectors.sync_health(actor, device_rows=) -> _internal, metric, ReportTable
+api.v1.SyncHealthReportView.parameters()             -> holds one end of each
+```
+
+Neither sibling imports the other. **`api -> reporting` and `api -> sync` both point downward**,
+which is what the layers contract requires.
+
+**No business rule moved into the view.** `parameters` fetches rows — the extension point
+`StockVarianceReportView` already uses for `reason_code` — and `sync_health` still applies
+`_internal` and computes the proportion, so authorisation cannot be bypassed by reaching the
+selector through `webadmin` (N-01). `build` still returns a `ReportTable` like the other seven.
+
+**Passing rows in is `reporting`'s own idiom**, not a new one: `_sales_by_day`,
+`_sales_by_customer` and `_sales_by_product` all take their querysets as arguments.
+
+`reporting` owns the **metric**, `sync` owns the **data**, the API layer owns the **wiring**.
+FR-SYN-015 is a reporting requirement; what a conflict *is* is not a fact about the sync table.
+
+**Two lessons recorded rather than smoothed over.** First, the alternatives were rejected on
+evidence: moving `ReportTable` into `core` would have touched nine files across `reporting`,
+`api`, `webadmin` and three suites to relocate signed M7 machinery for one report. Second, the
+N-01/N-02 import contract lists only `api` and `webadmin` as source modules, so `reporting`
+importing `sync.models` would have passed CI while breaking the documented rule — the layers
+contract, not that one, is what protects this boundary.
 
 #### 4. Authorisation — the existing rule, unchanged
 
