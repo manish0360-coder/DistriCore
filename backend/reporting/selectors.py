@@ -1,4 +1,4 @@
-"""The seven reports and the four dashboard numbers (M7 §8.2, D-4).
+"""The eight reports and the four dashboard numbers (M7 §8.2, D-4; FR-RPT-009 at M9).
 
 Every figure below traces to a selector another module owns. Where a figure needed a
 business rule that no module had yet named — what a cancelled invoice means to a sale, what

@@ -116,9 +116,9 @@ def _render(request: Request, table: ReportTable) -> Response:
 
 
 class _ReportView(APIView):
-    """One parse-and-render path, seven reports.
+    """One parse-and-render path, eight reports.
 
-    Subclasses supply only ``build``. Repeating the format negotiation seven times is how
+    Subclasses supply only ``build``. Repeating the format negotiation once per report is how
     one report ends up exporting something the others do not.
     """
 

@@ -173,6 +173,9 @@ urlpatterns = [
     path("reports/receivables/", report_views.receivables, name="report-receivables"),
     path("reports/top-customers/", report_views.top_customers, name="report-top-customers"),
     path("reports/order-status/", report_views.order_status, name="report-order-status"),
+    # M9 — FR-RPT-009. An operator report, but registered exactly like the other seven:
+    # TD-29 admits no API-only report (`report-*` on one router and not the other fails).
+    path("reports/sync-health/", report_views.sync_health, name="report-sync-health"),
     path(
         "customers/<int:pk>/statement.csv",
         report_views.customer_statement_csv,

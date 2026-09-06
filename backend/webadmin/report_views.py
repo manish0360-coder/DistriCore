@@ -24,9 +24,13 @@ from customers import selectors as customer_selectors
 from reporting import csv as report_csv
 from reporting import selectors as report_selectors
 from reporting.tables import ReportTable
+from sync import selectors as sync_selectors
 
 #: Rendered as the report menu. One place, so a new report cannot be added to the router
 #: and forgotten by the navigation.
+#:
+#: The label must equal the ``ReportTable.title`` the selector produces: ``report.html``
+#: marks the current entry with ``table.title == label``.
 REPORT_MENU = (
     ("webadmin:report-sales", "Sales"),
     ("webadmin:report-stock", "Stock position"),
@@ -35,6 +39,7 @@ REPORT_MENU = (
     ("webadmin:report-receivables", "Receivables ageing"),
     ("webadmin:report-top-customers", "Top customers"),
     ("webadmin:report-order-status", "Order pipeline"),
+    ("webadmin:report-sync-health", "Sync health"),
 )
 
 
@@ -152,6 +157,32 @@ def top_customers(request: HttpRequest) -> HttpResponse:
 @login_required
 def order_status(request: HttpRequest) -> HttpResponse:
     return _report(report_selectors.order_pipeline, **_period)(request)
+
+
+@login_required
+def sync_health(request: HttpRequest) -> HttpResponse:
+    """FR-RPT-009 — the screen half of `05` §9.11.2, on the same terms as the API.
+
+    **The two-selector composition is repeated here rather than shared, deliberately.**
+    `03` §2.1 makes `reporting` and `sync` siblings — *"siblings cannot import each other"* —
+    so `reporting.sync_health` cannot fetch its own rows; the delivery layer supplies them.
+    A shared helper would need a module both delivery layers import, and `api | webadmin` are
+    themselves siblings, so the only candidate is a domain module — which would reintroduce
+    the exact `reporting -> sync` edge the inversion removed. Three lines of wiring in each of
+    the two layers `03` §2.1 already names as the drivers of `sync` is the smaller price.
+
+    Authorisation is unchanged and is not restated here: `report_selectors.sync_health` calls
+    ``_internal``, and ``_report`` turns the resulting ``PermissionDenied`` into the same
+    redirect every other report screen gives a retailer.
+    """
+    return _report(
+        report_selectors.sync_health,
+        **_period,
+        device_rows=lambda r: sync_selectors.fleet_status(
+            date_from=_parse_date(r, "date_from"),
+            date_to=_parse_date(r, "date_to"),
+        ),
+    )(request)
 
 
 @login_required

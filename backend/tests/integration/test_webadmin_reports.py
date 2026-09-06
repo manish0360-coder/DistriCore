@@ -27,6 +27,7 @@ SCREENS = [
     "webadmin:report-receivables",
     "webadmin:report-top-customers",
     "webadmin:report-order-status",
+    "webadmin:report-sync-health",
 ]
 
 

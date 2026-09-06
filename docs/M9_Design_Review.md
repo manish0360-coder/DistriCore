@@ -926,7 +926,7 @@ of unresolved conflicts"* to `status = 'REJECTED'` by the same route. **`02` is 
 Until S-7 is ratified the definition travels in the report's own `definition` field and into the
 CSV (M7-1), so no reader can meet the number without meeting its meaning.
 
-#### 3. Where the code went, and why — corrected after a failed gate
+#### 3. Where the code went, and why — corrected after two failed gates
 
 **The first implementation broke `03` §2.1 and `make verify` stage 5 caught it.**
 
@@ -972,6 +972,40 @@ evidence: moving `ReportTable` into `core` would have touched nine files across 
 N-01/N-02 import contract lists only `api` and `webadmin` as source modules, so `reporting`
 importing `sync.models` would have passed CI while breaking the documented rule — the layers
 contract, not that one, is what protects this boundary.
+
+**The second gate failure: the report was wired on one surface only.** With the layering
+repaired, `make verify` ran to completion and three adversarial tests failed — the whole of
+`tests/adversarial/test_report_registration.py`, which is **TD-29**, written at M7 against
+exactly this:
+
+> *"Nothing asserts a newly added report is wired into `REPORT_MENU`, the API router and the
+> CSV path. The eighth report will be added by someone who forgets one of the three."*
+
+FR-RPT-009 **is** the eighth report, and I forgot two of five. TD-29 predicted the milestone,
+the mistake and the count. It admits no API-only report: every comparison in
+`check_registration` is bidirectional, so a `report-*` name on one router and absent from the
+registry fails as loudly as the reverse. That is the intended reading and it is kept — an
+operator report that the owner cannot reach from the navigation is the *"wired, reachable by
+URL, and invisible"* case the contract names.
+
+So the report is registered on **all five** surfaces, using the existing pattern and adding no
+second registry: `REPORT_MENU`, `webadmin/urls.py`, `api/v1/urls.py`, the CSV path on both
+surfaces, and the hand-maintained list in each integration suite.
+
+The screen composes the two selectors exactly as `SyncHealthReportView.parameters` does.
+**That repetition is deliberate**: a shared helper needs a module both delivery layers can
+import, `api | webadmin` are themselves siblings, and the only remaining candidate is a domain
+module — which would reintroduce the `reporting -> sync` edge just removed. `03` §2.1 names the
+delivery layer as what drives `sync`, and there are two of them.
+
+**`webadmin -> sync` is a downward edge**, not a new exception: `api | webadmin` sits above
+`reporting | sync` in the layers contract, and N-02 forbids only `sync.models`. All three
+contracts stay KEPT.
+
+**The lesson, stated plainly.** Both failures in this milestone have the same shape: I verified
+against the rules I remembered instead of the rules the repository already carries. The layering
+contract and TD-29 were both written before this report existed, and both caught it. The gate
+did its job; the engineering did not, until the gate said so.
 
 #### 4. Authorisation — the existing rule, unchanged
 
