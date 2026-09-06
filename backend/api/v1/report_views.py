@@ -96,6 +96,18 @@ def _wire_value(value: Any, kind: ColumnKind | None) -> Any:
     ``None`` stays ``null`` — a blank cell is an absent measurement (`05` §9.11.2 relies on
     this for an unsettled device), and ``"None"`` would be a string that reads as a value.
 
+    **A measured column's blank marker is ``""`` in the domain and ``null`` on the wire.**
+    A total row has no rank and no "oldest days": ``top_customers`` writes ``"rank": ""`` and
+    ``receivables_ageing`` writes ``"oldest_days": ""``, which the screen and the CSV both
+    render as an empty cell (``csv._format`` — *"None is empty, never 'None'"*). JSON has a
+    blank of its own, and ``""`` in a ``COUNT`` column is a **string where the client parses
+    an integer** — the same class of defect as money as a float, in the other direction.
+    Translating one surface's blank into another's is exactly this function's job; the
+    selector keeps one marker and each surface renders it in its own idiom.
+
+    ``TEXT`` is excluded deliberately: ``"code": ""`` in that same total row is a real empty
+    string, not an absent measurement, and nulling it would change a shipped payload.
+
     **The `Decimal` backstop is not belt-and-braces.** ``rows`` carries every key the
     selector produced, not only the declared columns — ``_sales_by_customer`` emits a ``key``
     that no column names — so an undeclared `Decimal` would reach DRF's encoder and become a
@@ -104,6 +116,8 @@ def _wire_value(value: Any, kind: ColumnKind | None) -> Any:
     forgetting a ``Column``.
     """
     if value is None:
+        return None
+    if value == "" and kind is not None and kind is not ColumnKind.TEXT:
         return None
     encode = _WIRE_FORM.get(kind) if kind is not None else None
     if encode is not None:

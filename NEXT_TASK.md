@@ -14,6 +14,10 @@
 
 > **The prescribed fix in the old TD-36 row was wrong**, and that is worth keeping. *"Route `_as_json`'s numeric cells through `money_string`"* would have stringified `rank`, `oldest_days`, `documents`, `orders` and the six sync counters — the opposite defect, shipped in the same change. `numeric: bool` cannot tell a count from an amount; only a kind can.
 
+**What the first authoritative run added.** `604f545` was green on every local proof and the Docker gate returned **1155 passed, 3 failed, 1 error**. The new contract found two defects that had been in the tree for milestones — a blank `COUNT` leaving as `""` in two total rows, and the assumption that the customer statement renders through `_as_json` when its JSON path is a DRF serializer — plus a latent `CustomerFactory` collision on **C-0142** that TD-36's case count exposed rather than caused. All three fixed forward.
+
+> **The lesson, and it is the one this project keeps relearning.** Local proofs establish that a mechanism works; only the authoritative suite establishes that it works *everywhere the mechanism is reached*. Both real defects were on paths no local proof could take.
+
 **Next: M8 task 8 — Owner Companion Mode**, now blocked on **OI-7 alone** (`02A` §13 cut notifications; the recommendation is its own "Needs attention" substitute). Screens 1–3 of §3.4 need no ruling; screen 4 does.
 
 ---

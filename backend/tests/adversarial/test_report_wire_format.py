@@ -179,16 +179,61 @@ def _report_parts(body: dict[str, Any]) -> dict[str, Any]:
     return {"columns": body["columns"], "rows": body["rows"], "total": body["total"]}
 
 
-def test_the_statement_conforms_too(auth, owner, exercised, credit_customer):
-    """C-6's sixth report renders through the same ``_as_json`` and is easy to forget."""
-    body = _payload_at(auth(owner), "v1:customer-statement", credit_customer.pk)
-    assert not check_wire_format(**_report_parts(body))
+def test_the_statement_satisfies_ad_02_by_its_own_mechanism(
+    auth, owner, exercised, credit_customer
+):
+    """C-6's sixth report — **and it is not a `ReportTable` on this path.**
 
+    Written first as ``check_wire_format(**body)`` on the assumption that every report
+    renders through ``_as_json``. It does not, and the ``KeyError: 'columns'`` was the
+    contract correcting the test rather than the other way round:
 
-def _payload_at(client, name: str, *args) -> dict[str, Any]:
-    response = client.get(reverse(name, args=args))
+    * ``?format=csv`` renders ``report_selectors.statement_table`` — a ``ReportTable``.
+    * the JSON default renders ``StatementSerializer``, whose fields are
+      ``serializers.DecimalField`` — so ``COERCE_DECIMAL_TO_STRING`` already applies.
+
+    **That is why TD-36 never reached this endpoint**: the defect was `_as_json` bypassing
+    serialisation, and this path never bypassed it. The requirement is identical and the
+    mechanism is different, so the assertion is made directly against the payload's own
+    shape. Forcing the statement into ``columns``/``rows``/``total`` to satisfy one test
+    would change a shipped response type (`05` §9.6) to make an assertion convenient.
+    """
+    response = auth(owner).get(reverse("v1:customer-statement", args=[credit_customer.pk]))
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+
+    assert "columns" not in body, (
+        "the statement has grown a ReportTable shape; `05` §9.6 defines opening/entries/"
+        "closing and this test must be revisited rather than silently passing"
+    )
+    for field in ("opening_balance", "closing_balance"):
+        assert isinstance(body[field], str), (
+            f"AD-02: {field} arrived as {type(body[field]).__name__}"
+        )
+        assert CANONICAL[ColumnKind.MONEY.value].match(body[field]), (
+            f"{field} = {body[field]!r} is not 14,2"
+        )
+
+    assert body["entries"], "no entries — this assertion would be vacuous"
+    for entry in body["entries"]:
+        assert isinstance(entry["amount"], str), "AD-02: an entry amount is a decimal string"
+        assert CANONICAL[ColumnKind.MONEY.value].match(entry["amount"])
+        assert isinstance(entry["id"], int), "an identifier is not money and stays an integer"
+
+
+def test_the_statement_csv_path_renders_the_report_table(auth, owner, exercised, credit_customer):
+    """The *other* statement path, which **is** a ``ReportTable`` — so it is covered too.
+
+    ``statement_table`` declares ``amount`` as ``MONEY``, and the CSV writer stringifies
+    every cell anyway; this asserts the export still exists and still self-describes, so a
+    future change to the shared table cannot quietly drop the sixth report's file.
+    """
+    response = auth(owner).get(
+        reverse("v1:customer-statement", args=[credit_customer.pk]), {"format": "csv"}
+    )
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("text/csv")
+    assert response.content.decode().startswith("#")
 
 
 def test_every_kind_was_actually_seen(auth, owner, exercised):
@@ -249,6 +294,29 @@ def test_a_count_is_not_stringified(auth, owner, exercised):
     row = health["rows"][0]
     for key in ("accepted", "duplicate", "deferred", "rejected", "in_flight", "settled"):
         assert isinstance(row[key], int), f"{key} arrived as {type(row[key]).__name__}"
+
+
+def test_an_empty_count_in_a_total_row_is_null_not_an_empty_string(auth, owner, exercised):
+    """**The defect the first TD-36 run found.**
+
+    A total row has no rank and no "oldest days": both selectors write ``""``, which the
+    screen and the CSV render as an empty cell. On the wire that is a **string in a column
+    the client parses as an integer** — so it becomes ``null``, JSON's own blank, the same
+    representation `05` §9.11.2 already uses for an unmeasured rate.
+
+    Asserted per key rather than through the rule, because the rule would also pass if the
+    encoder emitted ``0`` — and ``0`` would be a *measurement*: rank zero, aged zero days.
+    """
+    top = _payload(auth(owner), "v1:report-top-customers")
+    assert top["total"]["rank"] is None, "a total has no rank; 0 would claim it ranked first"
+    assert top["rows"][0]["rank"] == 1, "a real rank is still an integer"
+
+    ageing = _payload(auth(owner), "v1:report-receivables")
+    assert ageing["total"]["oldest_days"] is None, "0 would claim nothing is overdue"
+
+    # TEXT keeps its empty string: `code: ""` is a real value, not an absent measurement.
+    assert ageing["total"]["code"] == ""
+    assert ageing["total"]["bucket"] == ""
 
 
 def test_the_response_says_what_each_column_means(auth, owner, exercised):
@@ -359,6 +427,30 @@ def test_a_stringified_count_is_caught():
     payload["rows"][0]["orders"] = "3"
 
     assert any("must not be stringified" in f for f in check_wire_format(**payload))
+
+
+def test_an_empty_string_in_a_count_is_still_caught():
+    """**The rule that caught the real defect, kept sharp.**
+
+    The encoder now maps a blank ``COUNT`` to ``null``, so this can no longer arrive from a
+    report — which is precisely when a contract stops being exercised and quietly rots. The
+    rule must keep rejecting ``""``, or a regression in ``_wire_value`` would pass unseen.
+    """
+    payload = _conformant()
+    payload["total"]["orders"] = ""
+
+    failures = check_wire_format(**payload)
+    assert any("must not be stringified" in f for f in failures), (
+        f"total.orders = '' is the defect the first make verify run found: {failures}"
+    )
+
+
+def test_a_blank_money_cell_would_be_caught_too():
+    """The same hole in the other kinds. ``""`` is not a decimal string."""
+    payload = _conformant()
+    payload["rows"][0]["value"] = ""
+
+    assert any("not canonical" in f for f in check_wire_format(**payload))
 
 
 def test_a_null_cell_is_allowed():

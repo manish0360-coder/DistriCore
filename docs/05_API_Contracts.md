@@ -88,8 +88,10 @@ AD-02 says *"monetary and quantity"*. `GET /reports/sync-health` (§9.11.2) intr
 | `MONEY` | **string** | `04` §1.6 `NUMERIC(14,2)` | `"12450.00"` |
 | `QUANTITY` | **string** | `04` §1.6 `NUMERIC(14,3)` | `"24.000"` |
 | `RATE` | **string** | two places (`core.fields.to_percent`) | `"1.25"` |
-| `COUNT` | **JSON integer** | — | `3` |
+| `COUNT` | **JSON integer**, or `null` when the cell holds no count | — | `3` · `null` |
 | `TEXT` | string | — | `"CONFIRMED"` |
+
+**A blank cell is `null`, never `""` and never `0`.** A total row has no rank and no *oldest days*; `/reports/receivables` and `/reports/top-customers` both carry one. `0` would be a measurement — rank zero, aged zero days — and `""` is a string in a column the client parses as an integer. This is the same rule §9.11.2 already applies to an unmeasured `conflict_rate`. A `TEXT` cell keeps its empty string: `"code": ""` is a value, not an absence.
 
 `COUNT` is stated because the opposite error is real: `rank`, `oldest_days`, `documents`, `orders` and the six per-status sync counters are numbers that are **not** money, and `"3"` orders would be over-applying the rule until it lied about the type — the reasoning §9.11.1 item 3 already applied to `awaiting_dispatch`.
 

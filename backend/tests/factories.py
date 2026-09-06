@@ -107,7 +107,19 @@ class CustomerFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Customer
 
-    code = factory.Sequence(lambda n: f"C-{n:04d}")
+    # **`C-T`, not `C-`, and the prefix is the fix.**
+    #
+    # `factory.Sequence`'s counter is global to the pytest process and does not reset per
+    # test, so `C-{n:04d}` walks the same namespace two fixtures hard-code from:
+    # `credit_customer` pins **C-0142** (the M7 design review's worked scenario) and
+    # `other_zone_customer` pins **C-9999**. The 143rd anonymous customer in a session
+    # therefore collided with C-0142 on `customer_code_key` — a latent, order-dependent
+    # failure that fired the moment TD-36's new cases pushed the counter past 142.
+    #
+    # Reserving a prefix the hand-written codes do not use makes the collision structurally
+    # impossible instead of merely unlikely, and keeps C-0142 traceable to the corpus.
+    # `test_the_factory_cannot_collide_with_a_hand_written_code` holds it.
+    code = factory.Sequence(lambda n: f"C-T{n:04d}")
     shop_name = factory.Faker("company")
     phone = factory.Sequence(lambda n: f"+9188888{n:05d}")
     billing_address = "Main Bazaar, Patna"

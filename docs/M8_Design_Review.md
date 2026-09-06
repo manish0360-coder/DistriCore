@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.11.0** |
+| Version | **1.11.1** |
 | Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). §11.2 item 8 (TD-36) CLOSED 2026-09-06 (§3.4.1b) — task 8 is now blocked on item 7 (OI-7) alone** |
 | Date | 2026-08-16 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
@@ -29,6 +29,7 @@
 | **1.9.0** | **2026-09-01** | **§5.6.1 added — the kill gate's first recorded run, and it PASSED.** `make mobile-device-kill` on `emulator-5554` (Pixel 8a, API 34, x86_64), host Windows Flutter 3.44.7 reached from WSL through `scripts/win-flutter.sh`. Phase 1 reached `GATE-P1: KILL-NOW` and died; phase 2 found the database mid-WAL (4096 B / 119512 B / `-shm` present) and **all tests passed** — five committed appends present, three rows still `IN_FLIGHT`, the claim positionally on 1–3, the sequence unbroken (**D-C1**). This discharges `02` NFR-OFF-005 by its own stated method. §5.6's gate-status paragraph corrected from *"NOT closed"* to **partly closed**: `make mobile-device-storage` has still never run, so §19.2's *storage exhaustion* clause remains open, and `M9_Design_Review` TD-42's *"no shell where both `make` and `flutter` work"* is retired while its CI half stands. **Minor, not patch: new evidence closes half a gate.** Documentation only |
 | **1.10.0** | **2026-09-04** | **§5.6.2 added — the storage gate's first recorded run, and it PASSED. `00` §19.2 is now CLOSED.** `make mobile-device-storage` on a disposable API 34 AVD: 8.56 GB of ballast written by the app itself, 94 appends committed into a 2 MiB slack, the 95th refused as **StorageFull** and nothing else (**D-C3**); phase B reopened the database and found all 94 present, PENDING, decodable, sequence continuing (**D-C1**, **BR-014**, **NFR-OFF-005**). **The gate found a real defect in shipping code**: `SQLITE_FULL` at COMMIT arrives three wrappers deep through the background isolate — `DriftRemoteException` -> `CouldNotRollBackException` -> `SqliteException(13)` — so a full device crashed rather than returning StorageFull; `storage_failure.dart` now walks the cause chain with the same two result codes. §5.6's gate status corrected from *partly closed* to **closed**. New **TD-46** records the deliberate `experimental_member_use` on `drift/remote.dart`. **Minor, not patch: new evidence closes a gate.** |
 | **1.11.0** | **2026-09-06** | **§3.4.1b added — TD-36 CLOSED.** The defect §3.4.1a recorded at task 0 is fixed, in its own change with its own verify as §11.2 item 8 required. **Eight endpoints, not seven** — FR-RPT-009 landed in between and carried it. The fix is a semantic `ColumnKind` (`TEXT`/`COUNT`/`MONEY`/`QUANTITY`/`RATE`) on `reporting.tables.Column`, with `numeric` **derived** from it, so the CSV path is byte-identical and the screen is untouched; `_as_json` encodes `MONEY`/`QUANTITY`/`RATE` through `core.fields` and leaves `COUNT` a JSON integer. A boolean could not have done this: stringifying `rank`, `oldest_days` and the sync counters would have shipped the opposite defect. `05` **AD-02.1** added — `RATE` is a decimal string, a count is not; **AD-02 itself, `02` and §9.11.2's metric definition are unchanged**. New adversarial suite over every registered report, fourteen mutations each proved to fail. **The client needed no change.** §11.2 item 8 struck; §12.8's row struck. **Minor, not patch: a published response type changed shape.** |
+| **1.11.1** | **2026-09-06** | **§3.4.1b — the first authoritative `make verify` run of TD-36, and the three things it found.** 1155 passed / 3 failed / 1 error at `604f545`, all fixed forward. **(a)** A blank `COUNT` was leaving as `""` in the `receivables` and `top-customers` total rows — shipped since M7, invisible to a suite that asserted values and never types. Now `null`; `0` rejected because rank-zero is a measurement. `05` **AD-02.1** states it. **(b)** The customer statement's JSON path renders `StatementSerializer`, **not** a `ReportTable`, so `COERCE_DECIMAL_TO_STRING` already covered it and TD-36 never reached it — the test was corrected to the shipped contract rather than the contract to the test. **(c)** A latent `CustomerFactory`/`credit_customer` collision on **C-0142**, exposed by the milestone's case count and not caused by it; generated codes take a reserved `C-T` prefix and a new adversarial suite holds the rule. **Patch: no decision changed.** |
 
 ---
 
@@ -364,6 +365,52 @@ the wire type first.
 **The client needed no change**, which is the confirmation that the diagnosis was right:
 `money.dart` already refuses a number outright, so every float was a hard failure waiting on a
 device rather than a silent rounding. **Task 8 is unblocked on this item; OI-7 still stands.**
+
+##### What the first full `make verify` run found — three things, and the contract found two of them
+
+`604f545` was green on ruff, mypy, the import contracts and every local proof. The
+authoritative run was **1155 passed, 3 failed, 1 error**, and the three failures are the new
+contract doing its job on paths the local proofs could not reach.
+
+**1. A blank `COUNT` was leaving as `""`.**
+
+```
+total.oldest_days: COUNT arrived as str ''
+total.rank:        COUNT arrived as str ''
+```
+
+A total row has no rank and no *oldest days*: `top_customers` writes `"rank": ""` and
+`receivables_ageing` writes `"oldest_days": ""`, and the screen and the CSV both render that
+as an empty cell. On the wire it is **a string in a column the client parses as an integer**
+— the same class of defect as money-as-a-float, in the other direction, and it had been
+shipping since M7 unnoticed because nothing asserted the wire type.
+
+The fix is in the encoder, not the selectors: **for a non-`TEXT` column, `""` becomes `null`**.
+JSON has a blank of its own, and it is the one `05` §9.11.2 already uses for an unmeasured
+rate. `TEXT` is excluded deliberately — `"code": ""` in that same total row is a real empty
+string, not an absent measurement. **`0` was rejected**: rank zero and *aged zero days* are
+measurements, and reporting one where nothing was measured is the mistake §9.11.2 exists to
+prevent. Selectors, screen and CSV are all unchanged.
+
+**2. The customer statement is not a `ReportTable` on its JSON path**, and the test was wrong
+rather than the code. `?format=csv` renders `statement_table`; the JSON default renders
+`StatementSerializer`, whose fields are `serializers.DecimalField` — so
+`COERCE_DECIMAL_TO_STRING` already applies and **TD-36 never reached this endpoint**. The
+requirement is identical, the mechanism is different, and the assertion now matches the
+shipped contract (`05` §9.6) instead of forcing a response type to change to suit a test.
+
+**3. A latent fixture collision, exposed rather than caused.**
+`CustomerFactory` generated `C-{n:04d}` from a `factory.Sequence` whose counter is **global to
+the pytest process**, while `credit_customer` pins **C-0142** and `other_zone_customer` pins
+**C-9999**. The 143rd anonymous customer in a session was always going to collide on
+`customer_code_key`; TD-36 added twenty-six cases and reached it. Nothing before was wrong —
+the suite had simply never been long enough. The generated codes now take a reserved `C-T`
+prefix, so the collision is structurally impossible rather than merely unlikely, and the
+corpus-traceable literal is kept. `tests/adversarial/test_fixture_isolation.py` holds the
+rule and is proved able to fail against the sequence that shipped.
+
+> **The contract earned its place on its first real run.** Two of these three had been in the
+> tree for milestones, invisible to a suite that asserted values and never types.
 
 #### 3.4.2 "Notifications" conflicts with a recorded decision — and `02A` supplies the answer
 
