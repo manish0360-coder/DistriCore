@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 
 from reporting import csv as report_csv
-from reporting.tables import Column, ReportTable
+from reporting.tables import Column, ColumnKind, ReportTable
 
 
 def _table(**overrides) -> ReportTable:
@@ -19,7 +19,7 @@ def _table(**overrides) -> ReportTable:
         "title": "Sales",
         "columns": (
             Column("label", "Date"),
-            Column("sales", "Sales", numeric=True),
+            Column("sales", "Sales", kind=ColumnKind.MONEY),
         ),
         "rows": (
             {"label": date(2026, 8, 1), "sales": Decimal("2400.00")},

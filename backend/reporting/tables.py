@@ -12,23 +12,73 @@ would be a one-line change nobody noticed.
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
+
+
+class ColumnKind(enum.Enum):
+    """What a column's values *mean* — not how any one surface renders them.
+
+    **TD-36 is why this is a kind rather than a flag.** ``numeric: bool`` said only that a
+    value was a number, and three consumers needed three different answers from it: the
+    screen wanted alignment, the CSV writer wanted to know whether to apply its formula
+    guard, and ``api.v1.report_views._as_json`` needed to know whether the value crosses the
+    wire as a string (`05` **AD-02**) or as a JSON integer. A boolean cannot answer the
+    third: ``rank``, ``oldest_days`` and the sync counters are numbers that are **not**
+    money or quantity, and stringifying them would break AD-02's intent in the opposite
+    direction.
+
+    So the column carries its meaning once and each surface derives its own behaviour:
+
+    * ``TEXT``     — a label, code, date or free string. Formula-guarded in CSV.
+    * ``COUNT``    — a whole number of *things*: orders, documents, days, a rank, a
+      per-status operation count. Exact in JSON already, so it stays a JSON integer.
+    * ``MONEY``    — `04` §1.6 ``NUMERIC(14,2)``.
+    * ``QUANTITY`` — `04` §1.6 ``NUMERIC(14,3)``.
+    * ``RATE``     — a percentage at two places (``core.fields.to_percent``).
+
+    The last three are `Decimal`, and a `Decimal` rendered as a JSON number becomes an
+    IEEE-754 double. That is the defect TD-36 records; the kind is what lets the delivery
+    layer prevent it without a per-report branch.
+
+    **This enum says nothing about the wire.** The mapping from kind to wire form lives in
+    the API layer, where it belongs — `reporting` owns what a number *is*, not how it
+    travels.
+    """
+
+    TEXT = "TEXT"
+    COUNT = "COUNT"
+    MONEY = "MONEY"
+    QUANTITY = "QUANTITY"
+    RATE = "RATE"
 
 
 @dataclass(frozen=True)
 class Column:
     """One column of a report.
 
-    ``numeric`` is not decoration. It selects the alignment on screen, and it decides
-    whether the CSV writer applies its formula guard — a guard that must never touch a
-    negative number, whose leading ``-`` is arithmetic rather than injection.
+    ``kind`` is not decoration. It selects the alignment on screen, it decides whether the
+    CSV writer applies its formula guard — a guard that must never touch a negative number,
+    whose leading ``-`` is arithmetic rather than injection — and it decides the JSON wire
+    form (`05` AD-02).
     """
 
     key: str
     label: str
-    numeric: bool = False
+    kind: ColumnKind = ColumnKind.TEXT
+
+    @property
+    def numeric(self) -> bool:
+        """Right-align on screen; skip the CSV formula guard.
+
+        **Derived, never stored.** It was a constructor argument until TD-36, and a stored
+        flag beside a stored kind is two sources of truth that drift the first time someone
+        edits one of them. Every existing caller keeps working and the CSV output is
+        byte-identical, because this returns exactly what ``numeric=True`` used to mean.
+        """
+        return self.kind is not ColumnKind.TEXT
 
 
 @dataclass(frozen=True)

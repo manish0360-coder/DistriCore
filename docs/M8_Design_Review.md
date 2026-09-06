@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.10.0** |
-| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). Next: task 4 M6, frozen at §14.12, not yet implemented** |
+| Version | **1.11.0** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). §11.2 item 8 (TD-36) CLOSED 2026-09-06 (§3.4.1b) — task 8 is now blocked on item 7 (OI-7) alone** |
 | Date | 2026-08-16 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
@@ -28,6 +28,7 @@
 | **1.8.0** | **2026-08-25** | **§5.6 amended in place — the cipher is SQLite3MultipleCiphers, not SQLCipher.** Authority: **D-M9-8** (`M9_Design_Review` v1.3.0). **The original §5.6 paragraph is preserved verbatim**; the amendment is appended beneath it. Drift, the ADR's conclusion and all of its reasoning are unchanged, as are the schema, the migrations and the key source (Android keystore via `PlatformDatabaseKey`). **`02` is not amended** — FR-SYN-016 and NFR-SEC-008 name no cipher. `chacha20` and SQLite `3.53.4` are recorded as **observations, not requirements**. Encryption proven on a **Pixel 8a API 34 emulator, `android-x64` only**; **`00` §19.2's durability gate remains open**. The header ADR row, §11.2 item 1 and §13 item 7 updated mechanically. **Minor, not patch: an architectural decision changed** (1.6.1's rule, applied in the opposite direction). Documentation only — the code it records was built and verified beforehand |
 | **1.9.0** | **2026-09-01** | **§5.6.1 added — the kill gate's first recorded run, and it PASSED.** `make mobile-device-kill` on `emulator-5554` (Pixel 8a, API 34, x86_64), host Windows Flutter 3.44.7 reached from WSL through `scripts/win-flutter.sh`. Phase 1 reached `GATE-P1: KILL-NOW` and died; phase 2 found the database mid-WAL (4096 B / 119512 B / `-shm` present) and **all tests passed** — five committed appends present, three rows still `IN_FLIGHT`, the claim positionally on 1–3, the sequence unbroken (**D-C1**). This discharges `02` NFR-OFF-005 by its own stated method. §5.6's gate-status paragraph corrected from *"NOT closed"* to **partly closed**: `make mobile-device-storage` has still never run, so §19.2's *storage exhaustion* clause remains open, and `M9_Design_Review` TD-42's *"no shell where both `make` and `flutter` work"* is retired while its CI half stands. **Minor, not patch: new evidence closes half a gate.** Documentation only |
 | **1.10.0** | **2026-09-04** | **§5.6.2 added — the storage gate's first recorded run, and it PASSED. `00` §19.2 is now CLOSED.** `make mobile-device-storage` on a disposable API 34 AVD: 8.56 GB of ballast written by the app itself, 94 appends committed into a 2 MiB slack, the 95th refused as **StorageFull** and nothing else (**D-C3**); phase B reopened the database and found all 94 present, PENDING, decodable, sequence continuing (**D-C1**, **BR-014**, **NFR-OFF-005**). **The gate found a real defect in shipping code**: `SQLITE_FULL` at COMMIT arrives three wrappers deep through the background isolate — `DriftRemoteException` -> `CouldNotRollBackException` -> `SqliteException(13)` — so a full device crashed rather than returning StorageFull; `storage_failure.dart` now walks the cause chain with the same two result codes. §5.6's gate status corrected from *partly closed* to **closed**. New **TD-46** records the deliberate `experimental_member_use` on `drift/remote.dart`. **Minor, not patch: new evidence closes a gate.** |
+| **1.11.0** | **2026-09-06** | **§3.4.1b added — TD-36 CLOSED.** The defect §3.4.1a recorded at task 0 is fixed, in its own change with its own verify as §11.2 item 8 required. **Eight endpoints, not seven** — FR-RPT-009 landed in between and carried it. The fix is a semantic `ColumnKind` (`TEXT`/`COUNT`/`MONEY`/`QUANTITY`/`RATE`) on `reporting.tables.Column`, with `numeric` **derived** from it, so the CSV path is byte-identical and the screen is untouched; `_as_json` encodes `MONEY`/`QUANTITY`/`RATE` through `core.fields` and leaves `COUNT` a JSON integer. A boolean could not have done this: stringifying `rank`, `oldest_days` and the sync counters would have shipped the opposite defect. `05` **AD-02.1** added — `RATE` is a decimal string, a count is not; **AD-02 itself, `02` and §9.11.2's metric definition are unchanged**. New adversarial suite over every registered report, fourteen mutations each proved to fail. **The client needed no change.** §11.2 item 8 struck; §12.8's row struck. **Minor, not patch: a published response type changed shape.** |
 
 ---
 
@@ -310,6 +311,59 @@ and it **blocks task 8**, which reads `/reports/receivables`.
 > boundary and not the other. AD-02 was enforced in the serializer layer and not in the
 > hand-built layer beside it. §12.7 called P-1…P-10 *"asserted, not yet enforced"* the day
 > before this was found.
+
+#### 3.4.1b TD-36 — **CLOSED 2026-09-06.** A semantic column kind, not a stringify pass
+
+*Its own change with its own verification, as §10 item 8 required. Eight endpoints, not seven:
+FR-RPT-009 landed in between and carried the same defect.*
+
+**Why a boolean could not fix it.** `Column` carried `numeric: bool`, and three consumers
+needed three different answers: the screen wanted alignment, the CSV writer wanted to know
+whether to apply its formula guard, and `_as_json` needed to know whether the value is a
+`Decimal` that AD-02 sends as a string. A boolean cannot answer the third — `rank`,
+`oldest_days`, `documents`, `orders` and the six sync counters are numbers that are **not**
+money, and stringifying them would break AD-02's intent in the opposite direction. The first
+sketch, *"stringify every numeric cell"*, would have shipped that second defect.
+
+So the column states its meaning once and each surface derives its own behaviour:
+
+```
+ColumnKind = TEXT | COUNT | MONEY | QUANTITY | RATE
+Column.numeric  -> property: kind is not TEXT      (screen alignment, CSV formula guard)
+_WIRE_FORM      -> MONEY/QUANTITY/RATE via core.fields   (05 AD-02)
+```
+
+`reporting` owns what a number **is**; the delivery layer owns how it **travels**. All 47
+columns were classified from the selector that produces them — not from the column's name.
+
+**`numeric` became a derived property rather than a second stored field**, because a stored
+flag beside a stored kind is two sources of truth that drift the first time one is edited. It
+returns exactly what `numeric=True` used to mean, which is why **the CSV output is byte-identical**
+— verified by rendering the same table through both versions of `csv.py`, formula-guard cases
+and blank cells included.
+
+**A `Decimal` backstop, and it is load-bearing.** `rows` carries every key the selector
+produced, not only the declared columns — `_sales_by_customer` emits a `key` no column names —
+so an undeclared `Decimal` would still have reached the encoder. Keying the rule on the
+declared column alone would have left that hole open and made the fix depend on nobody ever
+forgetting a `Column`.
+
+**`RATE` is new, and it is a clarification rather than an amendment.** `conflict_rate` is a
+`Decimal` that AD-02's wording — *"monetary and quantity"* — does not name. `05` **AD-02.1**
+states the boundary AD-02 always implied: a `Decimal` never crosses as a JSON number, a count
+always does. `02` is untouched and §9.11.2's definition of the metric is unchanged.
+
+**Evidence.** `tests/adversarial/test_report_wire_format.py` — a pure rule over the rendered
+payload, run against **every registered report** read from `REPORT_MENU` (so it cannot drift
+from TD-29's registry), plus fourteen mutations each proved to make it fail: money, quantity
+and rate as floats; an undeclared `Decimal`; four wrong scales; a stringified count; the total
+row separately; and a control confirming a conformant payload passes. The weak assertion in
+`test_report_api.py` — `Decimal(str(...))`, which passed whichever type arrived — now asserts
+the wire type first.
+
+**The client needed no change**, which is the confirmation that the diagnosis was right:
+`money.dart` already refuses a number outright, so every float was a hard failure waiting on a
+device rather than a silent rounding. **Task 8 is unblocked on this item; OI-7 still stands.**
 
 #### 3.4.2 "Notifications" conflicts with a recorded decision — and `02A` supplies the answer
 
@@ -876,7 +930,7 @@ portal channel is strictly better.
 | 4 | **No payment collection** in M8 — FR-REC-010 is v1.1 (§3.5) | ✔ Confirmed |
 | 5 | **TD-11 — SMS/DLT registration** is on M8's critical path: OTP login is the field default and DLT approval has unbounded lead time. `00` §2.4's contingency is owner-provisioned passwords, recorded as a deviation | ☐ **Open** |
 | ~~**6**~~ | ~~`GET /reports/dashboard`~~ | ✔ **Built and verified 2026-08-10** (§3.4.1) |
-| **8** | **TD-36 — the seven report endpoints emit money as JSON floats** (§3.4.1a). AD-02 violated by `_as_json` bypassing serialisation. **Breaking change to a published response type**, so it is its own change with its own verify | ☐ **New — blocks task 8** |
+| ~~**8**~~ | ~~**TD-36 — the report endpoints emit money as JSON floats** (§3.4.1a). AD-02 violated by `_as_json` bypassing serialisation~~ | ✔ **CLOSED 2026-09-06** (§3.4.1b). Its own change with its own verify, as this row required. A semantic `ColumnKind` — eight endpoints, CSV byte-identical, `05` **AD-02.1** added for `RATE`. **Task 8 no longer blocked on this** |
 | **7** | **"Notifications" was cut from Edition 1** by `02A` §13 (M-14 entirely, 0.5 units). Recommendation: adopt `02A`'s own substitute — a **"Needs attention"** filtered read — rather than reopening the cut (§3.4.2) | ☐ **New — decide before task 8** |
 
 > **Item 5 is the one that can stop this milestone from outside it.** Everything else here
@@ -988,7 +1042,7 @@ A frozen clause is not reopened by an implementation preference. It is reopened 
 | --: | --- | --- |
 | ~~**6**~~ | ~~`GET /reports/dashboard`~~ | ✔ **Closed by task 0** |
 | **7** | "Notifications" vs `02A` §13's cut (§3.4.2) — recommendation: the "Needs attention" substitute | **Task 8 only** |
-| **8** | **TD-36** — money as floats on the seven report endpoints (§3.4.1a) | **Task 8 only** |
+| ~~**8**~~ | ~~**TD-36** — money as floats on the report endpoints (§3.4.1a)~~ | ✔ **CLOSED 2026-09-06** (§3.4.1b) |
 
 **None blocks Phase 2 from proceeding.** All sit inside task 8, which §10.1 places last for
 this reason. **Tasks 1–7 are unblocked.**

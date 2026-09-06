@@ -14,8 +14,9 @@ scoping bug becomes an information leak with a CSV attached (FR-RPT-014, AR-5).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from rest_framework.permissions import IsAuthenticated
@@ -25,10 +26,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.v1.renderers import CsvRenderer
-from core.fields import to_money
+from core.fields import to_money, to_percent, to_quantity
 from reporting import csv as report_csv
 from reporting import selectors as report_selectors
-from reporting.tables import Dashboard, ReportTable
+from reporting.tables import ColumnKind, Dashboard, ReportTable
 from sync import selectors as sync_selectors
 
 #: Both renderers must be declared on any view that honours `?format=csv`. DRF negotiates
@@ -75,7 +76,49 @@ def money_string(value: Any) -> str:
     return str(to_money(value))
 
 
+#: Kind -> canonical wire form. **TD-36, and the whole of it.**
+#:
+#: `05` AD-02: *"Every monetary and quantity value crosses the wire as a string."* The three
+#: `Decimal` kinds are encoded through ``core.fields``, so the scale on the wire is the scale
+#: `04` §1.6 gives the column and NFR-INT-006's rounding rule stays defined in exactly one
+#: place. ``COUNT`` is deliberately absent: an integer is exact in JSON, and stringifying it
+#: would break AD-02's intent in the other direction.
+_WIRE_FORM: dict[ColumnKind, Callable[[Any], str]] = {
+    ColumnKind.MONEY: lambda value: str(to_money(value)),
+    ColumnKind.QUANTITY: lambda value: str(to_quantity(value)),
+    ColumnKind.RATE: lambda value: str(to_percent(value)),
+}
+
+
+def _wire_value(value: Any, kind: ColumnKind | None) -> Any:
+    """One cell, in the form AD-02 requires.
+
+    ``None`` stays ``null`` — a blank cell is an absent measurement (`05` §9.11.2 relies on
+    this for an unsettled device), and ``"None"`` would be a string that reads as a value.
+
+    **The `Decimal` backstop is not belt-and-braces.** ``rows`` carries every key the
+    selector produced, not only the declared columns — ``_sales_by_customer`` emits a ``key``
+    that no column names — so an undeclared `Decimal` would reach DRF's encoder and become a
+    float, which is the exact defect this function exists to remove. Keying the rule on the
+    declared column alone would leave that hole open and make the fix depend on nobody ever
+    forgetting a ``Column``.
+    """
+    if value is None:
+        return None
+    encode = _WIRE_FORM.get(kind) if kind is not None else None
+    if encode is not None:
+        return encode(value)
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def _wire_row(row: Mapping[str, Any], kinds: Mapping[str, ColumnKind]) -> dict[str, Any]:
+    return {key: _wire_value(value, kinds.get(key)) for key, value in row.items()}
+
+
 def _as_json(table: ReportTable) -> dict[str, Any]:
+    kinds = {column.key: column.kind for column in table.columns}
     return {
         "key": table.key,
         "title": table.title,
@@ -86,11 +129,19 @@ def _as_json(table: ReportTable) -> dict[str, Any]:
         "as_of": table.as_of,
         "group_by": table.group_by,
         "columns": [
-            {"key": column.key, "label": column.label, "numeric": column.numeric}
+            {
+                "key": column.key,
+                "label": column.label,
+                "numeric": column.numeric,
+                # Additive, and it is what makes the response self-describing: a client
+                # holding `"25.00"` cannot otherwise tell a rate from an amount, and `numeric`
+                # alone told it neither. `numeric` is kept so no existing consumer breaks.
+                "kind": column.kind.value,
+            }
             for column in table.columns
         ],
-        "rows": [dict(row) for row in table.rows],
-        "total": dict(table.total) if table.total else None,
+        "rows": [_wire_row(row, kinds) for row in table.rows],
+        "total": _wire_row(table.total, kinds) if table.total else None,
     }
 
 

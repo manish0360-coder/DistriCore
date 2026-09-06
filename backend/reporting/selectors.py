@@ -33,7 +33,7 @@ from core.permissions import Role, require_roles
 from inventory import selectors as inventory_selectors
 from orders import selectors as order_selectors
 from receivables import selectors as receivable_selectors
-from reporting.tables import Column, Dashboard, Metric, ReportTable
+from reporting.tables import Column, ColumnKind, Dashboard, Metric, ReportTable
 
 ZERO_MONEY = Decimal("0.00")
 ZERO_QUANTITY = Decimal("0.000")
@@ -195,9 +195,9 @@ def sales_report(
         title="Sales",
         columns=(
             dimension,
-            Column("invoiced", "Invoiced", numeric=True),
-            Column("credited", "Credited", numeric=True),
-            Column("sales", "Sales", numeric=True),
+            Column("invoiced", "Invoiced", kind=ColumnKind.MONEY),
+            Column("credited", "Credited", kind=ColumnKind.MONEY),
+            Column("sales", "Sales", kind=ColumnKind.MONEY),
         ),
         rows=tuple(rows),
         definition=SALES_DEFINITION,
@@ -367,7 +367,7 @@ def stock_position(actor: Any, *, as_of: date | None = None) -> ReportTable:
             Column("code", "Code"),
             Column("label", "Product"),
             Column("unit", "Unit"),
-            Column("on_hand", "On hand", numeric=True),
+            Column("on_hand", "On hand", kind=ColumnKind.QUANTITY),
         ),
         rows=rows,
         notes=(NO_VALUATION_NOTE,),
@@ -409,7 +409,7 @@ def stock_variance(
         columns=(
             Column("code", "Reason"),
             Column("label", "Description"),
-            Column("quantity", "Net quantity", numeric=True),
+            Column("quantity", "Net quantity", kind=ColumnKind.QUANTITY),
         ),
         rows=rows,
         notes=(VARIANCE_NOTE, NO_VALUATION_NOTE),
@@ -479,8 +479,8 @@ def returns_report(
         title="Returns — credit notes issued",
         columns=(
             dimension,
-            Column("documents", "Credit notes", numeric=True),
-            Column("credited", "Credited", numeric=True),
+            Column("documents", "Credit notes", kind=ColumnKind.COUNT),
+            Column("credited", "Credited", kind=ColumnKind.MONEY),
         ),
         rows=rows,
         definition=(
@@ -538,10 +538,10 @@ def receivables_ageing(actor: Any, *, as_of: date | None = None) -> ReportTable:
         columns=(
             Column("code", "Code"),
             Column("label", "Customer"),
-            Column("outstanding", "Outstanding", numeric=True),
-            Column("on_account", "On account", numeric=True),
-            Column("balance", "Balance", numeric=True),
-            Column("oldest_days", "Oldest (days)", numeric=True),
+            Column("outstanding", "Outstanding", kind=ColumnKind.MONEY),
+            Column("on_account", "On account", kind=ColumnKind.MONEY),
+            Column("balance", "Balance", kind=ColumnKind.MONEY),
+            Column("oldest_days", "Oldest (days)", kind=ColumnKind.COUNT),
             Column("bucket", "Bucket"),
             Column("oldest_document", "Oldest document"),
         ),
@@ -589,11 +589,11 @@ def top_customers(
         key="top-customers",
         title=f"Top {limit} customers",
         columns=(
-            Column("rank", "#", numeric=True),
+            Column("rank", "#", kind=ColumnKind.COUNT),
             Column("label", "Customer"),
-            Column("invoiced", "Invoiced", numeric=True),
-            Column("credited", "Credited", numeric=True),
-            Column("sales", "Sales", numeric=True),
+            Column("invoiced", "Invoiced", kind=ColumnKind.MONEY),
+            Column("credited", "Credited", kind=ColumnKind.MONEY),
+            Column("sales", "Sales", kind=ColumnKind.MONEY),
         ),
         rows=ranked,
         definition=SALES_DEFINITION,
@@ -632,8 +632,8 @@ def order_pipeline(
         title="Order pipeline",
         columns=(
             Column("label", "Status"),
-            Column("orders", "Orders", numeric=True),
-            Column("value", "Value", numeric=True),
+            Column("orders", "Orders", kind=ColumnKind.COUNT),
+            Column("value", "Value", kind=ColumnKind.MONEY),
         ),
         rows=rows,
         total={
@@ -676,7 +676,7 @@ def statement_table(
             Column("entry_date", "Date"),
             Column("entry_type", "Type"),
             Column("narration", "Narration"),
-            Column("amount", "Amount", numeric=True),
+            Column("amount", "Amount", kind=ColumnKind.MONEY),
         ),
         rows=rows,
         definition=(
@@ -794,13 +794,13 @@ def sync_health(
         columns=(
             Column("device_id", "Device"),
             Column("last_sync_at", "Last sync"),
-            Column("accepted", "Accepted", numeric=True),
-            Column("duplicate", "Duplicate", numeric=True),
-            Column("deferred", "Deferred", numeric=True),
-            Column("rejected", "Rejected", numeric=True),
-            Column("in_flight", "In flight", numeric=True),
-            Column("settled", "Settled", numeric=True),
-            Column("conflict_rate", "Conflict %", numeric=True),
+            Column("accepted", "Accepted", kind=ColumnKind.COUNT),
+            Column("duplicate", "Duplicate", kind=ColumnKind.COUNT),
+            Column("deferred", "Deferred", kind=ColumnKind.COUNT),
+            Column("rejected", "Rejected", kind=ColumnKind.COUNT),
+            Column("in_flight", "In flight", kind=ColumnKind.COUNT),
+            Column("settled", "Settled", kind=ColumnKind.COUNT),
+            Column("conflict_rate", "Conflict %", kind=ColumnKind.RATE),
         ),
         rows=tuple(rows),
         definition=SYNC_HEALTH_DEFINITION,

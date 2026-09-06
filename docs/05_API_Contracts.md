@@ -75,6 +75,28 @@ Same five-field format as the constitution (§P.6 of `00`).
 
 **Migration cost if changed later.** **High** — changing the encoding after devices are deployed breaks every build in the field, and the failure is silent rounding rather than a visible error.
 
+#### AD-02.1 — Clarification: a **rate** is a decimal string too; a **count** is not
+
+*Added 2026-09-06 with TD-36. **AD-02 above is unchanged** — this states the boundary it always implied for a value AD-02's wording does not name.*
+
+AD-02 says *"monetary and quantity"*. `GET /reports/sync-health` (§9.11.2) introduced a third `Decimal`: `conflict_rate`, a percentage at two places. It is neither money nor quantity, so AD-02 did not literally reach it — and as a JSON number it would become an IEEE-754 double for exactly the reason AD-02 gives.
+
+> **The rule the report API applies, in full: a `Decimal` never crosses the wire as a JSON number. A count always does.**
+
+| Kind | Wire form | Scale | Example |
+| --- | --- | --- | --- |
+| `MONEY` | **string** | `04` §1.6 `NUMERIC(14,2)` | `"12450.00"` |
+| `QUANTITY` | **string** | `04` §1.6 `NUMERIC(14,3)` | `"24.000"` |
+| `RATE` | **string** | two places (`core.fields.to_percent`) | `"1.25"` |
+| `COUNT` | **JSON integer** | — | `3` |
+| `TEXT` | string | — | `"CONFIRMED"` |
+
+`COUNT` is stated because the opposite error is real: `rank`, `oldest_days`, `documents`, `orders` and the six per-status sync counters are numbers that are **not** money, and `"3"` orders would be over-applying the rule until it lied about the type — the reasoning §9.11.1 item 3 already applied to `awaiting_dispatch`.
+
+**No semantic definition changes.** `conflict_rate` is still `REJECTED ÷ settled` exactly as §9.11.2 defines it; only its encoding is fixed.
+
+**Every report response carries its column kinds.** `columns[].kind` is added alongside the existing `columns[].numeric`, which is retained unchanged: a client holding `"25.00"` cannot otherwise tell a rate from an amount, and `numeric` told it neither. Additive, so no existing consumer breaks.
+
 ---
 
 ### AD-03 — RFC 9457 `application/problem+json` for every error

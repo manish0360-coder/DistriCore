@@ -141,9 +141,15 @@ def test_a_salesman_sees_only_their_own_zone_in_the_sales_report(
 
     assert other_zone_customer.code in str(owner_body["rows"]), "the fixture is not exercising"
     assert other_zone_customer.code not in str(salesman_body["rows"])
-    assert Decimal(str(salesman_body["total"]["sales"])) < Decimal(
-        str(owner_body["total"]["sales"])
+
+    scoped, unscoped = salesman_body["total"]["sales"], owner_body["total"]["sales"]
+    # **TD-36.** This read `Decimal(str(...))`, and that `str()` made it pass whichever type
+    # arrived — which is how money-as-a-float survived four reviews and a blocking type gate.
+    # The wire type is asserted first, because it is the half that was never asserted.
+    assert isinstance(scoped, str) and isinstance(unscoped, str), (
+        f"`05` AD-02: money crosses the wire as a string, not {type(unscoped).__name__}"
     )
+    assert Decimal(scoped) < Decimal(unscoped)
 
 
 @pytest.mark.parametrize(

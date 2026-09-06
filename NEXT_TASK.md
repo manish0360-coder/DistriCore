@@ -1,5 +1,23 @@
 # Next Task
 
+## Done 2026-09-06 — TD-36 / AD-02 conformance
+
+**Chosen by a read-only V1 priority audit, and the audit changed two beliefs.**
+
+| Believed | Found |
+| --- | --- |
+| Field order capture is the biggest V1 hole — `mobile/lib/features/` has no orders module and `SyncOperation.Type` carries only `DELIVERY_COMPLETE` and `VISIT_CREATE` | **`02A` DV-1, accepted and signed:** *"Salesmen no longer capture orders in the field."* `05` §11.4: *"Edition 2 adds `ORDER_CREATE`."* FR-ORD-001/007/008/009/010 and FR-REC-011 on `S2` are **deliberately Edition 2**, not a hole |
+| M8 task 6 (GPS + media) is remaining V1 product functionality | **`02` §111:** *"Priority is scoped to the release in the Rel column."* FR-FUL-008, FR-FUL-011 and FR-FUL-014 are all **`Rel = v1.1`**. Not V1 |
+| FR-SYN-007's stock snapshot is blocked by a genuine contradiction (D-M9.4-1) | **FR-STK-014**, v1.0, mandatory: *"`S2` and `S3` MUST display stock as an **advisory snapshot with its capture time visible**, and MUST NOT present it as a guarantee."* `04` N-03/E-01 forbids a **stored** `quantity_on_hand`; FR-STK-014 requires a **transported advisory value carrying `as_of`**. Those are compatible, and `inventory.selectors.stock_on_hand(as_of=…)` already derives it. **The gap is a reading, not an architecture conflict — for the Product Architect to rule.** Still not worth building: DV-1 removed its consumer |
+
+**What shipped.** A semantic `ColumnKind` on `reporting.tables.Column` — `TEXT`/`COUNT`/`MONEY`/`QUANTITY`/`RATE` — with `numeric` derived from it, and `_as_json` encoding `MONEY`/`QUANTITY`/`RATE` through `core.fields`. CSV byte-identical, client untouched, `05` **AD-02.1** added for `RATE`. `M8_Design_Review` §3.4.1b.
+
+> **The prescribed fix in the old TD-36 row was wrong**, and that is worth keeping. *"Route `_as_json`'s numeric cells through `money_string`"* would have stringified `rank`, `oldest_days`, `documents`, `orders` and the six sync counters — the opposite defect, shipped in the same change. `numeric: bool` cannot tell a count from an amount; only a kind can.
+
+**Next: M8 task 8 — Owner Companion Mode**, now blocked on **OI-7 alone** (`02A` §13 cut notifications; the recommendation is its own "Needs attention" substitute). Screens 1–3 of §3.4 need no ruling; screen 4 does.
+
+---
+
 ## The immediate next action
 
 **Both of `00` §19.2's gates now pass and both are recorded. The next action is a decision,
@@ -111,6 +129,13 @@ blocking type gate because the test could not fail.
 **Recorded as TD-36. Not fixed in task 0** — changing the seven is a breaking change to a
 published response type, so it gets its own change and its own verify run. `money_string()`
 was added in task 0 to be the mechanism that fix reuses.
+
+> **CLOSED 2026-09-06, and the closure corrects the sentence above.** `money_string()` *is*
+> reused — but only for `MONEY`. Applying it to every `numeric` cell, which is what this note
+> proposed, would have turned `rank`, `oldest_days`, `documents`, `orders` and the six sync
+> counters into strings: the same rule over-applied, which `05` §9.11.1 item 3 had already
+> warned about for `awaiting_dispatch`. The fix is a semantic `ColumnKind`, so the column says
+> what it *is* and each surface derives its own behaviour. `M8_Design_Review` §3.4.1b.
 
 > **The recurring shape, in a new place:** a rule enforced on one side of a boundary and not
 > the other. Canonical on read but not on write; a grant path for the second owner and none
@@ -256,7 +281,7 @@ credential store (task 4) · **any dashboard DTO or dashboard-specific client co
 | 5 | **TD-11 — DLT registration started** | ☐ **External, unbounded** |
 | ~~6~~ | ~~Flutter/Dart SDK pinned, as `uv.lock` pins Python~~ | ✔ **Done in task 1** — `mobile/.flutter-version` + `mobile/pubspec.lock` (32 packages). **By version, not by bytes: TD-38** |
 | ~~7~~ | ~~OI-6 — the dashboard endpoint~~ | ✔ **Built and verified** |
-| 8 | **OI-7** ("Needs attention" vs reopening M-14) and **TD-36** ruled | ☐ Task 8 only |
+| 8 | **OI-7** ("Needs attention" vs reopening M-14) ruled. ~~and **TD-36**~~ — **TD-36 closed 2026-09-06**, so OI-7 is the only remaining half | ☐ Task 8 only |
 
 > **Conditions 3 and 6 are one lesson.** TD-21 was closed *before* a second toolchain
 > arrived, so reproducibility was settled with one language in the repository. Phase 2 adds
@@ -305,7 +330,7 @@ reaches the app, so read-only must be enforced by the absence of a server-side w
 | **TD-31** | Clock-dependent tests. Four fixed; the class is not structurally prevented |
 | **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is still not in `make verify`. The 21 structural contracts are blocking, but *"does the Dart compile"* is not — and **the 317 Dart cases are invisible to the only authority.** The 829 figure does not include them. Promote to stage 9 once the toolchain image has held for a milestone |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `make mobile-image` prints the checksum; paste it into `FLUTTER_SHA256` and the gap closes |
-| **TD-36** | **On M8's path.** Money leaves the seven report endpoints as a JSON float. Fix by routing `_as_json`'s numeric cells through `money_string()` — added in task 0 for this reuse — in its own change, with its own verify run |
+| ~~**TD-36**~~ | **CLOSED 2026-09-06** (`M8_Design_Review` §3.4.1b). Eight endpoints, not seven, and **not** by routing every numeric cell through `money_string()` — that would have stringified the counts. A semantic `ColumnKind`; CSV byte-identical; `05` **AD-02.1** added for `RATE` |
 | Deferred debt | TD-32, TD-33 (DRF stubs), TD-34 (`ops/` outside mypy), TD-35 (`pip-audit \|\| true`), TD-23, TD-26, TD-28, TD-14, TD-15 |
 | **The lesson still standing** | **A design review cannot find a defect on a path the tests do not take.** Four reviews found none of M7's four defects; running the real thing found all of them. M8 runs on hardware no test rig replicates — §10 task 10 is the only place that gets checked |
 
