@@ -48,7 +48,7 @@ final class RefreshInterceptor extends Interceptor {
 
   @override
   Future<void> onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (!isAccessTokenExpired(err)) return handler.next(err);
+    if (!_isRecoverable(err)) return handler.next(err);
 
     if (err.requestOptions.extra[retriedKey] == true) {
       // Refreshed, retried, still expired. C-7: stop. Looping here is how a flat battery
@@ -70,6 +70,48 @@ final class RefreshInterceptor extends Interceptor {
     } on DioException catch (retryError) {
       handler.next(retryError);
     }
+  }
+
+  /// **Which 401s a refresh can repair.** `TOKEN_EXPIRED` always — that is C-7. And one more:
+  /// a `TOKEN_INVALID` on a request that carried **no `Authorization` header at all**.
+  ///
+  /// **Those two codes mean different things, and the header is what tells them apart.** The
+  /// server raises `NotAuthenticated` when no credential was supplied and `AuthenticationFailed`
+  /// when one was supplied and rejected, and `api/v1/exception_handler.py` maps the first to
+  /// `TOKEN_INVALID` — the same code it uses for a genuinely dead credential. So `TOKEN_INVALID`
+  /// on a request that *did* present a token still means *"this credential is finished"* and
+  /// stays terminal, exactly as before. On a request that presented nothing it means *"you sent
+  /// nothing"*, which a refresh fixes.
+  ///
+  /// **Why this case exists at all.** The access token is memory-only (§8.2), so a restart
+  /// loses it. Restoration normally recovers one because `/auth/me` presents the *expired*
+  /// token and meets `TOKEN_EXPIRED` — but inside the offline window with a cached identity,
+  /// `SessionRestorer` answers from disk and *"makes no request at all"* (FR-IAM-016). The
+  /// process is then left holding a live refresh token and no access token, and every request
+  /// it sends goes out bare.
+  ///
+  /// Before this, such a request was refused `TOKEN_INVALID`, no refresh was attempted, and
+  /// `problem.dart` mapped it to `Unauthenticated` — terminal for `SyncRound`, and terminal for
+  /// `SyncScheduler`, which stops for good. **B1 measured exactly that**: a device that
+  /// cold-started offline and then reconnected never synced again until it was relaunched,
+  /// which is the launch-only behaviour TD-41 exists to remove.
+  ///
+  /// **Deliberately here and not in `AuthInterceptor`.** Refreshing *before* the request looks
+  /// tidier and was tried first; it breaks D-B1's contract, because
+  /// `startup_refresh_race_test.dart` requires both concurrent callers to be refused a 401 and
+  /// to share **one** refresh. A pre-emptive refresh removes the push's 401 entirely, so the
+  /// two callers refresh in sequence rather than together — two flights against a server that
+  /// blacklists on rotation. Reacting to the 401 keeps every caller on the one shared flight.
+  bool _isRecoverable(DioException err) {
+    if (isAccessTokenExpired(err)) return true;
+
+    // A header present means a credential was offered and refused: not this case.
+    if (err.requestOptions.headers.containsKey('Authorization')) return false;
+
+    final response = err.response;
+    if (response?.statusCode != 401) return false;
+    final body = response?.data;
+    return body is Map && body['code'] == 'TOKEN_INVALID';
   }
 
   /// One flight, shared. Assigned before the first `await` inside [_performRefresh], so a

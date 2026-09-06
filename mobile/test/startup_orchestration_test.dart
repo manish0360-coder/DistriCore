@@ -18,6 +18,7 @@ import 'package:dio/dio.dart';
 import 'package:districore/app/bootstrap.dart';
 import 'package:districore/app/config.dart';
 import 'package:districore/app/providers.dart';
+import 'package:districore/data/api/api_client.dart';
 import 'package:districore/domain/identity/session.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,18 +81,32 @@ Future<({ProviderContainer container, FakeAdapter adapter})> _wire({
   final adapter = FakeAdapter(script);
 
   // Cold start: the access token is memory-only (§8.2), so after a restart there is none.
+  final tokens = FakeTokens(accessToken: null, refreshToken: refreshToken);
   final container = buildRootContainer(
     config: AppConfig.parse(_baseUrl),
-    tokens: FakeTokens(accessToken: null, refreshToken: refreshToken),
+    tokens: tokens,
     // **One database**, exactly as `bootstrap` opens one. Two would be two live
     // `AppDatabase` instances, which is what drift's multiple-database warning is for.
     database: memoryIdentity().db,
+    overrides: [
+      // **Both Dio instances, not just `raw`.** D-B2 gives `/auth/refresh` a structurally
+      // separate client, and `ApiClient.raw` exposes only the main one — so a fake adapter
+      // installed through `raw` leaves the refresh client on Dio's **default, real-network**
+      // adapter. A refresh then leaves for api.test, fails as a connection error, and is
+      // invisible to `FakeAdapter`: the fixture reports "no refresh was attempted" when one
+      // was, and the suite quietly makes a real network call. `refresh_interceptor_test.dart`
+      // has always wired both, which is why it never saw this.
+      apiClientProvider.overrideWithValue(
+        ApiClient(
+          baseUrl: _baseUrl,
+          tokens: tokens,
+          dio: Dio()..httpClientAdapter = adapter,
+          refreshDio: Dio()..httpClientAdapter = adapter,
+        ),
+      ),
+    ],
   );
   addTearDown(container.dispose);
-
-  // Installed on the client the *container* built, so every assertion is about the object
-  // the app would actually use.
-  container.read(apiClientProvider).raw.httpClientAdapter = adapter;
 
   if (queueOperation) {
     await container.read(outboxRepositoryProvider).append(
@@ -107,11 +122,11 @@ Future<({ProviderContainer container, FakeAdapter adapter})> _wire({
 
 /// Let the event loop run until the chain has nothing left to do.
 ///
-/// `startBackgroundSync` returns `void` by design — the whole point is that `runApp` is never
-/// blocked — so a test cannot await it. Draining turns *after* the last request the chain
-/// should have made is what turns *"has not happened yet"* into *"will not happen"*. Each
-/// `Duration.zero` delay flushes the entire microtask queue, so this is far more than the
-/// short chains here need.
+/// **Used only to prove a *negative* now.** `startBackgroundSync` returns its future, so a
+/// test that wants the chain *finished* awaits it instead of guessing turns — which is what
+/// this used to be for, and how a chain came to outlive its test and close the database under
+/// an in-flight `reclaimInFlight`. Draining turns remains the right tool for the opposite
+/// claim: establishing that something has **not** happened and will not.
 Future<void> _settle() async {
   for (var turn = 0; turn < 25; turn += 1) {
     await Future<void>.delayed(Duration.zero);
@@ -140,7 +155,7 @@ void main() {
         return _emptyPull();
       });
 
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(pulled, 'the pull');
       await _settle();
@@ -162,7 +177,7 @@ void main() {
         return _problem(500, 'THIS_REQUEST_SHOULD_NOT_HAVE_BEEN_MADE');
       });
 
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(answered, '/auth/me');
       await _settle();
@@ -184,15 +199,23 @@ void main() {
         script: (options, _) async => _problem(500, 'THIS_REQUEST_SHOULD_NOT_HAVE_BEEN_MADE'),
       );
 
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
       await _settle();
 
       expect(_paths(env.adapter), isEmpty);
     });
 
     test('an unauthenticated push stops the chain — no pull is attempted', () async {
-      // `TOKEN_INVALID` is terminal (`05` §5.1): it is not `TOKEN_EXPIRED`, so no refresh is
-      // attempted and the credential is finished. A pull would only repeat the same 401.
+      // **The push goes out bare** — a cold start has no access token (§8.2) — so its 401 is
+      // `TOKEN_INVALID`, and `RefreshInterceptor` now treats *that specific shape* as
+      // recoverable: a request that presented nothing was refused for a reason a refresh can
+      // fix. One refresh is therefore attempted. It fails here, because this fixture answers
+      // `/auth/refresh` with a body carrying no `access_token`, which `_performRefresh` reads
+      // as a contract break and refuses to destroy a session over.
+      //
+      // So the credential is still finished, the chain still stops, and **no pull is
+      // attempted** — the property this test exists for, unchanged. What changed is that one
+      // recovery is tried before giving up, visible as the third path below.
       final pushed = Completer<void>();
       final env = await _wire(script: (options, _) async {
         if (options.path.contains('/auth/me')) return jsonBody(200, _user());
@@ -203,12 +226,12 @@ void main() {
         return _emptyPull();
       });
 
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(pushed, 'the push');
       await _settle();
 
-      expect(_paths(env.adapter), ['/auth/me', '/sync/push']);
+      expect(_paths(env.adapter), ['/auth/me', '/sync/push', '/auth/refresh']);
     });
 
     test('a transient push failure does not stop the pull', () async {
@@ -226,7 +249,7 @@ void main() {
         return _emptyPull();
       });
 
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(pulled, 'the pull');
       await _settle();
@@ -253,7 +276,7 @@ void main() {
         reason: 'nothing has read it yet — otherwise the assertion below proves nothing',
       );
 
-      startBackgroundSync(env.container);
+      unawaited(startBackgroundSync(env.container));
 
       // **No `await` between the line above and this one**, so this observes the state of the
       // container in the same turn the chain was started.

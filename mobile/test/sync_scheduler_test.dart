@@ -17,6 +17,7 @@ import 'package:districore/app/bootstrap.dart';
 import 'package:districore/app/config.dart';
 import 'package:districore/app/providers.dart';
 import 'package:districore/app/sync_scheduler.dart';
+import 'package:districore/data/api/api_client.dart';
 import 'package:districore/data/sync/sync_round.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,13 +63,30 @@ Future<
   required FutureOr<ResponseBody> Function(RequestOptions options, int callIndex) script,
 }) async {
   final adapter = FakeAdapter(script);
+  final tokens = FakeTokens();
   final container = buildRootContainer(
     config: AppConfig.parse(_baseUrl),
-    tokens: FakeTokens(),
+    tokens: tokens,
     database: memoryIdentity().db,
+    overrides: [
+      // **Both Dio instances, not just `raw`.** D-B2 gives `/auth/refresh` a structurally
+      // separate client, and `ApiClient.raw` exposes only the main one — so a fake adapter
+      // installed through `raw` leaves the refresh client on Dio's **default, real-network**
+      // adapter. A refresh then leaves for api.test, fails as a connection error, and is
+      // invisible to `FakeAdapter`: the fixture reports "no refresh was attempted" when one
+      // was, and the suite quietly makes a real network call. `refresh_interceptor_test.dart`
+      // has always wired both, which is why it never saw this.
+      apiClientProvider.overrideWithValue(
+        ApiClient(
+          baseUrl: _baseUrl,
+          tokens: tokens,
+          dio: Dio()..httpClientAdapter = adapter,
+          refreshDio: Dio()..httpClientAdapter = adapter,
+        ),
+      ),
+    ],
   );
   addTearDown(container.dispose);
-  container.read(apiClientProvider).raw.httpClientAdapter = adapter;
 
   final ticker = FakeTicker();
   final scheduler = SyncScheduler(

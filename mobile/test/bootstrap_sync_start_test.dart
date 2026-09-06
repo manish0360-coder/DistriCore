@@ -21,6 +21,7 @@ import 'package:dio/dio.dart';
 import 'package:districore/app/bootstrap.dart';
 import 'package:districore/app/config.dart';
 import 'package:districore/app/providers.dart';
+import 'package:districore/data/api/api_client.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -104,16 +105,32 @@ Future<
   final adapter = FakeAdapter(script);
   final ticker = FakeTicker();
 
+  final tokens = FakeTokens(accessToken: null, refreshToken: refreshToken);
   final container = buildRootContainer(
     // Cold start: the access token is memory-only (§8.2), so after a restart there is none.
     config: AppConfig.parse(_baseUrl),
-    tokens: FakeTokens(accessToken: null, refreshToken: refreshToken),
+    tokens: tokens,
     database: memoryIdentity().db,
-    overrides: [syncTickerProvider.overrideWithValue(ticker)],
+    overrides: [
+      syncTickerProvider.overrideWithValue(ticker),
+      // **Both Dio instances, not just `raw`.** D-B2 gives `/auth/refresh` a structurally
+      // separate client, and `ApiClient.raw` exposes only the main one — so a fake adapter
+      // installed through `raw` leaves the refresh client on Dio's **default, real-network**
+      // adapter. A refresh then leaves for api.test, fails as a connection error, and is
+      // invisible to `FakeAdapter`: the fixture reports "no refresh was attempted" when one
+      // was, and the suite quietly makes a real network call. `refresh_interceptor_test.dart`
+      // has always wired both, which is why it never saw this.
+      apiClientProvider.overrideWithValue(
+        ApiClient(
+          baseUrl: _baseUrl,
+          tokens: tokens,
+          dio: Dio()..httpClientAdapter = adapter,
+          refreshDio: Dio()..httpClientAdapter = adapter,
+        ),
+      ),
+    ],
   );
   addTearDown(container.dispose);
-
-  container.read(apiClientProvider).raw.httpClientAdapter = adapter;
 
   if (queueOperation) {
     await container.read(outboxRepositoryProvider).append(
@@ -174,7 +191,7 @@ void main() {
         if (!pulled.isCompleted) pulled.complete();
         return _emptyPull();
       });
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(pulled, 'the pull');
       await _until(() => env.ticker.isArmed, 'the chain to arm the cadence');
@@ -198,7 +215,7 @@ void main() {
         }
         return _problem(500, 'THIS_REQUEST_SHOULD_NOT_HAVE_BEEN_MADE');
       });
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(answered, '/auth/me');
       await _settle();
@@ -215,7 +232,7 @@ void main() {
         refreshToken: null,
         script: (options, _) async => _problem(500, 'THIS_REQUEST_SHOULD_NOT_HAVE_BEEN_MADE'),
       );
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
       await _settle();
 
       expect(_paths(env.adapter), isEmpty);
@@ -225,6 +242,13 @@ void main() {
     test('a launch round that ends Unauthenticated arms nothing', () async {
       // Every tick would meet the same 401 and stop the scheduler on its first attempt.
       // Arming buys one wasted round and nothing else.
+      //
+      // **The bare push now attempts one recovery first.** A cold start has no access token
+      // (§8.2), so the push carries no `Authorization` header and the 401 is `TOKEN_INVALID` —
+      // which `RefreshInterceptor` treats as recoverable *only* in that shape. The refresh
+      // fails here because this fixture answers `/auth/refresh` with a pull body carrying no
+      // `access_token`, so the credential is still finished. The property under test is
+      // unchanged: the cadence is not armed.
       final pushed = Completer<void>();
       final env = await _wire(script: (options, _) async {
         if (options.path.contains('/auth/me')) return jsonBody(200, _user());
@@ -234,12 +258,12 @@ void main() {
         }
         return _emptyPull();
       });
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(pushed, 'the push');
       await _settle();
 
-      expect(_paths(env.adapter), ['/auth/me', '/sync/push']);
+      expect(_paths(env.adapter), ['/auth/me', '/sync/push', '/auth/refresh']);
       expect(env.ticker.isArmed, isFalse);
     });
 
@@ -253,7 +277,7 @@ void main() {
         if (!pulled.isCompleted) pulled.complete();
         return _emptyPull();
       });
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       await _reached(pulled, 'the pull');
       await _until(() => env.ticker.isArmed, 'the chain to arm the cadence');
@@ -274,7 +298,7 @@ void main() {
         }
         return _emptyPull();
       });
-      startBackgroundSync(env.container);
+      await startBackgroundSync(env.container);
 
       // **The launch chain must finish before the first tick.** An armed ticker is the signal
       // that it did: `start()` is the last statement of the chain. Firing into an unarmed

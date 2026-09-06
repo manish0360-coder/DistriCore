@@ -81,7 +81,7 @@ Future<void> bootstrap() async {
   // **One call, one order.** M9.2 and M9.4 each added a start-up task; started
   // independently they raced, and a pull that won could overwrite the cache describing
   // writes the push had not yet delivered.
-  startBackgroundSync(container);
+  unawaited(startBackgroundSync(container));
 }
 
 /// **Flutter's lifecycle, bound to the retry cadence** (TD-41).
@@ -232,9 +232,18 @@ Future<Result<Session?>> startSessionRestoration(ProviderContainer container) {
 /// within two minutes of reconnection; the cadence bounds when an attempt *starts*. Completion
 /// at the DR-8 envelope over a real network is a timed device measurement (B1) that does not
 /// exist yet, and the background case remains an open specification gap (**TD-47**).
-void startBackgroundSync(ProviderContainer container) {
-  unawaited(_restoreThenSync(container));
-}
+/// **Returns the chain's future; `bootstrap` still does not await it.**
+///
+/// Production behaviour is unchanged — the call below is `unawaited`, so `runApp` is never
+/// blocked, which is the whole point of this function. What changes is that the work is no
+/// longer *unobservable*: a caller that needs to know when the chain finished can await it.
+///
+/// That is not a convenience. Hiding the future made every test of this function guess how
+/// many event-loop turns the chain needs, and a guess that is one round trip short lets the
+/// chain outlive the test — which closes the database under an in-flight `reclaimInFlight`
+/// and reports a `Bad state` from a test that had already passed. A signal beats a guess.
+Future<void> startBackgroundSync(ProviderContainer container) =>
+    _restoreThenSync(container);
 
 Future<void> _restoreThenSync(ProviderContainer container) async {
   // Runs synchronously up to this first `await`, so the `sessionProvider` read inside

@@ -593,3 +593,90 @@ backup: ## Encrypted database dump
 .PHONY: prod-up
 prod-up: ## Start the production stack (on the server)
 	$(DCPROD) up -d --build --wait
+
+# --- B1: FR-SYN-010 ACCEPTANCE ----------------------------------------------
+#
+# 02 FR-SYN-010: "Full sync of a typical daily volume MUST complete within 2 minutes of
+# reconnection at the DR-8 envelope." 02 NFR-PER-004 names the method: "Timed sync at
+# representative volume." This target IS that measurement, and it is the only evidence that
+# can discharge the requirement. TD-41 shipped the retry cadence; the cadence bounds when an
+# attempt starts, not when a sync completes.
+#
+# **The first device gate that talks to a real server.** Every earlier one is local-only:
+# MOBILE_DART_DEFINES points at https://api.test, a hostname that resolves to nothing. So
+# this target carries its own defines — the emulator's host alias and the dev CA — and does
+# not touch that variable.
+#
+# Prerequisites, in order:
+#   make up                 the dev stack, including the caddy TLS terminator
+#   make dev-ca             extract Caddy's internal root
+#   make emulator-trust-ca  install it (the Dart VM reads BoringSSL's roots, so the CA also
+#                           reaches the app through --dart-define below)
+#   scripts/seed-b1.sh      the salesman, the zone and the customers
+#
+# DISPOSABLE AVD RECOMMENDED: this leaves the app signed in to a dev server.
+#
+#: **The `/api/v1` prefix is load-bearing.** Every path in the app is relative — `/auth/login`,
+#: `/auth/me`, `/auth/refresh`, `/sync/push`, `/sync/pull` — and `backend/config/urls.py`
+#: mounts the whole API under `path("api/v1/", ...)`. A base URL without the prefix reaches
+#: `path("", include("webadmin.urls"))` instead and every request 404s. This was written
+#: without it once and cost an emulator run: Caddy showed `POST /auth/login` routed and Django
+#: answered `Not Found: /auth/login`. `startup_orchestration_test.dart` had already recorded
+#: the rule — *"the API is mounted at `/api/v1/`, so a base URL without one would not reach an
+#: endpoint on a real deployment"* — and all six mobile test files use `.../api/v1`.
+#: `AppConfig` preserves a path prefix and trims a trailing slash, so this concatenates cleanly.
+B1_BASE_URL       ?= https://10.0.2.2/api/v1
+B1_OPERATIONS     ?= 200
+B1_PHONE          ?= +919876500001
+B1_PASSWORD       ?= b1-acceptance-only
+#: How long after the measure phase starts the radio comes back. Must be long enough for
+#: `flutter drive` to install, launch and reach the first failed attempt.
+B1_RECONNECT_AFTER ?= 150
+
+#: **`$(CURDIR)/$(DEV_CA)`, not `$(DEV_CA)`** — the same rule `FLUTTER_HOST_RUN` states above:
+#: *"`$(CURDIR)` because the recipes `cd mobile` first"*. `DEV_CA` is relative to the repository
+#: root, and these defines are expanded inside `cd mobile && …`, so a bare path resolves to
+#: `mobile/build/districore-dev-ca.crt` and `base64` reports no such file. The build then
+#: carries no trust anchor and every request fails as a login failure, which points at the
+#: wrong layer entirely.
+B1_DEFINES = --dart-define=DISTRICORE_API_BASE_URL=$(B1_BASE_URL) \
+	--dart-define=DISTRICORE_DEV_CA_B64=$$(base64 -w0 $(CURDIR)/$(DEV_CA)) \
+	--dart-define=B1_OPERATIONS=$(B1_OPERATIONS) \
+	--dart-define=B1_PHONE=$(B1_PHONE) \
+	--dart-define=B1_PASSWORD=$(B1_PASSWORD)
+
+B1_DRIVE = $(FLUTTER_HOST_RUN) drive --driver=test_driver/integration_test.dart \
+	--target=integration_test/sync_reconnect_test.dart --keep-app-running \
+	-d $(MOBILE_DEVICE_ID)
+
+.PHONY: mobile-device-sync-latency
+mobile-device-sync-latency: device-gate-preflight ## B1: FR-SYN-010 timed sync. Needs the dev stack, the seed and a trusted dev CA.
+	@# **The guard must test the path the recipe will actually read.** This checked `$(DEV_CA)`
+	@# from the repository root while `B1_DEFINES` read it from `mobile/`, so it passed while
+	@# the thing it guards was broken — a precondition that cannot fail for the reason it
+	@# claims. Both now name one absolute path.
+	@test -f $(CURDIR)/$(DEV_CA) || { \
+		echo "$(CURDIR)/$(DEV_CA) is missing. Run 'make up' then 'make dev-ca', then"; \
+		echo "'make emulator-trust-ca' with the AVD running."; exit 1; }
+	@echo "==> phase 1/3 online: authenticate and cache identity + customers"
+	@$(ADB) shell svc wifi enable  >/dev/null 2>&1 || true
+	@$(ADB) shell svc data enable  >/dev/null 2>&1 || true
+	cd mobile && $(FLUTTER_HOST_RUN) pub get --enforce-lockfile && $(B1_DRIVE) $(B1_DEFINES) --dart-define=GATE_PHASE=online
+	@echo "==> phase 2/3 queue: radio OFF, queue $(B1_OPERATIONS) real VISIT_CREATE rows"
+	@$(ADB) shell svc wifi disable >/dev/null 2>&1 || true
+	@$(ADB) shell svc data disable >/dev/null 2>&1 || true
+	cd mobile && $(B1_DRIVE) $(B1_DEFINES) --dart-define=GATE_PHASE=queue
+	@echo "==> phase 3/3 measure: radio returns after $(B1_RECONNECT_AFTER)s, mid-run"
+	@echo "    The restore is backgrounded because the drive holds the foreground and Dart"
+	@echo "    cannot toggle a radio. t0 is read from the cadence itself, so the exact"
+	@echo "    instant the radio returns does not have to be known here - it only has to"
+	@echo "    fall between two attempts, which any value inside the run does."
+	@( sleep $(B1_RECONNECT_AFTER); \
+	   $(ADB) shell svc wifi enable >/dev/null 2>&1 || true; \
+	   $(ADB) shell svc data enable >/dev/null 2>&1 || true; \
+	   echo "==> radio restored" ) &
+	cd mobile && $(B1_DRIVE) $(B1_DEFINES) --dart-define=GATE_PHASE=measure
+	@echo
+	@echo "==> B1 complete. The GATE:b1 lines above are the evidence record."
+	@echo "    x86_64 emulator only - TD-45 is unchanged by this run."
+
