@@ -19,6 +19,19 @@ class DeliverySerializer(serializers.Serializer):
     customer_name = serializers.CharField(source="sales_order.customer.shop_name", read_only=True)
     client_uuid = serializers.UUIDField(read_only=True)
     assigned_user_id = serializers.IntegerField(read_only=True)
+    # M8 §3.4 Companion Mode: "Pending deliveries — assigned and not yet completed, **with
+    # the salesman's name**". Read-only and additive; `assigned_user_id` is unchanged, so no
+    # existing client breaks. There is no `/users` endpoint and none is added — resolving an
+    # id to a name on the device would mean either inventing one or shipping a user directory
+    # to a public binary. `visible_deliveries` already does `select_related("assigned_user")`,
+    # so this costs no query.
+    #
+    # **No `default`, because the traversal cannot fail.** `04` T-27: `assigned_user_id` is
+    # NOT NULL with `ON DELETE RESTRICT` — unlike `sales_order` and `zone`, whose assignees
+    # are nullable. A delivery exists because someone was given it to carry. A default here
+    # would describe a state the database forbids, which reads as though the field were
+    # optional; `test_a_delivery_cannot_exist_without_an_assignee` holds the invariant.
+    assigned_user_name = serializers.CharField(source="assigned_user.full_name", read_only=True)
     status = serializers.CharField(read_only=True)
     dispatched_at = serializers.DateTimeField(read_only=True)
     delivered_at = serializers.DateTimeField(read_only=True)

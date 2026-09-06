@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.11.1** |
-| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–3 and TD-39 done and verified; task 4 M1–M5 verified and pushed. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). §11.2 item 8 (TD-36) CLOSED 2026-09-06 (§3.4.1b) — task 8 is now blocked on item 7 (OI-7) alone** |
+| Version | **1.12.0** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–5, 7, 8 and 9 built; TD-39 done. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). §11.2 items 7 (OI-7) and 8 (TD-36) both CLOSED 2026-09-06. **Task 8 — Owner Companion Mode — built (§3.4).** Remaining: task 6 (GPS/media, `Rel = v1.1`, not V1) and task 10 (the 8-hour soak)** |
 | Date | 2026-08-16 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
@@ -30,6 +30,7 @@
 | **1.10.0** | **2026-09-04** | **§5.6.2 added — the storage gate's first recorded run, and it PASSED. `00` §19.2 is now CLOSED.** `make mobile-device-storage` on a disposable API 34 AVD: 8.56 GB of ballast written by the app itself, 94 appends committed into a 2 MiB slack, the 95th refused as **StorageFull** and nothing else (**D-C3**); phase B reopened the database and found all 94 present, PENDING, decodable, sequence continuing (**D-C1**, **BR-014**, **NFR-OFF-005**). **The gate found a real defect in shipping code**: `SQLITE_FULL` at COMMIT arrives three wrappers deep through the background isolate — `DriftRemoteException` -> `CouldNotRollBackException` -> `SqliteException(13)` — so a full device crashed rather than returning StorageFull; `storage_failure.dart` now walks the cause chain with the same two result codes. §5.6's gate status corrected from *partly closed* to **closed**. New **TD-46** records the deliberate `experimental_member_use` on `drift/remote.dart`. **Minor, not patch: new evidence closes a gate.** |
 | **1.11.0** | **2026-09-06** | **§3.4.1b added — TD-36 CLOSED.** The defect §3.4.1a recorded at task 0 is fixed, in its own change with its own verify as §11.2 item 8 required. **Eight endpoints, not seven** — FR-RPT-009 landed in between and carried it. The fix is a semantic `ColumnKind` (`TEXT`/`COUNT`/`MONEY`/`QUANTITY`/`RATE`) on `reporting.tables.Column`, with `numeric` **derived** from it, so the CSV path is byte-identical and the screen is untouched; `_as_json` encodes `MONEY`/`QUANTITY`/`RATE` through `core.fields` and leaves `COUNT` a JSON integer. A boolean could not have done this: stringifying `rank`, `oldest_days` and the sync counters would have shipped the opposite defect. `05` **AD-02.1** added — `RATE` is a decimal string, a count is not; **AD-02 itself, `02` and §9.11.2's metric definition are unchanged**. New adversarial suite over every registered report, fourteen mutations each proved to fail. **The client needed no change.** §11.2 item 8 struck; §12.8's row struck. **Minor, not patch: a published response type changed shape.** |
 | **1.11.1** | **2026-09-06** | **§3.4.1b — the first authoritative `make verify` run of TD-36, and the three things it found.** 1155 passed / 3 failed / 1 error at `604f545`, all fixed forward. **(a)** A blank `COUNT` was leaving as `""` in the `receivables` and `top-customers` total rows — shipped since M7, invisible to a suite that asserted values and never types. Now `null`; `0` rejected because rank-zero is a measurement. `05` **AD-02.1** states it. **(b)** The customer statement's JSON path renders `StatementSerializer`, **not** a `ReportTable`, so `COERCE_DECIMAL_TO_STRING` already covered it and TD-36 never reached it — the test was corrected to the shipped contract rather than the contract to the test. **(c)** A latent `CustomerFactory`/`credit_customer` collision on **C-0142**, exposed by the milestone's case count and not caused by it; generated codes take a reserved `C-T` prefix and a new adversarial suite holds the rule. **Patch: no decision changed.** |
+| **1.12.0** | **2026-09-06** | **§11.2 item 7 (OI-7) RULED, and task 8 — Owner Companion Mode — built (§3.4).** M-14 stays cut: `02A` §13 governs over §7.12, the same precedence M7's C-1…C-6 established. "Needs attention" is **two** filtered reads — confirmed-not-dispatched orders and failed deliveries. **"Overdue balances" is excluded from V1**: no overdue rule exists in the corpus, `Customer.credit_days` is stored and read by nothing, and defining one is a `receivables` decision (D-3) rather than a label on a phone. Screen 3 is included and takes the first ten rows of the **server-ordered** ageing report — presentation, not derivation (§2.3). **Online-only**: no new cache architecture, so no second source of truth for figures the web admin owns. One additive backend change, `assigned_user_name` (`05` **§9.4.1**), because §3.4 asks for the salesman's name and the payload carried only an id. **Minor, not patch: a screen inventory grew and an open item closed.** |
 
 ---
 
@@ -235,6 +236,23 @@ right now?"* without becoming a second admin UI.
 | **Pending deliveries** | Assigned and not yet completed, with the salesman's name | `/deliveries?status=PENDING` ✔ exists |
 | **Receivables summary** | Total outstanding, oldest bucket, worst ten customers | `/reports/receivables` ✔ exists |
 | **Needs attention** | Confirmed orders not dispatched · failed deliveries · overdue balances | §3.4.2 — **replaces "notifications"** |
+
+> **BUILT 2026-09-06 as task 8, and OI-7 ruled with it.** The four screens ship as
+> `mobile/lib/features/companion/`, owner-gated through the existing `TabSpec`/`RoleShell`
+> mechanism. **The ruling, in full:**
+>
+> | Question | Ruling |
+> | --- | --- |
+> | Notifications / M-14 | **Stay cut.** `02A` §13 governs over §7.12 — the same precedence M7's C-1…C-6 and D-M9-1 established. No model, endpoint, state machine or badge |
+> | Screen 4's sources | **Two**: confirmed-not-dispatched orders, and failed deliveries |
+> | *"Overdue balances"* | **Excluded from V1.** No overdue rule exists in the corpus — `Customer.credit_days` is stored, editable through the web admin and the API, and **read by no selector, service or rule**. Defining one is a `receivables` decision (D-3) with its own change, not a label on a phone screen |
+> | Screen 3 | **Included.** The server-ordered ageing report, first ten rows. Taking a prefix of a list the server ordered is presentation; re-sorting would be a second implementation of an ordering `reporting` owns |
+> | Caching | **Online-only for V1.** No new cache architecture, so no `as_of` to reconcile against figures the web admin already owns. `is_live` still labels the two figures §9.11.1 marks as not reproducible |
+>
+> **The one backend change was additive**: `assigned_user_name` on `DeliverySerializer`
+> (`05` §9.4.1), because §3.4 asks for *"the salesman's name"* and the payload carried only
+> an id. §10.1's justification held — task 8 really is *"read-only over endpoints that
+> already exist"*.
 
 **The boundary that keeps this from becoming the admin UI:**
 
@@ -978,7 +996,7 @@ portal channel is strictly better.
 | 5 | **TD-11 — SMS/DLT registration** is on M8's critical path: OTP login is the field default and DLT approval has unbounded lead time. `00` §2.4's contingency is owner-provisioned passwords, recorded as a deviation | ☐ **Open** |
 | ~~**6**~~ | ~~`GET /reports/dashboard`~~ | ✔ **Built and verified 2026-08-10** (§3.4.1) |
 | ~~**8**~~ | ~~**TD-36 — the report endpoints emit money as JSON floats** (§3.4.1a). AD-02 violated by `_as_json` bypassing serialisation~~ | ✔ **CLOSED 2026-09-06** (§3.4.1b). Its own change with its own verify, as this row required. A semantic `ColumnKind` — eight endpoints, CSV byte-identical, `05` **AD-02.1** added for `RATE`. **Task 8 no longer blocked on this** |
-| **7** | **"Notifications" was cut from Edition 1** by `02A` §13 (M-14 entirely, 0.5 units). Recommendation: adopt `02A`'s own substitute — a **"Needs attention"** filtered read — rather than reopening the cut (§3.4.2) | ☐ **New — decide before task 8** |
+| ~~**7**~~ | ~~**"Notifications" was cut from Edition 1** by `02A` §13 (M-14 entirely, 0.5 units). Recommendation: adopt `02A`'s own substitute — a **"Needs attention"** filtered read~~ | ✔ **RULED 2026-09-06.** The recommendation is adopted: M-14 stays cut, and "Needs attention" is **two** filtered reads — confirmed-not-dispatched orders and failed deliveries. **"Overdue balances" excluded from V1**, because no overdue rule exists to read (§3.4) |
 
 > **Item 5 is the one that can stop this milestone from outside it.** Everything else here
 > is engineering.
@@ -1088,7 +1106,7 @@ A frozen clause is not reopened by an implementation preference. It is reopened 
 | # | Item | Blocks |
 | --: | --- | --- |
 | ~~**6**~~ | ~~`GET /reports/dashboard`~~ | ✔ **Closed by task 0** |
-| **7** | "Notifications" vs `02A` §13's cut (§3.4.2) — recommendation: the "Needs attention" substitute | **Task 8 only** |
+| ~~**7**~~ | ~~"Notifications" vs `02A` §13's cut (§3.4.2)~~ | ✔ **RULED 2026-09-06** — the substitute is adopted; "overdue balances" excluded from V1 (§3.4) |
 | ~~**8**~~ | ~~**TD-36** — money as floats on the report endpoints (§3.4.1a)~~ | ✔ **CLOSED 2026-09-06** (§3.4.1b) |
 
 **None blocks Phase 2 from proceeding.** All sit inside task 8, which §10.1 places last for

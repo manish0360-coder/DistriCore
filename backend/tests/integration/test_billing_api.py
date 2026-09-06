@@ -10,9 +10,11 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 
 from billing.services import issue_invoice
+from fulfilment.models import Delivery
 from fulfilment.services import assign_delivery, dispatch_delivery
 from inventory.services import receive_stock
 from orders.services import confirm_order, place_order
@@ -83,6 +85,91 @@ def test_delivery_list_and_detail(auth, owner, dispatched):
     detail = client.get(reverse("v1:delivery-detail", args=[dispatched.pk]))
     assert detail.status_code == 200
     assert detail.json()["order_number"] == dispatched.sales_order.order_number
+
+
+def test_the_delivery_payload_names_the_assignee(auth, owner, dispatched):
+    """`05` §9.4.1 — Companion Mode's *"with the salesman's name"* (M8 §3.4, task 8).
+
+    **The id stays.** It is the identity, and a client that already reads it must not break;
+    the name is added beside it. There is no `/users` endpoint and none was added — resolving
+    an id on the device would mean shipping a user directory to a public binary (`02A` §9.3).
+    """
+    body = auth(owner).get(reverse("v1:delivery-detail", args=[dispatched.pk])).json()
+
+    assert body["assigned_user_id"] == owner.pk
+    assert body["assigned_user_name"] == owner.full_name
+    assert body["assigned_user_name"], "the fixture has no name; this would pass vacuously"
+
+
+def test_a_delivery_cannot_exist_without_an_assignee(dispatched):
+    """**The invariant that means `assigned_user_name` has no empty branch.**
+
+    This replaces a test that asserted the opposite. It read *"a delivery with no assignee is
+    a state, not a broken payload"* and set `assigned_user = None` — and `04` T-27 line 919
+    says `assigned_user_id BIGINT` **N**, `ON DELETE RESTRICT`. Unlike `sales_order` and
+    `zone`, whose assignees are nullable *"because a zone may exist before a salesman is
+    assigned"*, a delivery exists **because** someone was given it to carry: `assign_delivery`
+    takes the user as a required argument and the column has never permitted otherwise.
+
+    So the serializer's `default=""` was describing a state the database forbids, and it is
+    removed rather than defended. This test is what stops it coming back.
+    """
+    assert Delivery._meta.get_field("assigned_user").null is False, (
+        "the column became nullable; `assigned_user_name` now needs an empty branch and "
+        "this test should be replaced rather than deleted"
+    )
+
+    # The declaration is the design; the constraint is the guarantee (I-6).
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Delivery.objects.filter(pk=dispatched.pk).update(assigned_user=None)
+
+
+def test_the_assignee_name_and_id_can_never_disagree(auth, owner, salesman, dispatched):
+    """The property that makes the added field safe: both describe **one** user.
+
+    `source="assigned_user.full_name"` traverses the live relation on every render, so a
+    reassignment moves the id and the name together. A name cached at creation would drift the
+    first time a round changed hands — and a delivery attributed to the wrong salesman is the
+    attribution loss C-10 names, arriving as a label rather than as an error.
+    """
+    client = auth(owner)
+    before = client.get(reverse("v1:delivery-detail", args=[dispatched.pk])).json()
+    assert (before["assigned_user_id"], before["assigned_user_name"]) == (
+        owner.pk,
+        owner.full_name,
+    )
+
+    dispatched.assigned_user = salesman
+    dispatched.save(update_fields=["assigned_user"])
+
+    after = client.get(reverse("v1:delivery-detail", args=[dispatched.pk])).json()
+    assert (after["assigned_user_id"], after["assigned_user_name"]) == (
+        salesman.pk,
+        salesman.full_name,
+    )
+    assert after["assigned_user_name"] != before["assigned_user_name"], (
+        "the two users share a name; this assertion would pass without the field moving"
+    )
+
+
+def test_the_name_is_read_only_and_cannot_be_supplied(auth, owner, confirmed):
+    """Companion Mode reads (§3.4). A label the caller can set is an input, not a label.
+
+    The assignment still comes from `assigned_user_id`; a name in the body is ignored, so it
+    can never disagree with the user the delivery is actually bound to.
+    """
+    response = auth(owner).post(
+        reverse("v1:delivery-list"),
+        {
+            "sales_order_id": confirmed.pk,
+            "assigned_user_id": owner.pk,
+            "assigned_user_name": "Somebody Else",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["assigned_user_name"] == owner.full_name
 
 
 def test_filtering_deliveries_by_status(auth, owner, dispatched):

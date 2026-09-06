@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/clock.dart';
 import '../data/api/api_client.dart';
 import '../data/api/tokens.dart';
+import '../data/companion/api_companion_repository.dart';
 import '../data/db/app_database.dart';
 import '../data/identity/auth_service.dart';
 import '../data/identity/session_restorer.dart';
@@ -20,6 +21,7 @@ import '../data/sync/api_sync_status_repository.dart';
 import '../data/sync/pull_service.dart';
 import '../data/sync/sync_engine.dart';
 import '../data/sync/sync_round.dart';
+import '../domain/companion/companion_repository.dart';
 import '../domain/customer/customer_repository.dart';
 import '../domain/delivery/delivery_repository.dart';
 import '../domain/identity/session.dart';
@@ -102,6 +104,15 @@ final syncEngineProvider = Provider<SyncEngine>(
 /// `GET /sync/status` (M9.3). Read-only: it observes the server, it never asks it to act.
 final syncStatusRepositoryProvider = Provider<SyncStatusRepository>(
   (ref) => ApiSyncStatusRepository(ref.watch(apiClientProvider)),
+);
+
+/// Owner Companion Mode (M8 task 8, §3.4). **Online-only and read-only.**
+///
+/// No cache provider beside it, deliberately: the ruling of 2026-09-06 makes Companion Mode
+/// online-only for V1, so there is no second source of truth for figures the web admin already
+/// owns — and no `as_of` to reconcile between them.
+final companionRepositoryProvider = Provider<CompanionRepository>(
+  (ref) => ApiCompanionRepository(ref.watch(apiClientProvider)),
 );
 
 /// The M9.4 pull cache. One instance each, so every reader sees the same rows.

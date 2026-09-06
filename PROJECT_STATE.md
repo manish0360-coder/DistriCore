@@ -31,7 +31,7 @@
 | M5 | Fulfilment & Billing — delivery, dispatch, GST invoice, credit note, ledger | **Verified & tagged** — `docs/M5_Verification_Report.md` |
 | M6 | Receivables — payments, reversal, write-off, derived outstanding, statement | **Verified & tagged** — `docs/M6_Verification_Report.md` |
 | M7 | Reporting — seven reports, CSV, scoping, owner dashboard | **Verified** — `docs/M7_Verification_Report.md` |
-| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.8.0**, both ADRs approved: **Drift over an encrypted SQLite** (§5.6 — the cipher clause amended to SQLite3MultipleCiphers by **D-M9-8**, 2026-08-25; the ADR's conclusion, Drift, is unchanged) and **Dio** (§7.5). Principles P-1…P-10 frozen. **Phase 2 tasks 0–5, 7 and 9 committed** plus TD-39 (see the commit history below). **Tasks 6, 8 and 10 have no commit** — GPS and the separate media queue, Owner Companion Mode, and the 8-hour offline soak. `mobile/lib/features/` contains `auth`, `customers`, `deliveries`, `settings`, `sync_status` and nothing else |
+| M8 | Mobile app | **In progress.** Phase 1 signed — `docs/M8_Design_Review.md` **v1.8.0**, both ADRs approved: **Drift over an encrypted SQLite** (§5.6 — the cipher clause amended to SQLite3MultipleCiphers by **D-M9-8**, 2026-08-25; the ADR's conclusion, Drift, is unchanged) and **Dio** (§7.5). Principles P-1…P-10 frozen. **Phase 2 tasks 0–5, 7 and 9 committed** plus TD-39 (see the commit history below). **Task 8 — Owner Companion Mode — built 2026-09-06** (§3.4; OI-7 ruled with it). **Tasks 6 and 10 have no commit** — GPS and the separate media queue (**FR-FUL-008/011/014 are `Rel = v1.1`, so not V1** — `02` §111), and the 8-hour offline soak. `mobile/lib/features/` contains `auth`, `companion`, `customers`, `deliveries`, `settings` and `sync_status` |
 | M9 | Sync | **In progress.** Four increments committed — M9.1 push receiver, M9.2 mobile drain, M9.3 server status, M9.4 pull and cache. **Not closed:** see *Open at M9* |
 | M10 | Hardening | Not started |
 | M11 | Go-live | Not started |
@@ -241,11 +241,11 @@ introduction would move two variables at once.
 | ~~6~~ | ~~M8 design review written and signed~~ | **Done.** `docs/M8_Design_Review.md` v1.2.0, signed 2026-08-10, both ADRs approved |
 | 7 | TD-15 — assign a milestone to `offer` | Product Architect |
 
-### Open inside M8, blocking task 8 only
+### Open inside M8 — ~~blocking task 8~~ **both closed 2026-09-06**
 
 | # | Item | Owner |
 | --- | --- | --- |
-| OI-7 | **"Notifications" were cut from Edition 1** by `02A` §13 (*"In-app notifications, M-14 entirely"*, 0.5 units). Recommendation: adopt `02A`'s own substitute — a **"Needs attention"** filtered read — rather than reopening the cut | Product Architect |
+| ~~OI-7~~ | ~~"Notifications" were cut from Edition 1 by `02A` §13~~ — **RULED 2026-09-06.** M-14 stays cut; "Needs attention" is two filtered reads (confirmed-not-dispatched orders, failed deliveries). **"Overdue balances" excluded from V1** — no overdue rule exists, `Customer.credit_days` is read by nothing, and defining one is a `receivables` decision (D-3) | ~~Product Architect~~ |
 | ~~TD-36~~ | ~~The report endpoints emit money as JSON floats~~ — **CLOSED 2026-09-06** (below). **OI-7 is now the only thing blocking task 8** | ~~Engineering~~ |
 
 ## Technical debt

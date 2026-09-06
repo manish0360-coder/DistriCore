@@ -18,7 +18,41 @@
 
 > **The lesson, and it is the one this project keeps relearning.** Local proofs establish that a mechanism works; only the authoritative suite establishes that it works *everywhere the mechanism is reached*. Both real defects were on paths no local proof could take.
 
-**Next: M8 task 8 — Owner Companion Mode**, now blocked on **OI-7 alone** (`02A` §13 cut notifications; the recommendation is its own "Needs attention" substitute). Screens 1–3 of §3.4 need no ruling; screen 4 does.
+---
+
+## Done 2026-09-06 — M8 task 8, Owner Companion Mode (§3.4), and OI-7 ruled
+
+**The owner has a V1 UI.** Four read-only screens, owner-gated through the existing
+`TabSpec`/`RoleShell` mechanism, over endpoints that already existed — §10.1's justification
+for scheduling task 8 last held exactly.
+
+| Screen | Endpoint | Note |
+| --- | --- | --- |
+| **Today** | `GET /reports/dashboard` | The four D-4 numbers. `is_money` per metric decides the encoding, so a count stays an integer (`05` §9.11.1 item 3) |
+| **Pending deliveries** | `GET /deliveries?status=PENDING` | `Delivery.Status` is `PENDING\|DELIVERED\|FAILED`, so *"not yet completed"* is one value |
+| **Receivables** | `GET /reports/receivables` | The report's **own** total, plus the first ten rows of a **server-ordered** list |
+| **Needs attention** | `GET /orders?status=CONFIRMED` + `GET /deliveries?status=FAILED` | Two sources. Either read failing fails the board — a short list and an unbuildable one look identical, and the second silently says *"nothing needs you"* |
+
+**OI-7 ruled with it.** M-14 stays cut (`02A` §13 governs over §7.12). **"Overdue balances"
+excluded from V1**: no overdue rule exists in the corpus — `Customer.credit_days` is stored,
+editable through the web admin and the API, and **read by no selector, service or rule** —
+and defining one is a `receivables` decision (D-3), not a label on a phone screen.
+
+**One additive backend change**: `assigned_user_name` on `DeliverySerializer` (`05` §9.4.1),
+because §3.4 asks for *"the salesman's name"* and the payload carried only an id. No
+`/users` endpoint was added: shipping a user directory to a public binary (`02A` §9.3) to
+resolve a label is the wrong trade.
+
+**Six structural contracts** in `test_mobile_boundary.py` hold the §3.4 boundary from inside
+`make verify`, which is the only authority (N-12) and does not run `flutter test` (TD-37):
+no write call, no period parameter, no CSV, no overdue notion, owner-only tab, and no
+endpoint the API does not already route. Each was proved able to fail by mutation.
+
+> **Two of those contracts first failed on their own explanations.** The slice documents at
+> length *why* it excludes an overdue rule, and a substring scan read that sentence as the
+> thing it forbids. A contract that cannot tell code from prose holds *"nobody wrote the
+> word"* — a property satisfied by deleting the comment. Both now strip comments first, and
+> `test_the_comment_stripper_actually_strips` keeps that honest.
 
 ---
 
@@ -203,11 +237,11 @@ line instead of re-argued. The three that cannot be repaired after the fact:
 | ~~5~~ | ~~Delivery: list, detail, complete, fail~~ | ✔ **COMMITTED** — `b3f738c` |
 | **6** | **GPS and the separate media queue** | C-9. **No commit.** No GPS, media or photo code exists under `mobile/lib/` |
 | ~~7~~ | ~~Customers, visits~~ | ✔ **COMMITTED** — `11bb370` |
-| **8** | **Owner Companion Mode** | Read-only; every figure carries `as_of`. **No commit.** Still **blocked on OI-7 and TD-36** |
+| ~~8~~ | ~~**Owner Companion Mode**~~ | ✔ **BUILT 2026-09-06.** Four read-only screens over endpoints that already existed, owner-gated through the existing `TabSpec`/`RoleShell`. **OI-7 ruled** (M-14 stays cut; "Needs attention" is orders + failed deliveries; **overdue excluded** — no rule exists to read) and **TD-36 closed**, which were its two blockers. **Online-only**, so no `as_of` cache label: what the screen shows is what the request returned |
 | ~~9~~ | ~~Sync-status screen~~ | ✔ **COMMITTED** — `feeb85d`, extended by M9.3 (`e26aa87`) |
 | **10** | **8-hour offline soak** (NFR-OFF-001) and the **M8→M9 gate** | **Measured on a real device. No commit, and no recorded evidence of this gate was found in the repository** |
 
-**Tasks 6, 8 and 10 remain.** §10.1 is explicit that of the three, only task 8 could ever
+**Tasks 6 and 10 remain** *(task 8 built 2026-09-06)*. §10.1 is explicit that of the three, only task 8 could ever
 move: *"task 8 is the first thing that can move to M8.1 without breaking the milestone gate —
 **task 10 cannot**."* Task 10 carries the M8→M9 gate condition from `00` §19.2 — *"outbox
 survives kill, restart and storage exhaustion"* — and §14.11 assigned it the two halves of
@@ -285,7 +319,7 @@ credential store (task 4) · **any dashboard DTO or dashboard-specific client co
 | 5 | **TD-11 — DLT registration started** | ☐ **External, unbounded** |
 | ~~6~~ | ~~Flutter/Dart SDK pinned, as `uv.lock` pins Python~~ | ✔ **Done in task 1** — `mobile/.flutter-version` + `mobile/pubspec.lock` (32 packages). **By version, not by bytes: TD-38** |
 | ~~7~~ | ~~OI-6 — the dashboard endpoint~~ | ✔ **Built and verified** |
-| 8 | **OI-7** ("Needs attention" vs reopening M-14) ruled. ~~and **TD-36**~~ — **TD-36 closed 2026-09-06**, so OI-7 is the only remaining half | ☐ Task 8 only |
+| ~~8~~ | ~~**OI-7** and **TD-36** ruled~~ | ✔ **Both closed 2026-09-06.** Task 8 built |
 
 > **Conditions 3 and 6 are one lesson.** TD-21 was closed *before* a second toolchain
 > arrived, so reproducibility was settled with one language in the repository. Phase 2 adds

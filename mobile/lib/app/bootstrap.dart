@@ -15,6 +15,7 @@ import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
 import '../domain/identity/session.dart';
 import '../features/auth/auth_providers.dart';
+import '../features/companion/companion_providers.dart';
 import '../features/customers/customer_providers.dart';
 import '../features/deliveries/delivery_providers.dart';
 import '../features/sync_status/sync_providers.dart';
@@ -163,6 +164,10 @@ ProviderContainer buildRootContainer({
         // `05` §11.5 — the server's view of this device, beside the local queue (M9.3).
         syncStatusPortProvider
             .overrideWith((ref) => ref.watch(syncStatusRepositoryProvider)),
+        // Owner Companion Mode (task 8, §3.4). Same crossing as every other feature port:
+        // the screen names the `domain` interface and this is the one place that knows the
+        // implementation is an HTTP client rather than a cache.
+        companionPortProvider.overrideWith((ref) => ref.watch(companionRepositoryProvider)),
         // Last, so a caller's binding wins over anything above it.
         ...overrides,
       ],

@@ -35,8 +35,41 @@ void main() {
     }
   });
 
+  test('an owner sees Companion and status, and no field tab', () {
+    // **Task 8 arrived.** This expectation read `['/status']` and carried the note *"An owner
+    // has no field tabs in M8; Companion Mode arrives at task 8"* — so the test predicted its
+    // own change and this is that change, not a weakening. What it asserts is unchanged in
+    // substance: an owner still gets no `/deliveries` and no `/customers`, because those are
+    // the field roles' screens and Companion Mode reads rather than works a round.
+    expect(_visiblePaths({Role.owner}), ['/companion', '/status']);
+  });
+
   test('no tab is reachable without a role that grants it', () {
-    // An owner has no field tabs in M8; Companion Mode arrives at task 8.
-    expect(_visiblePaths({Role.owner}), ['/status']);
+    // **The assertion this name always described, and never made.** The previous version
+    // passed `{Role.owner}` — a role — so the genuine no-role case went untested from M8 task
+    // 1 until Companion Mode made the name's claim false as well as unproven. Split rather
+    // than deleted: the owner expectation above is a different property from this one.
+    //
+    // Only the unrestricted tabs may appear. `/status` is deliberately among them — `TabSpec`
+    // reads *"empty means every signed-in user"*, and a `Session` exists only once signed in.
+    final unrestricted = [
+      for (final tab in tabs)
+        if (tab.roles.isEmpty) tab.path,
+    ];
+    expect(unrestricted, isNotEmpty, reason: 'no unrestricted tab — this would be vacuous');
+
+    expect(_visiblePaths(const <Role>{}), unrestricted);
+  });
+
+  test('Companion is drawn for the owner alone', () {
+    // P-9: presentation only — every figure behind it is authorised again in CORE. What this
+    // holds is that the app does not *offer* the owner's view to a field role.
+    for (final role in Role.values) {
+      expect(
+        _visiblePaths({role}).contains('/companion'),
+        role == Role.owner,
+        reason: '$role',
+      );
+    }
   });
 }

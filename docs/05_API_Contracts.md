@@ -528,6 +528,21 @@ Enforced in `services.py` on every request (N-01, N-06). ● full · ◐ own rec
 | POST | `/deliveries/{id}/complete` | O,S,D | Deliver: POD, GPS, **writes stock issue** | ✓ |
 | POST | `/deliveries/{id}/fail` | O,S,D | Failed attempt with reason | ✓ |
 
+#### 9.4.1 `assigned_user_name` on the delivery payload
+
+> **Added 2026-09-06** by `M8_Design_Review` §3.4 (M8 Phase 2, task 8 — Owner Companion Mode). **Purely additive.** No existing path, parameter, response field or role changed.
+
+`DeliverySerializer` carries `assigned_user_id`, an integer. Companion Mode's *Pending deliveries* screen is specified as *"assigned and not yet completed, **with the salesman's name**"*, and there is **no `/users` endpoint** — so the name is added beside the id rather than resolved on the device.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `assigned_user_id` | integer | **Unchanged.** Still the identity |
+| `assigned_user_name` | string | `app_user.full_name`. `""` when a delivery has no assignee |
+
+**Why not a `/users` lookup.** DV-4 and `02A` §9.3 assume the binary is decompiled, so shipping a user directory to it widens what a public artefact discloses to satisfy one label. `visible_deliveries` already applies `select_related("assigned_user")`, so the field costs no additional query.
+
+**Read-only, like every other field on this serializer.** `DeliveryCreateSerializer` is unchanged and still accepts `assigned_user_id` only; a name has never been an input and is not one now.
+
 ### 9.5 Billing
 
 | Method | Path | Roles | Purpose | Idem |

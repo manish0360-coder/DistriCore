@@ -1454,3 +1454,202 @@ def test_no_connectivity_dependency_was_introduced():
         "design; adding a signal changes what backoff is affordable and must be recorded as "
         "a decision, not absorbed silently."
     )
+
+
+# ---------------------------------------------- M8 task 8 — Owner Companion Mode (§3.4)
+#
+# `M8_Design_Review` §3.4's boundary table is the specification, and its first row is the
+# one a future screen will erode:
+#
+#     | Companion Mode does | does not          |
+#     | Read                | Write **anything** |
+#
+# `02A` §9.3/DV-4 mean hiding a button is not a control — CORE refuses the write either way.
+# What these contracts protect is the *shape*: a slice with no write path cannot grow one by
+# accident, and `make verify` is the only authority that will notice if it does (TD-37).
+
+COMPANION_DIRS = ("domain/companion", "data/companion", "features/companion")
+
+#: Every `ApiClient` verb that is not `get`. The client exposes exactly `get` and `post`
+#: today; the rest are named so that adding one and using it here fails on the same line.
+_WRITE_CALLS = re.compile(r"_api\s*\.\s*(post|put|patch|delete)\b")
+
+
+#: A `//` or `///` comment to end of line. **Stripped before every scan below.**
+#:
+#: Written after the first run of these contracts failed on their own explanations: the
+#: slice documents *why* it excludes an overdue rule, and a naive substring search read that
+#: sentence as the thing it forbids. A contract that cannot tell code from prose does not
+#: hold the property it claims — it holds "nobody wrote the word", which would be satisfied
+#: by deleting the comment.
+_DART_COMMENT = re.compile(r"//.*?$", re.MULTILINE)
+
+#: The query map an `ApiClient` call sends: `query: {...}`.
+_QUERY_MAP = re.compile(r"query:\s*\{(?P<body>[^}]*)\}", re.DOTALL)
+
+
+def companion_sources(*, code_only: bool = False) -> dict[str, str]:
+    """Every Dart file in the Companion slice, keyed by repository-relative path.
+
+    ``code_only`` strips comments, for the contracts whose forbidden terms are words this
+    slice legitimately *writes about*.
+    """
+    found = {}
+    for directory in COMPANION_DIRS:
+        root = LIB / directory
+        assert root.is_dir(), f"{directory} is missing — these contracts would be vacuous"
+        for path in sorted(root.rglob("*.dart")):
+            source = path.read_text(encoding="utf-8")
+            if code_only:
+                source = _DART_COMMENT.sub("", source)
+            found[str(path.relative_to(LIB))] = source
+    assert found, "the Companion slice holds no Dart"
+    return found
+
+
+def test_the_comment_stripper_actually_strips():
+    """Anti-vacuity for the helper two contracts below depend on.
+
+    If this returned the source unchanged, those two would pass by accident on a slice that
+    happened to keep its comments — and fail the day someone reworded one.
+    """
+    stripped = companion_sources(code_only=True)
+    assert "Ruled 2026-09-06" not in "".join(stripped.values()), "comments survived"
+    assert "class CompanionDto" in stripped["data/companion/companion_dto.dart"], (
+        "the stripper removed code as well as comments"
+    )
+
+
+def test_companion_mode_makes_no_write_call():
+    """§3.4 — *"Read"* / *"Write **anything**"*. The first row of the boundary table.
+
+    A `post` here would be admin logic wearing a Companion label: the screen would appear to
+    approve, cancel or adjust something, which §3.4 places on the web admin precisely because
+    a phone in a market is the wrong place to take an irreversible decision.
+    """
+    offenders = {
+        name: sorted(set(_WRITE_CALLS.findall(source)))
+        for name, source in companion_sources().items()
+    }
+    leaked = {name: verbs for name, verbs in offenders.items() if verbs}
+    assert not leaked, (
+        f"Companion Mode issued a write: {leaked}. §3.4 admits four reads; a fifth method "
+        "that changed server state belongs in the web admin, not on the owner's phone."
+    )
+
+
+def test_companion_mode_asks_for_no_report_period():
+    """§3.4 — Companion Mode does not *"run reports over arbitrary periods"*.
+
+    `/reports/receivables` is a balance and answers for today by itself. A `date_from` here
+    would turn a fixed operational view into the report browser §3.5 keeps on `S1`, one query
+    parameter at a time.
+
+    **Scoped to what is *sent*, not to every occurrence of the word.** `as_of` is also a
+    *response* field — `05` §9.11.1's dashboard returns the day the server resolved, and the
+    Today screen renders it precisely so the figure carries the server's date rather than the
+    device's (P-4). Reading it is required; asking for it is what is forbidden.
+    """
+    offenders = {
+        name: sorted(
+            key
+            for query in _QUERY_MAP.findall(source)
+            for key in ("date_from", "date_to", "as_of")
+            if f"'{key}'" in query
+        )
+        for name, source in companion_sources(code_only=True).items()
+    }
+    leaked = {name: keys for name, keys in offenders.items() if keys}
+    assert not leaked, f"a period parameter reached Companion Mode: {leaked}"
+
+
+def test_that_period_contract_can_see_a_query_parameter_at_all():
+    """Anti-vacuity: the regex must actually find the query maps the slice does send.
+
+    `_QUERY_MAP` returning nothing would make the contract above pass against any code at
+    all. Companion Mode sends `status` and `page_size`; if those stop being visible here, the
+    contract has stopped reading requests rather than the requests having stopped carrying
+    parameters.
+    """
+    queries = [
+        query
+        for source in companion_sources(code_only=True).values()
+        for query in _QUERY_MAP.findall(source)
+    ]
+    assert queries, "no query maps found — the period contract would be vacuous"
+    assert any("'status'" in query for query in queries)
+
+
+def test_companion_mode_offers_no_csv_export():
+    """§3.4 — Companion Mode does not *"Export CSV"*.
+
+    FR-RPT-012 makes every report exportable **on the web**; the owner's phone is not where a
+    document acquires authority, and `?format=csv` is one string away from being wired.
+    """
+    offenders = {
+        name: True for name, source in companion_sources().items() if "format=csv" in source
+    }
+    assert not offenders, f"a CSV export reached Companion Mode: {sorted(offenders)}"
+
+
+def test_companion_mode_invents_no_overdue_rule():
+    """**Ruled 2026-09-06: "overdue balances" is excluded from V1.**
+
+    No overdue rule exists in the corpus — `Customer.credit_days` is stored, editable, and
+    read by no selector, service or rule. Deriving one on the device would be a business rule
+    in the worst possible place: §2.3 forbids the device computing a credit decision, and D-3
+    puts the rule in the module that owns the fact. The receivables screen shows the server's
+    ageing bucket and day count, and calls them what they are.
+
+    **Comments stripped first.** The slice explains at length *why* it excludes this, and a
+    scan that could not tell the explanation from the thing would be satisfied by deleting
+    the explanation — which is the opposite of what this contract is for.
+    """
+    offenders = {
+        name: sorted({term for term in ("credit_days", "overdue", "isOverdue") if term in source})
+        for name, source in companion_sources(code_only=True).items()
+    }
+    leaked = {name: terms for name, terms in offenders.items() if terms}
+    assert not leaked, (
+        f"an overdue notion appeared in Companion Mode: {leaked}. V1 excludes it; adding one "
+        "is a `receivables` decision with its own change, not a label on a phone screen."
+    )
+
+
+def test_the_companion_tab_is_owner_only():
+    """§3.4 is the owner's surface, and `tabs.dart` is where that is drawn.
+
+    **Presentation only** (P-9): every figure behind the tab is authorised again in CORE, and
+    `_internal` admits `SALESMAN` and `DELIVERY` to `/reports/*` as well. What this asserts is
+    that the app does not *offer* the owner's view to a field role — a patched APK that adds
+    the role gains a tab and no data it could not already fetch.
+    """
+    source = (LIB / "app" / "tabs.dart").read_text(encoding="utf-8")
+    entry = re.search(
+        r"TabSpec\(\s*path:\s*'/companion',(?P<body>.*?)\),\s*\n\s*TabSpec\(",
+        source,
+        re.DOTALL,
+    )
+    assert entry, "no `/companion` TabSpec found — Companion Mode is not reachable"
+    assert "roles: {Role.owner}" in entry.group("body"), (
+        "the Companion tab is not gated on Role.owner alone"
+    )
+
+
+def test_companion_mode_reaches_only_endpoints_that_already_existed():
+    """§10.1: task 8 is *"read-only over endpoints that already exist"*.
+
+    The one backend change this milestone made is an additive field (`05` §9.4.1). If a path
+    appears here that `api/v1/urls.py` does not route, the milestone has quietly grown a
+    server dependency — which is how a mobile task starts shipping API work.
+    """
+    routes = (ROOT / "backend" / "api" / "v1" / "urls.py").read_text(encoding="utf-8")
+    paths = {
+        match
+        for source in companion_sources().values()
+        for match in re.findall(r"static const \w+Path = '/([\w/-]+)'", source)
+    }
+    assert paths, "no endpoint constants found — this contract would be vacuous"
+
+    missing = sorted(path for path in paths if f'"{path}"' not in routes)
+    assert not missing, f"Companion Mode calls paths the API does not route: {missing}"
