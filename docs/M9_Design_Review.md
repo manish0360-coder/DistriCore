@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M9_Design_Review` |
-| Version | **1.4.0** |
-| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45. D-M9-9 ruled 2026-09-05 — the FR-SYN-010 trigger is a fixed-cadence retry; **gives TD-41 a mechanism without discharging FR-SYN-010**, folds in FR-SYN-017, opens TD-47.** |
+| Version | **1.5.0** |
+| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45. D-M9-9 ruled 2026-09-05 — the FR-SYN-010 trigger is a fixed-cadence retry; **gives TD-41 a mechanism without discharging FR-SYN-010**, folds in FR-SYN-017, opens TD-47. **B1 measured and PASSED 2026-09-06 (§5.1): 67 046 ms of 120 000 ms; FR-SYN-010 is satisfied at the measured configuration, TD-45 and TD-47 unchanged.**| 
 | Date | 2026-08-21 |
 | Milestone | M9 — Sync (`00` §19.1) |
 | Scope | Push receiver · mobile drain · server sync status · pull and device cache · **the Edition-1 conflict model** |
@@ -812,15 +812,64 @@ handler appears, so reversing this is a deliberate act.
 
 #### 5. What this does **not** discharge
 
-**FR-SYN-010 is not satisfied by this decision, and no document may cite it as if it were.**
-The requirement is that sync *completes* within 120 seconds of reconnection; the cadence bounds
-when an attempt *starts*.
+**This decision alone does not satisfy FR-SYN-010** — the cadence bounds when an attempt
+*starts*, and the requirement is that sync *completes*. **B1 supplied the missing half on
+2026-09-06 and PASSED.** What that measurement does and does not cover is below.
 
 | # | Acceptance evidence | Method | State |
 | --- | --- | --- | --- |
-| **B1** | ~200 operations + a 200–400 KB pull **complete** within 120 s of a real reconnection at DR-8 | `02` NFR-PER-004's own words: *"Timed sync at representative volume"* | **NOT MEASURED — FR-SYN-010 remains open** |
-| **B2** | Battery and radio cost of the cadence while offline and backgrounded | Device measurement | Not measured |
-| **B3** | Behaviour under Doze / App Standby | Device measurement | Not measured — **TD-47** |
+| **B1** | ~200 operations + a pull **complete** within 120 s of a real reconnection | `02` NFR-PER-004's own words: *"Timed sync at representative volume"* | **PASSED 2026-09-06 — 67 046 ms of a 120 000 ms budget.** §5.1 |
+| **B2** | Battery and radio cost of the cadence while offline and backgrounded | Device measurement | **Not measured** |
+| **B3** | Behaviour under Doze / App Standby | Device measurement | **Not measured** — **TD-47** |
+
+#### 5.1 B1 — the measurement, verbatim
+
+```
+GATE:b1 t0=1788677053017 reason=offline-attempt-failed failure=Offline
+GATE:b1 cadence armed interval=60s stopped=false
+GATE:b1 t1=1788677180124 elapsed_ms=67046
+GATE:b1 operations=200 push_2xx=1 pull_pages=1
+GATE:b1 verdict=PASS budget_ms=120000
+```
+
+| Quantity | Value |
+| --- | --- |
+| Elapsed, last failed attempt → completed round | **67 046 ms** |
+| Budget (`02` FR-SYN-010) | 120 000 ms |
+| **Headroom** | **52 954 ms** |
+| Operations drained | 200, in **one** push batch (`05` §13 caps a batch at 200) |
+| Pull | **1 page**; 247 836 B measured in the same run's online phase |
+| Device | Pixel 8a, API 34, **`x86_64` emulator** |
+
+**Read the two timestamps carefully — they have different bases.** `t0=…053017` is the *probe*:
+the first round, run offline, whose failure establishes that there was a disconnection to
+reconnect from. `elapsed_ms` is measured from `ticker.previousTickAt` — the **last failed
+scheduler tick** before the successful one, at `…113078`, 60 061 ms later. **`t1 − t0` is
+127 107 ms and is not the measurement**; a reader who subtracts the printed pair concludes the
+run breached the budget. The harness prints a `t0` that is not the basis of its own `elapsed_ms`
+— recorded as **TD-48**, to be corrected before the next B1 run.
+
+**The 67 s decomposes, and the decomposition is the useful number.** Roughly 60 000 ms is the
+cadence itself: `t0` is deliberately the last *failed* attempt, so the entire wait for the next
+tick is charged to the budget even though reconnection happened somewhere inside it. The sync
+work is the remaining **≈7 046 ms** — one push of 200 operations and one pull page. That is the
+figure that grows on a slower link; the 60 s is fixed by `syncRetryInterval`.
+
+#### 5.2 What B1 does **not** prove
+
+1. **`arm64` and physical hardware remain unproven — TD-45 is unchanged by this run.** The
+   measurement is `x86_64` emulator only, exactly as every other device gate in this repository.
+2. **The transport was emulator→host loopback**, not a field radio link. `02` NFR-PER-004
+   specifies a *volume* — "timed sync at representative volume" — and says nothing about the
+   network, so the requirement is met as written; but the ≈7 s sync component is measured on an
+   optimistic path and would grow on a congested cellular link. The 52 954 ms of headroom is
+   what absorbs that.
+3. **One device, one run, against a local dev stack.** No concurrency across the DR-8 envelope's
+   50 synchronising devices, and `01` §16.3 **CF-4** still lists the DR-8 envelope itself as an
+   outstanding confirmation whose consequence is *"test targets remain provisional"*.
+4. **Foreground only.** The app was in the foreground for the whole measurement. **TD-47** — does
+   FR-SYN-010 bind while backgrounded — is untouched and still needs a Product Architect ruling.
+5. **Nothing about B2 or B3.** Battery cost and Doze behaviour were not measured.
 
 **FR-SYN-017** — *"partial progress MUST be retained **and retried**"* — **is folded into TD-41
 and closed by the same mechanism.** Its retention half shipped in M9.2 (`reclaimInFlight`,
