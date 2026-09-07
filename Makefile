@@ -674,19 +674,24 @@ restore-rehearsal: ## B-3: restore the latest backup into a scratch DB and time 
 	@echo "    target  : $(or $(TARGET_DB),districore_restore_test)  (scratch, never live)"
 	@started=$$(date -u +%s); \
 	 started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
-	 ./ops/restore.sh "$(ARCHIVE)" "$(or $(TARGET_DB),districore_restore_test)"; \
+	 if ./ops/restore.sh "$(ARCHIVE)" "$(or $(TARGET_DB),districore_restore_test)"; then \
+	   outcome=PASS; \
+	 else \
+	   outcome=FAIL; \
+	 fi; \
 	 elapsed=$$(( $$(date -u +%s) - started )); \
 	 echo ""; \
-	 echo "==> restore completed in $${elapsed}s"; \
+	 echo "==> restore $$outcome in $${elapsed}s"; \
 	 echo ""; \
-	 echo "    B-3 asks for the result to be RECORDED. Paste this row into"; \
-	 echo "    docs/runbooks/restore-from-backup.md, under 'Rehearsal log':"; \
+	 echo "    B-3 asks for the result to be RECORDED — a FAIL is the most valuable row"; \
+	 echo "    that table will ever hold. Paste this into 'Rehearsal log' in"; \
+	 echo "    docs/runbooks/restore-from-backup.md:"; \
 	 echo ""; \
-	 printf "    | %s | %s | %ss | PASS | <your name> |\n" \
-	   "$$started_at" "$$(basename '$(ARCHIVE)')" "$$elapsed"; \
+	 printf "    | %s | %s | %ss | %s | <your name> |\n" \
+	   "$$started_at" "$$(basename '$(ARCHIVE)')" "$$elapsed" "$$outcome"; \
 	 echo ""; \
-	 echo "    RTO target is ~2 hours (ADR-012, FD-16). Record a FAIL just as carefully:"; \
-	 echo "    a rehearsal that failed is the most valuable row in that table."
+	 echo "    RTO target is ~2 hours (ADR-012, FD-16)."; \
+	 test "$$outcome" = PASS
 
 .PHONY: prod-up
 prod-up: ## Start the production stack (on the server)

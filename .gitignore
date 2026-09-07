@@ -32,7 +32,14 @@ docs/_session/NOTES.md
 
 # Ops
 /backups/
+.backups/
 *.dump
+# The ENCRYPTED archive too. `*.dump` does not match `*.dump.gpg`, and the B-3
+# rehearsal writes exactly that — a full database in the working tree, one
+# `git add -A` from source control. Encryption is not a reason to relax this:
+# NFR-SEC-007 is about what is committed, and S-07's passphrase lives in a
+# password manager that a repository clone does not carry.
+*.dump.gpg
 
 # Editors / OS
 .idea/

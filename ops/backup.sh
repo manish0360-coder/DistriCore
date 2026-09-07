@@ -12,7 +12,9 @@ NAME="districore-$(date -u +%Y%m%dT%H%M%SZ).dump"
 mkdir -p "$DIR"
 
 echo "[backup] dumping"
-docker compose -f docker/compose.yml -f docker/compose.prod.yml exec -T db \
+# Same reason as ops/restore.sh: the project directory is `docker/`, so compose
+# never finds the root `.env` on its own and `POSTGRES_PASSWORD` fails to interpolate.
+docker compose -f docker/compose.yml -f docker/compose.prod.yml --env-file .env exec -T db \
     pg_dump -U "${POSTGRES_USER:-districore}" -d "${POSTGRES_DB:-districore}" -Fc \
     > "$DIR/$NAME"
 
