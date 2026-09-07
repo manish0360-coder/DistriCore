@@ -186,9 +186,56 @@ test: ## Full test suite with coverage gate
 test-adversarial: ## Only the adversarial suite (02 §25.2)
 	$(TOOLS) pytest -m adversarial -v
 
+# --- NFR-SEC-009: the dependency audit ---------------------------------------
+#
+# **`run --rm --no-deps`, not `exec` — and that is the whole fix.** Every other quality
+# target uses `$(TOOLS)`, which is `exec` into a *running* stack, because they are used
+# during a `make up` session. `audit` is not: the natural moment to run it is straight after
+# `make verify`, and verify's last act is `$(DC) down -v`. So `make verify && make audit`
+# could never work — it failed with `service "app" is not running`, which reads like a
+# Docker problem and is really a sequencing one.
+#
+# A one-shot container is the repository's existing answer for work that needs an image but
+# not a session: `make lock` and `FLUTTER_RUN` both use `docker run --rm` for exactly this.
+#
+#   --no-deps    pip-audit reads a virtualenv, not a database. Starting Postgres to scan a
+#                lockfile would make the audit fail when the database is unhealthy.
+#   --entrypoint **the second half of the same point, and it is not optional.** The image's
+#                ENTRYPOINT is `docker/entrypoint.sh`, which blocks on `waiting for
+#                database...` for 60s and then applies migrations before it execs anything.
+#                `--no-deps` stops Postgres being *started*; it does not stop the entrypoint
+#                *waiting* for it, so the audit died with `database unreachable after 60s`
+#                having never run. Overriding the entrypoint runs `pip-audit` as PID 1.
+#   .env         the same prerequisite `up` declares, so a clean checkout gets the one-line
+#                diagnosis instead of a compose error.
+#
+# **The environment is still the built one**, which is what makes this evidence rather than a
+# convenience: the override replaces the *startup procedure*, not the image. It installs from
+# `uv.lock` with `uv sync --frozen`, so `pip-audit` with no target audits exactly what the
+# build installs (NFR-SEC-009's *"dependencies"*).
+#
+# No `-w` and no `PYTHONPATH`: unlike ruff and import-linter, pip-audit reads the interpreter's
+# own environment and neither needs a working directory nor imports the application.
+AUDIT := $(DC) run --rm --no-deps -T --entrypoint pip-audit app
+
+# **One exemption, and it is spelled here and in `.github/workflows/ci.yml`.** Two copies of
+# one fact is the shape that drifts, so `test_the_local_audit_matches_the_ci_audit` asserts
+# they are identical and `test_every_ignored_vulnerability_is_a_recorded_decision` asserts
+# both are documented. CVE-2026-49452 / PYSEC-2026-3412 / GHSA-jhhc-3hcp-qhm5 are three
+# identifiers for one WeasyPrint issue with no published fix — docs/M10_Security_Review.md §3.3.
+AUDIT_IGNORES := --ignore-vuln CVE-2026-49452 \
+                 --ignore-vuln PYSEC-2026-3412 \
+                 --ignore-vuln GHSA-jhhc-3hcp-qhm5
+
 .PHONY: audit
-audit: ## Dependency vulnerability scan
-	$(TOOLS) pip-audit
+audit: .env ## NFR-SEC-009 dependency scan — same command CI runs
+	@echo "==> pip-audit --strict, against the image built from uv.lock"
+	@echo "    exempted, and NOT hidden: CVE-2026-49452 / PYSEC-2026-3412 /"
+	@echo "    GHSA-jhhc-3hcp-qhm5 — one WeasyPrint CSS-injection issue with no published"
+	@echo "    fix in any version. Unreachable while presentational hints stay disabled."
+	@echo "    Decision M10.5-1, review by 2026-12-07 — docs/M10_Security_Review.md §3.3."
+	@echo ""
+	$(AUDIT) --strict $(AUDIT_IGNORES)
 
 # --- mobile (M8) ------------------------------------------------------------
 # NOT part of `make verify`, and that is a recorded decision, not an omission:
@@ -589,6 +636,57 @@ verify: ## Docker verification — the ONLY authority (N-12, 00 §5.2)
 .PHONY: backup
 backup: ## Encrypted database dump
 	./ops/backup.sh
+
+# --- B-3: RESTORE REHEARSAL --------------------------------------------------
+#
+# 00 §19.2, M10 -> M11: "Restore rehearsed and recorded (B-3); security review complete."
+# B-1: "A backup that has never been restored does not count as a backup."
+# B-3: "Restore is tested quarterly and the result recorded, with date and duration, in
+#       docs/runbooks/restore-from-backup.md"
+#
+# `ops/restore.sh` has existed since P0 and had no `make` target, which is most of why the
+# rehearsal log is empty: `00` §5 says "every routine operation is a make target", and an
+# operation you have to remember the arguments for is not routine.
+#
+# **This target rehearses. It never touches the live database.** `restore.sh` defaults its
+# target to `districore_restore_test`, and the guard below refuses to run if a caller passes
+# the production name — the one mistake in this procedure that cannot be undone.
+#
+# **It times the restore and prints the row to paste**, because B-3 asks for a duration and a
+# rehearsal that ends in "it worked" answers half the requirement. It does NOT write the log
+# itself: a recorded result must be recorded by the person who watched it.
+#
+#   make restore-rehearsal ARCHIVE=/srv/backups/districore-20260907T0300Z.dump.gpg
+#
+.PHONY: restore-rehearsal
+restore-rehearsal: ## B-3: restore the latest backup into a scratch DB and time it
+	@test -n "$(ARCHIVE)" || { \
+	  echo "ARCHIVE is required."; \
+	  echo "  make restore-rehearsal ARCHIVE=/srv/backups/districore-<stamp>.dump.gpg"; \
+	  echo "  ls -t /srv/backups/districore-*.dump* | head -1   # the latest"; \
+	  exit 2; }
+	@test -f "$(ARCHIVE)" || { echo "not found: $(ARCHIVE)"; exit 2; }
+	@case "$(TARGET_DB)" in districore|districore_prod) \
+	  echo "REFUSED: '$(TARGET_DB)' is the live database. A rehearsal restores into a scratch DB."; \
+	  exit 2;; esac
+	@echo "==> B-3 restore rehearsal"
+	@echo "    archive : $(ARCHIVE)"
+	@echo "    target  : $(or $(TARGET_DB),districore_restore_test)  (scratch, never live)"
+	@started=$$(date -u +%s); \
+	 started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	 ./ops/restore.sh "$(ARCHIVE)" "$(or $(TARGET_DB),districore_restore_test)"; \
+	 elapsed=$$(( $$(date -u +%s) - started )); \
+	 echo ""; \
+	 echo "==> restore completed in $${elapsed}s"; \
+	 echo ""; \
+	 echo "    B-3 asks for the result to be RECORDED. Paste this row into"; \
+	 echo "    docs/runbooks/restore-from-backup.md, under 'Rehearsal log':"; \
+	 echo ""; \
+	 printf "    | %s | %s | %ss | PASS | <your name> |\n" \
+	   "$$started_at" "$$(basename '$(ARCHIVE)')" "$$elapsed"; \
+	 echo ""; \
+	 echo "    RTO target is ~2 hours (ADR-012, FD-16). Record a FAIL just as carefully:"; \
+	 echo "    a rehearsal that failed is the most valuable row in that table."
 
 .PHONY: prod-up
 prod-up: ## Start the production stack (on the server)

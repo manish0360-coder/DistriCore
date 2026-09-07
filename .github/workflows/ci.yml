@@ -90,6 +90,36 @@ jobs:
       - name: Build image
         run: docker build -f docker/Dockerfile -t districore:ci .
 
-      # 10. Dependency vulnerabilities
+      # 10. Dependency vulnerabilities — NFR-SEC-009. **BLOCKING** (TD-35 closed).
+      #
+      # This step carried `|| true` from P0 until M10. `02` NFR-SEC-009 says a finding
+      # "MUST block release", and a step that cannot fail blocks nothing — the same shape
+      # `mypy` had for six milestones with 24 real errors behind it (TD-2).
+      #
+      # **Blocks on any known vulnerability, not only on a graded "critical" one.**
+      # `pip-audit` reports no severity, so there is no severity to branch on; blocking on
+      # every finding is strictly stronger than the requirement and fails closed. It is not
+      # a reinterpretation — a rule that admits everything the requirement admits, and less,
+      # satisfies it.
+      #
+      # `--strict` additionally fails when a dependency cannot be audited at all, so a
+      # package that silently drops out of the scan is a failure rather than a pass.
+      #
+      # **One exception, and it is the only one** — M10.5, `docs/M10_Security_Review.md` §3.2.
+      # CVE-2026-49452 / PYSEC-2026-3412 / GHSA-jhhc-3hcp-qhm5 are three identifiers for a
+      # single WeasyPrint CSS-injection issue with **no published fix in any version**. It is
+      # reachable only through `presentational_hints=True`; WeasyPrint's own source guards the
+      # whole vulnerable block with `if not presentational_hints: continue`, the default is
+      # `False`, and this application's single call site does not pass it.
+      #
+      # An `--ignore-vuln` with no record is how a finding disappears. This one has a decision
+      # with a date and a review date in §3.2, and two tests hold it:
+      # `test_the_dependency_audit_cannot_be_silenced` fails if an ID here is not documented
+      # there, and `test_weasyprint_presentational_hints_are_never_enabled` fails the moment
+      # the code property the exception rests on stops being true.
       - name: Dependency audit
-        run: pip-audit --strict || true
+        run: >-
+          pip-audit --strict
+          --ignore-vuln CVE-2026-49452
+          --ignore-vuln PYSEC-2026-3412
+          --ignore-vuln GHSA-jhhc-3hcp-qhm5
