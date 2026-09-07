@@ -26,8 +26,8 @@ cannot be completed against evidence that is not traceable**, whatever the code 
 
 **Version 1.0.0 of this document did not declare the review passed** — NFR-SEC-009 was
 failing and §3 recorded it as a blocker rather than an exemption. **M10.5 closed it** (§3), so
-that clause is now spent. What remains open is the *other* half of the `00` §19.2 gate, the
-restore rehearsal — §5.
+that clause is now spent. The *other* half of the `00` §19.2 gate, the restore rehearsal, was
+run and recorded on 2026-09-07 — **both halves now hold**; §5.
 
 **Evidence is graded, and the grades are not interchangeable:**
 

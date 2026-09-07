@@ -93,27 +93,35 @@ WhiteNoise's `CompressedManifestStaticFilesStorage` is **not in use** and static
 unhashed. It needs `STORAGES["staticfiles"]`, it changes production static-file behaviour, and
 it has nothing to do with any CVE. **Its own change, its own verify run.**
 
-**Next: `make restore-rehearsal` against a real dump, and record the row.** It is the only
-remaining item in the `00` §19.2 M10 → M11 gate — B-1: *"a backup that has never been restored
-does not count as a backup."*
+**Done 2026-09-07: `make restore-rehearsal` was run against a real dump and the row recorded**
+(`ab7a97e`, `eb02ae9`). It was the only remaining item in the `00` §19.2 M10 → M11 gate — B-1:
+*"a backup that has never been restored does not count as a backup."* **That gate is now met on
+both halves.**
 
 ---
 
-## In progress 2026-09-07 — M10 Hardening, part 1 (security review + the dependency gate)
+## Done 2026-09-07 — M10 Hardening, part 1 (security review + the dependency gate)
 
 **`00` §19.1 makes M10 the current milestone**; the M9 → M10 gate passed on 2026-09-04. The
 M10 → M11 gate is *"Restore rehearsed and recorded (B-3); security review complete"*, and this
-pass addresses both halves — completing neither.
+pass addressed both halves. It completed neither on the day; **M10.5 closed the first and the
+2026-09-07 rehearsal closed the second.** The table below is the state *now*, not the state
+this pass left behind — the narrative that follows is kept as written.
 
 | Half | State |
 | --- | :-: |
-| Security review complete | **NO** — 10 of 11 NFR-SEC evidenced; **NFR-SEC-009 failing** |
+| Security review complete | **YES** — 11/11 NFR-SEC evidenced; NFR-SEC-009 met at M10.5 with one dated exemption |
 | Restore rehearsed and recorded (B-3) | **YES** — rehearsed 2026-09-07, PASS in 8s, recorded in `docs/runbooks/restore-from-backup.md` |
 
-### The blocker, and it is real
+### The blocker, and it was real — CLOSED by M10.5 on 2026-09-07
+
+> **Read the rest of this section as the record of what this pass found, in the present tense
+> it was written in.** M10.5 raised three declared floors and remediated 15 of the 16; the
+> sixteenth is exempted on a source-level unreachability proof with a review date. `make audit`
+> now reports *"No known vulnerabilities found, 1 ignored"*. **NFR-SEC-009 is met.**
 
 `pip-audit --strict || true` carried a `|| true` from P0 (**TD-35**). The suffix is gone, so
-the gate is now honest — **and it now fails**:
+the gate became honest — **and it failed on its first blocking run**:
 
 > **16 known vulnerabilities in 4 packages**: `django` 5.1.15 (7), `djangorestframework`
 > 3.15.2 (2), `sqlparse` 0.5.5 (5), `weasyprint` 66.0 (2).
@@ -167,8 +175,10 @@ person will write the same two:
    added risk to financial code to remove none. The rule now states the property —
    *interpolation of anything that is not a module constant* — and is mutation-proved.
 
-**Next, in order:** (1) run `make restore-rehearsal` against a real dump and record the row;
-(2) the dependency-upgrade milestone; (3) `00` §19.2 M10 → M11.
+**All three of that plan are now done:** (1) the rehearsal ran and the row is recorded
+(2026-09-07); (2) the dependency-upgrade milestone shipped as M10.5; (3) **`00` §19.2 M10 → M11
+is met on both halves.** M10 the *milestone* is not closed — its performance half
+(NFR-PER-001/005) and its debt register are untouched by that gate.
 
 ---
 
@@ -315,8 +325,9 @@ items that were waiting on nobody, which is exactly what a gate can do and all i
 > `make verify` figures for the M9 increments were not captured in the state documents and
 > are **not restated here from memory**.
 
-**Milestone:** M9 — Sync (2.0 units, `00` §19.1). M8 remains open on tasks 6, 8 and 10.
-**Next:** see *The immediate next action* above.
+**Milestone:** M10 — Hardening (1.5 units, `00` §19.1); its `00` §19.2 gate is met, the
+milestone is not closed. M9 is not closed. M8 remains open on tasks 6 and 10 *(task 8 built
+2026-09-06)*. **Next:** see *The immediate next action* above.
 
 ---
 
@@ -541,7 +552,7 @@ reaches the app, so read-only must be enforced by the absence of a server-side w
 | **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is still not in `make verify`. The 21 structural contracts are blocking, but *"does the Dart compile"* is not — and **the 317 Dart cases are invisible to the only authority.** The 829 figure does not include them. Promote to stage 9 once the toolchain image has held for a milestone |
 | **TD-38** | **New. The Flutter SDK is pinned by version, not by bytes.** `make mobile-image` prints the checksum; paste it into `FLUTTER_SHA256` and the gap closes |
 | ~~**TD-36**~~ | **CLOSED 2026-09-06** (`M8_Design_Review` §3.4.1b). Eight endpoints, not seven, and **not** by routing every numeric cell through `money_string()` — that would have stringified the counts. A semantic `ColumnKind`; CSV byte-identical; `05` **AD-02.1** added for `RATE` |
-| Deferred debt | TD-32, TD-33 (DRF stubs), TD-34 (`ops/` outside mypy), TD-35 (`pip-audit \|\| true`), TD-23, TD-26, TD-28, TD-14, TD-15 |
+| Deferred debt | TD-32, TD-33 (DRF stubs), TD-34 (`ops/` outside mypy), TD-23, TD-26, TD-28, TD-15. ~~TD-35 (`pip-audit \|\| true`)~~ **closed 2026-09-07 at M10**; ~~TD-14~~ **closed** — `PROJECT_STATE.md` |
 | **The lesson still standing** | **A design review cannot find a defect on a path the tests do not take.** Four reviews found none of M7's four defects; running the real thing found all of them. M8 runs on hardware no test rig replicates — §10 task 10 is the only place that gets checked |
 
 ## Blocking, not owned by engineering
