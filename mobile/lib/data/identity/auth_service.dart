@@ -115,4 +115,8 @@ final class AuthService implements Authenticator {
     await _sessions.adopt(session);
     return Ok(session);
   }
+
+  @override
+  Future<void> signOut() => _sessions.signOut();
 }
+

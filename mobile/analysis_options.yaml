@@ -17,6 +17,9 @@ analyzer:
     invalid_assignment: error
     # Unused imports hide layering violations from a reader.
     unused_import: error
+  exclude:
+    - build/**
+    - android/**
 
 linter:
   rules:

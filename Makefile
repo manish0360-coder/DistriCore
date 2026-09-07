@@ -348,7 +348,7 @@ FLUTTER_HOST_RUN = FLUTTER_HOST='$(FLUTTER_HOST)' $(CURDIR)/scripts/win-flutter.
 # The emulator's alias for the host loopback (`00` §7.3), and the certificate identity
 # `docker/compose.dev.yml` gives Caddy. Stated once; the two must not drift apart.
 DEV_API_HOST := 10.0.2.2
-DEV_API_BASE_URL := https://$(DEV_API_HOST)
+DEV_API_BASE_URL := https://$(DEV_API_HOST)/api/v1
 DEV_CA := build/districore-dev-ca.crt
 
 .PHONY: dev-ca
@@ -368,7 +368,7 @@ dev-ca-b64: dev-ca ## Print the --dart-define for the development trust anchor
 	@echo "  the Dart VM — not Android's user CA store and not network_security_config.xml."
 	@echo "  The certificate therefore reaches the app through the build, like the base URL."
 	@echo
-	@echo "--dart-define=DISTRICORE_DEV_CA_B64=$$(base64 -w0 $(DEV_CA))"
+	@echo "--dart-define=DISTRICORE_DEV_CA_B64=$$(base64 < $(DEV_CA) | tr -d '\r\n')"
 
 .PHONY: emulator-trust-ca
 emulator-trust-ca: dev-ca ## Install that CA into the RUNNING emulator's user trust store

@@ -73,11 +73,24 @@ Future<void> bootstrap() async {
     ),
   );
 
+  // Listen for login transitions (null -> Session) to run background sync on sign-in.
+  container.listen<AsyncValue<Session?>>(
+    sessionProvider,
+    (previous, next) {
+      final prevSession = previous?.valueOrNull;
+      final nextSession = next.valueOrNull;
+      if (prevSession == null && nextSession != null) {
+        startBackgroundSync(container);
+      }
+    },
+  );
+
   // **One call, one order.** M9.2 and M9.4 each added a start-up task; started
   // independently they raced, and a pull that won could overwrite the cache describing
   // writes the push had not yet delivered.
   startBackgroundSync(container);
 }
+
 
 /// The composition root's two runtime values, bound.
 ///

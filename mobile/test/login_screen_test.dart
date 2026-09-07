@@ -89,7 +89,11 @@ final class FakeAuthenticator implements Authenticator {
     await hold?.future;
     return this.password;
   }
+
+  @override
+  Future<void> signOut() async {}
 }
+
 
 Finder _key(String name) => find.byKey(Key(name));
 

@@ -48,7 +48,8 @@ final class Delivery {
   /// Only a dispatched delivery can be handed over. `PENDING` has not left the warehouse and
   /// `DELIVERED`/`FAILED` are terminal — the server owns the machine (AD-08), and this is the
   /// client's read of it so a screen does not offer an action the server would refuse.
-  bool get canComplete => status == DeliveryStatus.dispatched;
+  bool get canComplete =>
+      status == DeliveryStatus.dispatched || status == DeliveryStatus.pending;
 
   /// The optimistic view after a local completion is queued but not yet synced.
   ///

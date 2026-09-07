@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/as_of.dart';
 import '../../domain/delivery/delivery.dart';
+import '../auth/sign_out_button.dart';
 import 'delivery_controller.dart';
 
 /// The round (M8 §10 task 5, `05` §9.4).
@@ -46,7 +47,10 @@ class _DeliveriesScreenState extends ConsumerState<DeliveriesScreen> {
     final state = ref.watch(deliveryListProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Deliveries')),
+      appBar: AppBar(
+        title: const Text('Deliveries'),
+        actions: const [SignOutButton()],
+      ),
       body: RefreshIndicator(
         onRefresh: ref.read(deliveryListProvider.notifier).load,
         child: Column(

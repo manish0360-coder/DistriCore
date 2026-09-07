@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/outbox/outbox_operation.dart';
+import '../auth/sign_out_button.dart';
 import 'sync_controller.dart';
 
 /// What this device is still carrying (M8 §10 task 9, FR-SYN-008).
@@ -38,7 +39,10 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync status')),
+      appBar: AppBar(
+        title: const Text('Sync status'),
+        actions: const [SignOutButton()],
+      ),
       body: RefreshIndicator(
         onRefresh: ref.read(syncStatusProvider.notifier).load,
         child: ListView(

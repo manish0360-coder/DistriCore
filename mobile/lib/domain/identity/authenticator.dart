@@ -28,4 +28,8 @@ abstract interface class Authenticator {
     required String phone,
     required String password,
   });
+
+  /// Clear the active user session and saved credentials.
+  Future<void> signOut();
 }
+
