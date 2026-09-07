@@ -332,9 +332,9 @@ Named so that no reader mistakes its scope.
 - **Mobile beyond NFR-SEC-008.** `02A` §9.3's decompilation assumption is held by
   `test_mobile_boundary.py`'s P-9 contracts (no secret, no internal surface, no high-entropy
   literal in the binary), which run inside `make verify` and are unchanged by this review.
-- **The restore rehearsal**, which is the gate's other half. `make restore-rehearsal` now
-  exists; **it has not been run**, and `docs/runbooks/restore-from-backup.md`'s log is
-  deliberately empty. **B-3 is not passed.**
+- **The restore rehearsal**, which is the gate's other half. It was run and recorded on
+  2026-09-07 — `docs/runbooks/restore-from-backup.md`'s log carries the row. **B-3 is
+  passed**, by a separate observed run rather than by anything in this review.
 
 ---
 
@@ -343,9 +343,10 @@ Named so that no reader mistakes its scope.
 | `00` §19.2, M10 → M11 | State |
 | --- | :-: |
 | Security review complete | **YES** — 11/11 evidenced; NFR-SEC-009 met at M10.5 with one recorded, time-bound exemption (§3.3) |
-| Restore rehearsed and recorded (B-3) | **NO** — `make restore-rehearsal` is ready; **the rehearsal has not been run** |
+| Restore rehearsed and recorded (B-3) | **YES** — rehearsed 2026-09-07, PASS in 8s, recorded with date, duration and operator |
 
-**M10 is not closed, and one thing now stands between here and the gate: a rehearsal that
-takes an afternoon.** B-1 is the reason it cannot be waived — *"a backup that has never been
-restored does not count as a backup"* — and the log in
-`docs/runbooks/restore-from-backup.md` is deliberately empty until someone watches one.
+**Both halves are now evidenced.** B-1 is the reason B-3 could not be waived — *"a backup
+that has never been restored does not count as a backup"* — and the rehearsal earned its row
+the hard way: it failed twice before it passed, on a missing `--env-file` and on a recipe
+that printed `PASS` after a failed restore. The log in
+`docs/runbooks/restore-from-backup.md` records the run someone watched.

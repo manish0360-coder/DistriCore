@@ -108,7 +108,7 @@ pass addresses both halves — completing neither.
 | Half | State |
 | --- | :-: |
 | Security review complete | **NO** — 10 of 11 NFR-SEC evidenced; **NFR-SEC-009 failing** |
-| Restore rehearsed and recorded (B-3) | **NO** — `make restore-rehearsal` exists; **no rehearsal has been run** |
+| Restore rehearsed and recorded (B-3) | **YES** — rehearsed 2026-09-07, PASS in 8s, recorded in `docs/runbooks/restore-from-backup.md` |
 
 ### The blocker, and it is real
 

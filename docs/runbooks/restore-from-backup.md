@@ -38,13 +38,16 @@ Targets: **RPO ≈ 1 hour** local · **RTO ≈ 2 hours** (ADR-012, FD-16).
 
 ## Rehearsal log
 
-> **Empty, and deliberately so.** The mechanism was added at M10 (`make restore-rehearsal`);
-> **no rehearsal has been run**, so B-3 is not passed and the `00` §19.2 M10 → M11 gate is not
-> met. Do not fill this table from anything but an observed run — an invented row is worse
-> than an empty one, because an empty table is honest about what nobody has done.
+> **Observed runs only.** Do not fill this table from anything but a rehearsal someone
+> watched — an invented row is worse than an empty one, because an empty table is honest
+> about what nobody has done.
 >
 > Record a **FAIL** just as carefully. A rehearsal that failed is the most valuable row here.
 
 | Date | Archive | Duration | Outcome | By |
 | --- | --- | --- | --- | --- |
-| | | | | |
+| 2026-09-07T16:56:43Z | districore-20260907T163713Z.dump.gpg | 8s | PASS | Manish Kumar |
+
+2026-09-07: restored into `districore_restore_test`; the live database was not targeted.
+Decryption was GPG AES256.CFB. Source and restored counts agreed: `app_user` 1, `audit_log` 1
+— non-zero on both sides, which is what makes the PASS mean something (B-1).
