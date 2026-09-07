@@ -237,6 +237,84 @@ audit: .env ## NFR-SEC-009 dependency scan — same command CI runs
 	@echo ""
 	$(AUDIT) --strict $(AUDIT_IGNORES)
 
+# --- performance and scalability evidence (NFR-PER-001/003/005, NFR-SCA-001/003) ---
+#
+# **NOT part of `make verify`, and that is a decision rather than an omission.** The DR-8
+# dataset takes minutes to build and hundreds of thousands of rows to hold; an 8-stage gate
+# that every commit waits on has no place for it. NFR-PER-005 calls itself a *release* gate,
+# not a commit gate.
+#
+# It is a target rather than a remembered command for the same reason `restore-rehearsal`
+# is: a release gate you have to reconstruct a three-line `docker compose exec` for is a
+# release gate that gets skipped.
+#
+#   make perf                      # DR-8 envelope — the profile the requirements need
+#   make perf PROFILE=m7           # the M7 shape, for comparison with 2026-08-09 only
+#   make perf STAGE=reports        # one stage; the gate needs all of them
+#
+# Exits non-zero on any breach. **Do not raise a threshold to make it green** — the fix is
+# an index or a domain optimisation recorded with the measurement that justified it (M7 §7).
+# **The corpus never touches the development database.** ~750,000 synthetic financial
+# documents, written without their services, undoable only by dropping the database — run
+# against `districore` that would end any demonstration from real data, and would move the
+# source counts a B-3 restore rehearsal reads.
+#
+# **A separate database inside the same PostgreSQL container**, which is the convention
+# `ops/restore.sh` already uses for `districore_restore_test`. Same server, same `db_data`
+# volume, same image, same Django, same migrations, same selectors, same harness — one
+# different `DATABASE_URL` and nothing else. No second service, no second compose file, no
+# second application configuration to drift out of step with the first.
+PERF_DB   := districore_perf
+#: `psql` inside `db`, as the superuser the container was initialised with. `POSTGRES_USER`
+#: is read from the container's own environment rather than restated here, the way
+#: `ops/restore.sh` reads it — one credential, one source.
+PERF_PSQL := $(DC) exec -T db sh -c
+#: The app container, with `DATABASE_URL`'s database name swapped for the disposable one.
+#: `${DATABASE_URL%/*}` drops the trailing `/<database>`; everything else — host, port,
+#: user, password, options — is inherited from `.env` exactly as the application uses it.
+PERF_URL  := DATABASE_URL="$${DATABASE_URL%/*}/$(PERF_DB)"
+
+.PHONY: perf-db
+perf-db: .env ## Drop, recreate and migrate the disposable performance database
+	@case "$(PERF_DB)" in districore|districore_prod) \
+	  echo "REFUSED: '$(PERF_DB)' is a working database. The performance corpus is"; \
+	  echo "         written directly, bypasses every service, and cannot be undone."; \
+	  exit 2;; esac
+	@echo "==> recreating $(PERF_DB) (disposable; the dev database is not touched)"
+	$(PERF_PSQL) 'psql -U "$$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS $(PERF_DB);"'
+	$(PERF_PSQL) 'psql -U "$$POSTGRES_USER" -d postgres -c "CREATE DATABASE $(PERF_DB);"'
+	@echo "==> migrating $(PERF_DB) — the same migrations the application runs"
+	$(DC) exec -T app sh -c '$(PERF_URL) python manage.py migrate --noinput'
+	@echo "==> seeding an OWNER through the repository's own FR-IAM-014 path"
+	$(DC) exec -T app sh -c '$(PERF_URL) python manage.py bootstrap_owner \
+	  --phone 9000000000 --full-name "Perf Harness" --noinput \
+	  --reason "NFR-PER/SCA measurement fixture"'
+
+.PHONY: perf-clean
+perf-clean: .env ## Drop the disposable performance database
+	@case "$(PERF_DB)" in districore|districore_prod) \
+	  echo "REFUSED: '$(PERF_DB)' is a working database."; exit 2;; esac
+	$(PERF_PSQL) 'psql -U "$$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS $(PERF_DB);"'
+	@echo "==> $(PERF_DB) dropped"
+
+.PHONY: perf
+perf: perf-db ## NFR-PER/SCA evidence against the DR-8 five-year dataset. Writes JSON evidence
+	@echo ""
+	@echo "==> performance and scalability evidence"
+	@echo "    database: $(PERF_DB)  (disposable — recreated above, dev database untouched)"
+	@echo "    profile : $(or $(PROFILE),dr8)   stage: $(or $(STAGE),all)"
+	@echo "    This builds a five-year DR-8 dataset. Minutes, not seconds."
+	@echo ""
+	@# `--json -` and redirect on the HOST: `../ops` is mounted read-only so stage-7
+	@# contracts can read it, so the container cannot write its own evidence file.
+	$(DC) exec -T -w /app -e PYTHONPATH=/app/backend app sh -c \
+	  '$(PERF_URL) python ops/report_performance.py \
+	    --profile "$(or $(PROFILE),dr8)" --stage "$(or $(STAGE),all)" --json -' \
+	  > ops/perf-latest.json
+	@echo ""
+	@echo "==> raw evidence: ops/perf-latest.json"
+	@echo "    \`make perf-clean\` drops $(PERF_DB) when you are done with it."
+
 # --- mobile (M8) ------------------------------------------------------------
 # NOT part of `make verify`, and that is a recorded decision, not an omission:
 #   * The gate's 8 stages are Python. Adding a ~1 GB Flutter image to a no-cache build
