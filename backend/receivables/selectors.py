@@ -31,10 +31,11 @@ The invariant that keeps this honest, asserted over randomised sequences:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, NamedTuple
 
 from django.db.models import Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
@@ -44,7 +45,7 @@ from core.permissions import Role, has_role
 from customers.models import Customer
 from ledger.models import CustomerLedgerEntry
 from ledger.selectors import settled_balance
-from ledger.walk import WalkPolicy
+from ledger.walk import LedgerRow, LedgerRowTuple, WalkPolicy
 from ledger.walk import walk as ledger_walk
 from receivables.models import Payment
 
@@ -127,7 +128,7 @@ def _walk(
     *,
     customer_id: int,
     as_of: date,
-    entries: list[CustomerLedgerEntry],
+    entries: Sequence[LedgerRow],
     credit_note_targets: dict[int, int],
 ) -> CustomerPosition:
     """The customer view of the shared walk (M6 §5A).
@@ -137,6 +138,13 @@ def _walk(
     the extraction is only trustworthy if that suite runs against it **without a single
     edit**. An identical signature is what makes "before and after are identical" a thing
     the existing tests assert rather than a thing this comment claims.
+
+    ``entries`` was annotated ``list[CustomerLedgerEntry]`` until M10.6b and is now
+    ``Sequence[LedgerRow]`` — **strictly wider**, and narrower than what it delegates to was
+    an accident rather than a rule: ``ledger.walk.walk`` has always taken the Protocol.
+    Every existing caller still type-checks and behaves identically, because
+    ``CustomerLedgerEntry`` satisfies ``LedgerRow``; parameter names and order are untouched,
+    so the suite above still runs without an edit.
 
     All it does now is name the customer vocabulary and rename the result. The algorithm
     lives in `ledger.walk`, below `purchasing`, so the supplier ledger can reach the same
@@ -172,7 +180,7 @@ def _walk(
     )
 
 
-def _credit_note_targets(entries: list[CustomerLedgerEntry]) -> dict[int, int]:
+def _credit_note_targets(entries: Sequence[LedgerRow]) -> dict[int, int]:
     """Map credit-note primary keys to the invoices they reference.
 
     **One query for the whole set**, never one per credit note (§5A.11). Resolved through
@@ -226,6 +234,34 @@ def visible_customers_for_receivables(actor: Any) -> QuerySet[Customer]:
     return base.none()
 
 
+class CustomerLabel(NamedTuple):
+    """The two fields a receivables row shows beside a position: code and shop name."""
+
+    code: str
+    shop_name: str
+
+
+def visible_customer_labels(actor: Any) -> dict[int, CustomerLabel]:
+    """Codes and shop names for the customers this actor may see, by primary key.
+
+    **Both consumers of ``receivables_position`` need to label its rows**, and both were
+    doing it by materialising every visible ``Customer`` a second time — the report and the
+    web-admin screen each fetched 10,000 model instances that ``receivables_position`` had
+    already fetched and discarded, to read two ``CharField``s.
+
+    One selector rather than two identical dictionary comprehensions: the duplication was
+    what let the cost hide in two places at once. Visibility is still decided by
+    ``visible_customers_for_receivables`` and nowhere else, so `05` §8's scoping and BR-003
+    are unchanged.
+    """
+    return {
+        pk: CustomerLabel(code=code, shop_name=shop_name)
+        for pk, code, shop_name in visible_customers_for_receivables(actor).values_list(
+            "pk", "code", "shop_name"
+        )
+    }
+
+
 def receivables_position(
     actor: Any, *, as_of: date | None = None, include_settled: bool = False
 ) -> list[CustomerPosition]:
@@ -239,29 +275,63 @@ def receivables_position(
     appears with a zero position rather than vanishing from a report the owner acts on.
     """
     as_of = as_of or date.today()
-    customers = list(visible_customers_for_receivables(actor))
-    if not customers:
+    # **Ids, not instances.** Only `pk` is read from a customer here, and the ordering of
+    # `visible_customers_for_receivables` — `shop_name` — is preserved by `values_list`, so
+    # the positions come back in exactly the order they did before.
+    customer_ids = list(visible_customers_for_receivables(actor).values_list("pk", flat=True))
+    if not customer_ids:
         return []
 
-    entries = list(
-        CustomerLedgerEntry.objects.filter(
-            customer__in=customers, entry_date__lte=as_of
-        ).order_by("customer_id", "entry_date", "id")
+    # **`LedgerRowTuple`, not `CustomerLedgerEntry`** (M10.6b). The walk reads seven
+    # attributes through `ledger.walk.LedgerRow`; at the DR-8 envelope this query returns
+    # 373,000 rows, and building a Django model for each — field descriptors, `_state`,
+    # deferred loading, a `from_db_value` per Decimal and per date — was the dominant cost
+    # behind `receivables ageing` at 17.139 s (`docs/M10.6_Performance_Report.md` §7).
+    #
+    # `ORDER BY (customer_id, entry_date, id)` is unchanged and still matches
+    # `ix_cle_customer_date`; the M6-8 tie-break inside the walk is untouched.
+    #
+    # **Not `.iterator()`**, deliberately. It would avoid holding the raw tuples alongside
+    # the rows built from them, but it opens a server-side cursor whose chunked `FETCH`es
+    # can register as further queries — which would make "three queries for the whole set"
+    # depend on the database configuration rather than on this code. The saving is tens of
+    # megabytes of transient tuples; the cost would be a contract that means something
+    # different in two environments.
+    #
+    # **This is not a shortcut** (M7-4): the same rows, in the same order, reach the same
+    # algorithm. Only the container changed.
+    rows = (
+        CustomerLedgerEntry.objects.filter(customer_id__in=customer_ids, entry_date__lte=as_of)
+        .order_by("customer_id", "entry_date", "id")
+        .values_list(
+            "customer_id",
+            "id",
+            "entry_date",
+            "entry_type",
+            "amount",
+            "narration",
+            "source_document_type",
+            "source_document_id",
+        )
     )
-    targets = _credit_note_targets(entries)
 
-    grouped: dict[int, list[CustomerLedgerEntry]] = {c.pk: [] for c in customers}
-    for entry in entries:
-        grouped[entry.customer_id].append(entry)
+    grouped: dict[int, list[LedgerRow]] = {customer_id: [] for customer_id in customer_ids}
+    entries: list[LedgerRow] = []
+    for customer_id, *values in rows:
+        entry = LedgerRowTuple._make(values)
+        entries.append(entry)
+        grouped[customer_id].append(entry)
+
+    targets = _credit_note_targets(entries)
 
     positions = [
         _walk(
-            customer_id=customer.pk,
+            customer_id=customer_id,
             as_of=as_of,
-            entries=grouped[customer.pk],
+            entries=grouped[customer_id],
             credit_note_targets=targets,
         )
-        for customer in customers
+        for customer_id in customer_ids
     ]
     if include_settled:
         return positions

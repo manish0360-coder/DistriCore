@@ -509,10 +509,8 @@ def receivables_ageing(actor: Any, *, as_of: date | None = None) -> ReportTable:
     _internal(actor)
     as_of = as_of or date.today()
     positions = receivable_selectors.receivables_position(actor, as_of=as_of)
-    names = {
-        customer.pk: customer
-        for customer in receivable_selectors.visible_customers_for_receivables(actor)
-    }
+    # Two `CharField`s per row, not a second copy of every visible `Customer` (M10.6b).
+    names = receivable_selectors.visible_customer_labels(actor)
     positions.sort(key=lambda p: (p.oldest.age_days if p.oldest else -1), reverse=True)
 
     rows = []

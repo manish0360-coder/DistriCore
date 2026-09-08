@@ -145,10 +145,9 @@ def receivables_report(request: HttpRequest) -> HttpResponse:
     positions.sort(
         key=lambda p: (p.oldest.age_days if p.oldest else -1), reverse=True
     )
-    names = {
-        c.pk: c
-        for c in receivable_selectors.visible_customers_for_receivables(request.user)
-    }
+    # Two `CharField`s per row, not a second copy of every visible `Customer` (M10.6b).
+    # The template reads `customer.shop_name` and nothing else.
+    names = receivable_selectors.visible_customer_labels(request.user)
     return render(
         request,
         "webadmin/receivables_position.html",

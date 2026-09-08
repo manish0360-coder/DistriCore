@@ -43,7 +43,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 ZERO = Decimal("0.00")
 
@@ -55,6 +55,63 @@ class LedgerRow(Protocol):
     ``SupplierLedgerEntry`` both satisfy this already, so neither ledger needs an adapter
     and the walk needs no import from ``ledger.models``. Unsaved instances work too, which
     is what lets the algorithm be tested without a database.
+
+    **Read-only, and that is the whole of the contract.** Declared as bare annotations these
+    would be *settable* variables — PEP 544's default — and an implementor would have to
+    offer assignment the walk never uses. That was never a decision; it is what ``pk: int``
+    means, and it went unnoticed while every caller happened to pass a Django model.
+
+    The walk reads. Where it needs to change a figure it copies into its own ``_Debit``
+    first, which is why nothing here has to be writable. Saying so makes two things true:
+    a ``NamedTuple`` row satisfies the protocol, and a future edit that assigns to an input
+    row becomes a type error in the module that owns the rule rather than silent mutation
+    of a caller's data. **A read-only member is strictly more permissive** — settable
+    attributes still satisfy it — so no existing implementor or caller is affected.
+    """
+
+    @property
+    def pk(self) -> int: ...
+
+    @property
+    def entry_date(self) -> date: ...
+
+    @property
+    def entry_type(self) -> str: ...
+
+    @property
+    def amount(self) -> Decimal: ...
+
+    @property
+    def narration(self) -> str: ...
+
+    @property
+    def source_document_type(self) -> str: ...
+
+    @property
+    def source_document_id(self) -> int | None: ...
+
+
+class LedgerRowTuple(NamedTuple):
+    """A row that satisfies ``LedgerRow`` with none of a model instance's machinery.
+
+    **This is what the Protocol above was for.** A caller walking one party's ledger may
+    hand over model instances and pay nothing for it. A caller walking *every* party's is
+    paying for a Django model — field descriptors, ``_state``, deferred loading, and a
+    ``from_db_value`` conversion per ``Decimal`` and per ``DateField`` — on hundreds of
+    thousands of rows, to read seven attributes.
+
+    At the DR-8 envelope ``receivables_position`` materialised **373,000** of them and
+    ``receivables ageing`` took 17.139 s against FR-RPT-015's ten-second budget
+    (``docs/M10.6_Performance_Report.md`` §3, §7). Building these from a ``values_list``
+    costs a fraction of that and changes no answer: the walk reads the same seven values.
+
+    **The field order is the ``values_list`` column order** that fills it, so ``_make`` can
+    be used and the two cannot silently disagree about a column.
+
+    It lives here rather than in ``receivables`` for the reason the algorithm does: the
+    supplier ledger needs the same shape, and ``purchasing`` sits below ``receivables`` and
+    could never import it from there. ``typing.NamedTuple`` is standard library, so this
+    module still imports nothing from any layer and still needs no ledger model at all.
     """
 
     pk: int

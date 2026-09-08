@@ -177,8 +177,9 @@ person will write the same two:
 
 **All three of that plan are now done:** (1) the rehearsal ran and the row is recorded
 (2026-09-07); (2) the dependency-upgrade milestone shipped as M10.5; (3) **`00` §19.2 M10 → M11
-is met on both halves.** M10 the *milestone* is not closed — its performance half
-(NFR-PER-001/005) and its debt register are untouched by that gate.
+is met on both halves.** M10 the *milestone* is not closed — but its **performance half was
+closed at M10.6 on 2026-09-08** (`docs/M10.6_Performance_Report.md`), leaving its debt
+register, which that gate does not touch either.
 
 ---
 
@@ -546,7 +547,7 @@ reaches the app, so read-only must be enforced by the absence of a server-side w
 | Item | Note |
 | --- | --- |
 | **Uncommitted** | Task 2's code and this documentation pass await the milestone commit. **`LICENSE` also shows as modified — line endings only (LF→CRLF), no content change.** `git checkout -- LICENSE` before committing so it does not ride along |
-| **Re-run `ops/report_performance.py`** after any change to a report or the §5A walk | Not in `make verify` and never will be — an 858-second dataset build has no place in an 8-stage gate, so **nothing else catches a regression of that class** |
+| **Re-run `make perf`** after any change to a report or the §5A walk | Not in `make verify` and never will be — a ~430-second dataset build has no place in an 8-stage gate, so **nothing else catches a regression of that class**. It runs against the disposable `districore_perf`, never the development database |
 | **TD-29** | Nothing asserts a new report is wired into `REPORT_MENU`, the API router **and** the CSV path. **Task 0 adds an eighth report endpoint — this is the first time TD-29 can actually bite** |
 | **TD-31** | Clock-dependent tests. Four fixed; the class is not structurally prevented |
 | **TD-37** | **Open, and costlier after task 2.** `mobile-verify` is still not in `make verify`. The 21 structural contracts are blocking, but *"does the Dart compile"* is not — and **the 317 Dart cases are invisible to the only authority.** The 829 figure does not include them. Promote to stage 9 once the toolchain image has held for a milestone |
