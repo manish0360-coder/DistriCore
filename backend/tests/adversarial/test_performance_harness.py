@@ -32,7 +32,9 @@ application-runtime test failed on the plumbing rather than on its subject.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -60,6 +62,31 @@ REQUIRED_PATHS = (
 #: Databases the corpus must never be written into. `districore` is the working development
 #: database; `districore_prod` is the live one. Same list `ops/restore.sh` refuses.
 WORKING_DATABASES = ("districore", "districore_prod")
+
+
+def _verdicts_module():
+    """Load `ops/perf_verdicts.py` **by path**, and assert it stayed importable.
+
+    It imports nothing but the standard library, which is the property that lets these
+    contracts test *behaviour* instead of grepping source. `report_performance.py` calls
+    `django.setup()` at import and can never be loaded here — which is precisely how a
+    verdict function that reported a hard failure as `NOT MEASURED` survived review.
+    """
+    path = ROOT / "ops" / "perf_verdicts.py"
+    assert path.exists(), f"{path} is missing; the verdict mapping has no testable home"
+    name = "perf_verdicts_under_test"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered before execution, as importlib documents. `@dataclass` resolves string
+    # annotations through `sys.modules[cls.__module__]`, so a module executed while absent
+    # from it raises inside `dataclasses` rather than anywhere near the subject.
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)  # raises if it ever acquires a Django import
+    finally:
+        sys.modules.pop(name, None)
+    return module
 
 
 def _make_recipe(target: str) -> str:
@@ -289,16 +316,20 @@ def test_a_breach_cannot_be_reported_as_a_pass():
     """
     source = HARNESS.read_text(encoding="utf-8")
 
-    assert re.search(r'verdicts\[requirement\]\s*=\s*"FAIL"', source), (
-        "no path turns a breach into FAIL; a breached run would still print PASS"
+    assert re.search(r"verdicts\s*=\s*evaluate\(", source), (
+        "the harness no longer derives its verdicts from `perf_verdicts.evaluate`, so the "
+        "mapping the contracts above test is not the mapping it runs"
     )
-    assert re.search(r"return\s+1\s+if\s+total\s+else\s+0", source), (
-        "the harness no longer exits non-zero on a breach, so a caller cannot tell a "
-        "measured pass from a measured failure"
+    assert re.search(r"blocking\s*=\s*failing\(verdicts\)", source), (
+        "nothing computes the failing requirements, so nothing can gate on them"
     )
-    assert '"NOT MEASURED"' in source, (
-        "a stage that did not run must be reported as NOT MEASURED. Absence of a "
-        "measurement is not evidence of compliance"
+    assert re.search(r"return\s+1\s+if\s+blocking\s+else\s+0", source), (
+        "the exit status is no longer driven by the requirement verdicts. Driving it from a "
+        "breach counter is how PARTIAL and NOT MEASURED became indistinguishable from FAIL."
+    )
+    assert not re.search(r"if\s+total\s+and\s+verdict", source), (
+        "the global breach counter is back in the verdict path. One requirement's breach "
+        "must never alter another's verdict."
     )
 
 
@@ -414,6 +445,258 @@ def test_the_disposable_database_is_not_the_configured_default():
     )
 
 
+# ============================================ the verdict mapping, tested as behaviour
+def _stages(module, **overrides):
+    """Three healthy stages, so each contract below perturbs exactly one thing."""
+    base = {
+        "reports": module.StageResult(ran=True, total=13, worst_label="r", worst_seconds=1.0),
+        "interactive": module.StageResult(ran=True, total=11, worst_label="i", worst_seconds=0.2),
+        "linearity": module.StageResult(ran=True, total=6),
+    }
+    base.update(overrides)
+    return base
+
+
+def _evaluate(module, *, at_envelope=True, **overrides) -> dict[str, object]:
+    verdicts = module.evaluate(
+        **_stages(module, **overrides),
+        at_envelope=at_envelope,
+        report_budget_seconds=10.0,
+        interactive_budget_seconds=2.0,
+        interactive_percentile=95,
+    )
+    return {verdict.requirement: verdict for verdict in verdicts}
+
+
+def test_a_measured_breach_can_never_be_reported_as_not_measured():
+    """**The defect the first DR-8 run shipped.**
+
+    Thirteen reports ran, `receivables ageing` took 17.139s and `dashboard` 16.874s against
+    a ten-second requirement, and the release gate printed `NFR-PER-003  NOT MEASURED`. The
+    original mapping used `NOT MEASURED` as the else-branch of a PASS test, so *measured and
+    failing* and *never measured* came out of the same expression.
+
+    **Absence of a measurement is not evidence of compliance, and a failure is not an
+    absence.** The second half of that sentence is the one that was missing.
+    """
+    module = _verdicts_module()
+    breached = module.StageResult(
+        ran=True, total=13, breached=("receivables ageing", "dashboard"), worst_seconds=17.139
+    )
+    verdicts = _evaluate(module, reports=breached)
+
+    assert verdicts["NFR-PER-003"].state == module.FAIL, (
+        "a report that exceeded the budget is reported as something other than FAIL"
+    )
+    assert verdicts["NFR-PER-003"].state != module.NOT_MEASURED
+    assert "receivables ageing" in verdicts["NFR-PER-003"].detail, (
+        "the verdict does not name what breached, so the record cannot be acted on"
+    )
+    assert verdicts["NFR-SCA-001"].state == module.FAIL, (
+        "the envelope was not sustained; SCA-001 must not report the absence of a measurement"
+    )
+
+
+def test_a_measured_breach_can_never_be_reported_as_pass():
+    """The other direction, held for every requirement that has a threshold."""
+    module = _verdicts_module()
+    cases = {
+        "NFR-PER-003": {"reports": module.StageResult(ran=True, total=13, breached=("r",))},
+        "NFR-PER-001": {"interactive": module.StageResult(ran=True, total=11, breached=("i",))},
+        "NFR-SCA-003": {"linearity": module.StageResult(ran=True, total=6, breached=("q",))},
+    }
+    for requirement, override in cases.items():
+        verdicts = _evaluate(module, **override)
+        assert verdicts[requirement].state == module.FAIL, (
+            f"{requirement} reported {verdicts[requirement].state} over a measured breach"
+        )
+
+
+def test_one_requirements_breach_cannot_alter_another_requirements_verdict():
+    """**No global counter. Ever.**
+
+    The original mapping ended in `"FAIL" if total and verdict.startswith("PASS")`, so a
+    report breach turned NFR-PER-001 and NFR-SCA-003 into failures although every one of
+    their own measurements passed — eleven S1 operations at seven times inside budget, and
+    two sub-linear queries. A verdict must be a function of its own requirement's evidence.
+    """
+    module = _verdicts_module()
+    clean = _evaluate(module)
+    with_report_breach = _evaluate(
+        module, reports=module.StageResult(ran=True, total=13, breached=("receivables ageing",))
+    )
+
+    for requirement in ("NFR-PER-001", "NFR-SCA-003"):
+        assert with_report_breach[requirement].state == clean[requirement].state, (
+            f"a NFR-PER-003 breach changed {requirement} from "
+            f"{clean[requirement].state} to {with_report_breach[requirement].state}. "
+            "Neither requirement describes the reports stage."
+        )
+
+
+def test_per_001_can_never_report_an_unqualified_pass_while_s4_does_not_exist():
+    """NFR-PER-001 names **`S1` and `S4`**; `S4` is Edition 1b (`00` §19.1, M12).
+
+    A bare PASS would tell a reader the requirement is discharged when one of its two
+    surfaces has never been looked at. PARTIAL says what is true: favourable evidence,
+    incomplete coverage. A breach on `S1` is still FAIL — an unmeasurable second surface
+    does not soften a violation on the first.
+    """
+    module = _verdicts_module()
+    verdict = _evaluate(module)["NFR-PER-001"]
+
+    assert verdict.state == module.PARTIAL, (
+        f"NFR-PER-001 reported {verdict.state} with S4 unmeasurable. Only PARTIAL, FAIL or "
+        "NOT MEASURED are honest here."
+    )
+    assert verdict.state != module.PASS
+    assert module.BLOCKED in verdict.detail and "S4" in verdict.detail, (
+        "the verdict no longer says which surface is unavailable or why"
+    )
+    breached = _evaluate(
+        module, interactive=module.StageResult(ran=True, total=11, breached=("S1 stock list",))
+    )["NFR-PER-001"]
+    assert breached.state == module.FAIL, "an S1 breach was softened by S4's absence"
+
+
+def test_sca_003_reports_partial_assessability_rather_than_claiming_coverage():
+    """Four of six queries take no date range, so history cannot be scaled for them.
+
+    Reporting PASS over a sample that excluded two thirds of the queries would be the
+    report claiming coverage the instrument does not have.
+    """
+    module = _verdicts_module()
+    partial = _evaluate(
+        module,
+        linearity=module.StageResult(
+            ran=True, total=6, not_assessable=("sales (day)", "returns", "pipeline", "variance")
+        ),
+    )["NFR-SCA-003"]
+    assert partial.state == module.PARTIAL
+    assert "NOT ASSESSABLE" in partial.detail and "sales (day)" in partial.detail
+
+    everything = _evaluate(module, linearity=module.StageResult(ran=True, total=6))["NFR-SCA-003"]
+    assert everything.state == module.PASS, (
+        "with every query assessable and sub-linear the verdict must be a full PASS, or "
+        "PARTIAL stops meaning anything"
+    )
+    nothing = _evaluate(
+        module, linearity=module.StageResult(ran=True, total=4, not_assessable=("a", "b", "c", "d"))
+    )["NFR-SCA-003"]
+    assert nothing.state == module.NOT_MEASURED, (
+        "with nothing assessable the instrument measured nothing and must say so"
+    )
+
+
+def test_per_005_is_a_process_requirement_and_is_independent_of_latency():
+    """*"Performance MUST be re-measured ... before each release"*, verified by Release gate.
+
+    It states no latency of its own. A breach elsewhere is the *product* of the
+    re-measurement, not evidence that it failed to happen — the original mapping reported
+    `NOT MEASURED` for a run that plainly occurred and produced 30 timings.
+    """
+    module = _verdicts_module()
+    clean = _evaluate(module)["NFR-PER-005"]
+    breached = _evaluate(
+        module,
+        reports=module.StageResult(
+            ran=True, total=13, breached=("receivables ageing", "dashboard")
+        ),
+    )["NFR-PER-005"]
+
+    assert clean.state == module.MET
+    assert breached.state == module.MET, (
+        f"a latency breach turned the re-measurement obligation into {breached.state}. The "
+        "measurement happened; NFR-PER-003 and NFR-SCA-001 carry the failure."
+    )
+    assert "blocked" in breached.detail.lower(), (
+        "MET no longer says the release is blocked, so a reader could take it for shippable"
+    )
+
+    partial_run = _evaluate(module, linearity=module.StageResult(ran=False))["NFR-PER-005"]
+    assert partial_run.state == module.NOT_MEASURED, (
+        "a partial run must not discharge a release gate that asks for the whole measurement"
+    )
+
+
+def test_only_a_violation_stops_the_release():
+    """PARTIAL, BLOCKED and NOT MEASURED are gaps in evidence, not requirement violations.
+
+    They must not be silently exit-code-equivalent to a breach, or the harness cannot
+    distinguish "we have not looked" from "we looked and it is broken".
+    """
+    module = _verdicts_module()
+    assert module.FAILING_STATES == (module.FAIL,)
+
+    verdicts = list(_evaluate(module).values())
+    assert not module.failing(verdicts), "a clean run reports a failing requirement"
+
+    breached = list(
+        _evaluate(module, reports=module.StageResult(ran=True, total=13, breached=("r",))).values()
+    )
+    failing = {verdict.requirement for verdict in module.failing(breached)}
+    assert failing == {"NFR-PER-003", "NFR-SCA-001"}, (
+        f"the failing set is {failing}; a report breach violates exactly PER-003 and the "
+        "envelope requirement that contains it"
+    )
+
+
+def test_the_preserved_dr8_evidence_recomputes_to_the_corrected_verdicts():
+    """**Recomputed from the saved run, not from a rebuilt dataset.**
+
+    The DR-8 corpus costs 791 seconds to synthesise and would measure differently the
+    second time. `ops/perf-latest.json` holds the timings; the mapping is re-derived from
+    them, which is what makes correcting a verdict cheap and repeatable.
+
+    Skipped rather than failed when the file is absent: the evidence is an artefact of a
+    run, not of the repository, and a contract that demands it would fail on a fresh clone.
+    """
+    evidence = ROOT / "ops" / "perf-latest.json"
+    if not evidence.exists():
+        pytest.skip("no preserved run in this tree")
+
+    import json
+
+    raw = evidence.read_text(encoding="utf-8")
+    document = json.loads(raw[raw.index("{") :])
+    module = _verdicts_module()
+    verdicts = {v.requirement: v.state for v in module.evaluate_document(document)}
+
+    assert verdicts == {
+        "NFR-PER-003": module.FAIL,
+        "NFR-PER-001": module.PARTIAL,
+        "NFR-SCA-001": module.FAIL,
+        "NFR-SCA-003": module.PARTIAL,
+        "NFR-PER-005": module.MET,
+    }, f"the 2026-09-07 DR-8 run no longer recomputes to its recorded verdicts: {verdicts}"
+
+
+def test_only_the_evidence_document_reaches_stdout():
+    """`config/logging.py` sends application logs to **stdout** by design (`00` §12).
+
+    Right for a container, wrong for a script whose stdout is a machine-readable document:
+    the first DR-8 run put `INFO axes.apps: AXES: BEGIN ...` above the opening brace and
+    `json.load` refused the file. The swap has to happen **before** `django.setup()`,
+    because `LOGGING` is applied during setup and `axes` logs from `AppConfig.ready()`.
+    """
+    source = HARNESS.read_text(encoding="utf-8")
+    swap = source.index("sys.stdout = sys.stderr")
+    # The *statement*, at column zero — `django.setup()` also appears in the comment that
+    # explains this ordering, and matching that would compare the rule to its own prose.
+    call = re.search(r"^django\.setup\(\)", source, re.MULTILINE)
+    assert call, "`django.setup()` is no longer called at module level"
+    setup = call.start()
+    assert swap < setup, (
+        "stdout is redirected after `django.setup()`, so anything logged during setup still "
+        "lands in the evidence document"
+    )
+    assert "_EVIDENCE_STREAM = sys.stdout" in source, "the real stdout is no longer captured"
+    assert re.search(r"print\(document, file=_EVIDENCE_STREAM", source), (
+        "the document is no longer written to the saved stdout, so `--json -` would emit it "
+        "into the log stream"
+    )
+
+
 def test_s4_is_recorded_as_unmeasurable_rather_than_assumed_to_pass():
     """NFR-PER-001 names **`S1` and `S4`**. `S4` is the retailer portal — Edition 1b, M12.
 
@@ -421,9 +704,12 @@ def test_s4_is_recorded_as_unmeasurable_rather_than_assumed_to_pass():
     has to be stated in the output: a requirement measured on one of its two surfaces and
     reported as PASS is the quiet kind of false evidence.
     """
-    source = HARNESS.read_text(encoding="utf-8")
-    assert "NOT MEASURABLE at V1" in source, "the harness no longer declares the S4 gap"
-    assert "S4 not measurable at V1" in source, (
-        "NFR-PER-001's verdict no longer carries its own scope limit, so a reader sees an "
-        "unqualified PASS for a requirement measured on one surface of two"
+    assert "NOT MEASURABLE at V1" in HARNESS.read_text(encoding="utf-8"), (
+        "the harness's interactive stage no longer declares the S4 gap in its own output"
+    )
+    module = _verdicts_module()
+    detail = _evaluate(module)["NFR-PER-001"].detail
+    assert "S4" in detail and module.BLOCKED in detail and "Edition 1b" in detail, (
+        "NFR-PER-001's verdict no longer carries its own scope limit, so a reader sees a "
+        f"verdict for a requirement measured on one surface of two: {detail!r}"
     )

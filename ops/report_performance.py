@@ -115,12 +115,35 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[0]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 
-import django
+#: **Nothing but the evidence document may reach the real stdout.**
+#:
+#: `config/logging.py` sends every application log line to stdout deliberately — `00` §12,
+#: one JSON object per line, never a file inside a container — and that is right for the
+#: application and is not changed here. It is wrong for a script whose stdout *is* a
+#: machine-readable document: the first DR-8 run emitted
+#:
+#:     INFO     axes.apps: AXES: BEGIN version 6.5.2, blocking by username or ip_address
+#:
+#: above the opening brace, and `json.load` refused the file.
+#:
+#: Swapped **before** `django.setup()`, because `LOGGING` is applied during setup and
+#: `axes` logs from `AppConfig.ready()` — a handler rebound afterwards would already be too
+#: late. `ext://sys.stdout` in the logging config then resolves to this stderr object, so
+#: every library that logs anywhere is captured, not just the one that was noticed.
+_EVIDENCE_STREAM = sys.stdout
+sys.stdout = sys.stderr
+
+import django  # noqa: E402
 
 django.setup()
+
+# Pure, stdlib-only, and therefore importable by the contract suite — which is the whole
+# reason the verdict mapping lives in its own module. See `ops/perf_verdicts.py`.
+from perf_verdicts import StageResult, evaluate, failing  # noqa: E402, I001
 
 from django.core.paginator import Paginator  # noqa: E402
 from django.db import connection, transaction  # noqa: E402
@@ -885,6 +908,37 @@ def measure_linearity(owner: User) -> tuple[list[dict[str, Any]], int]:
 
 
 # ================================================================================= main
+def _stage(measurements: list[Measurement]) -> StageResult:
+    """A timed stage, reduced to what `perf_verdicts` needs."""
+    if not measurements:
+        return StageResult(ran=False)
+    worst = max(measurements, key=lambda m: m.seconds)
+    return StageResult(
+        ran=True,
+        total=len(measurements),
+        breached=tuple(m.label for m in measurements if m.verdict == "BREACH"),
+        worst_label=worst.label,
+        worst_seconds=worst.seconds,
+    )
+
+
+def _linearity_stage(rows: list[dict[str, Any]]) -> StageResult:
+    """The linearity stage. **`NOT ASSESSABLE` is carried, not silently counted as fine.**
+
+    A query with no date parameter cannot be scaled by retained history, so folding it into
+    a pass would claim coverage the instrument does not have — which is how two thirds of
+    NFR-SCA-003's sample would disappear into a green line.
+    """
+    if not rows:
+        return StageResult(ran=False)
+    return StageResult(
+        ran=True,
+        total=len(rows),
+        breached=tuple(r["label"] for r in rows if r["verdict"] == "BREACH"),
+        not_assessable=tuple(r["label"] for r in rows if r["verdict"] == "NOT ASSESSABLE"),
+    )
+
+
 def _dataset_matches(profile: Profile) -> bool:
     """A dataset built for another profile must not be silently measured as this one."""
     return (
@@ -949,38 +1003,29 @@ def main(argv: list[str] | None = None) -> int:
     if options.stage in ("all", "linearity"):
         linearity_out, linearity_breaches = measure_linearity(owner)
 
-    report_breaches = sum(m.verdict == "BREACH" for m in reports_out)
-    interactive_breaches = sum(m.verdict == "BREACH" for m in interactive_out)
-    total = report_breaches + interactive_breaches + linearity_breaches
-
     at_envelope = profile.name == "dr8"
-    verdicts = {
-        "NFR-PER-003": "PASS" if reports_out and not report_breaches else "NOT MEASURED",
-        "NFR-PER-001": (
-            "PASS (S1 only; S4 not measurable at V1)"
-            if interactive_out and not interactive_breaches and at_envelope
-            else "NOT MEASURED"
-        ),
-        "NFR-SCA-003": "PASS" if linearity_out and not linearity_breaches else "NOT MEASURED",
-        "NFR-SCA-001": (
-            "PASS"
-            if at_envelope
-            and reports_out
-            and interactive_out
-            and not (report_breaches or interactive_breaches)
-            else "NOT MEASURED"
-        ),
-        "NFR-PER-005": "PASS" if options.stage == "all" and not total else "NOT MEASURED",
-    }
-    for requirement, verdict in verdicts.items():
-        verdicts[requirement] = "FAIL" if total and verdict.startswith("PASS") else verdict
+    verdicts = evaluate(
+        reports=_stage(reports_out),
+        interactive=_stage(interactive_out),
+        linearity=_linearity_stage(linearity_out),
+        at_envelope=at_envelope,
+        report_budget_seconds=REPORT_BUDGET_SECONDS,
+        interactive_budget_seconds=INTERACTIVE_BUDGET_SECONDS,
+        interactive_percentile=INTERACTIVE_PERCENTILE,
+    )
+    blocking = failing(verdicts)
+    total = (
+        sum(m.verdict == "BREACH" for m in reports_out)
+        + sum(m.verdict == "BREACH" for m in interactive_out)
+        + linearity_breaches
+    )
 
     _log()
     _log("==> requirement verdicts")
-    for requirement, verdict in verdicts.items():
-        _log(f"    {requirement:<12} {verdict}")
+    for verdict in verdicts:
+        _log(f"    {verdict}")
     _log()
-    _log(f"==> {total} breach(es)")
+    _log(f"==> {total} breach(es); {len(blocking)} requirement(s) failing")
 
     if options.json is not None:
         document = json.dumps(
@@ -1004,19 +1049,25 @@ def main(argv: list[str] | None = None) -> int:
                 "reports": [m.as_dict() for m in reports_out],
                 "interactive": [m.as_dict() for m in interactive_out],
                 "linearity": linearity_out,
-                "verdicts": verdicts,
+                "verdicts": [verdict.as_dict() for verdict in verdicts],
                 "breaches": total,
+                "failing_requirements": [verdict.requirement for verdict in blocking],
             },
             indent=2,
         )
         if options.json == "-":
-            print(document, flush=True)
+            # `_EVIDENCE_STREAM`, not `sys.stdout` — stdout was swapped to stderr above so
+            # that library logging cannot precede the opening brace.
+            print(document, file=_EVIDENCE_STREAM, flush=True)
             _log("==> evidence written to stdout")
         else:
             Path(options.json).write_text(document, encoding="utf-8")
             _log(f"==> evidence written to {options.json}")
 
-    return 1 if total else 0
+    # **Driven by the requirement verdicts, not by a breach counter.** A gap in the evidence
+    # — PARTIAL, BLOCKED, NOT MEASURED — is not a violation, and only a violation may stop
+    # the run. `total` is reported for the operator; it decides nothing.
+    return 1 if blocking else 0
 
 
 if __name__ == "__main__":
