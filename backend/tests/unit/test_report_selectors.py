@@ -284,8 +284,24 @@ def test_the_last_day_of_a_period_is_included(owner, product, receipt_reason):
 
 # --------------------------------------------------------------------------- receivables
 def test_receivables_ageing_reuses_m6s_walk_and_buckets(owner, august, credit_customer):
-    table = reports.receivables_ageing(owner)
+    """M6's walk and M6's buckets, **at a pinned instant**.
+
+    ``as_of`` defaults to ``date.today()``, and the fixture's invoice is dated ``TODAY``
+    (2026-08-08). Unpinned, ``age_days`` was the distance from a constant to the wall clock
+    and the bucket boundary at 30 days fell on a calendar date: age 30 on 2026-09-07 gave
+    ``0-30``, age 31 on 2026-09-08 gave ``31-60``. The suite was green for a month and
+    turned red overnight without a line of production code changing.
+
+    **The same defect the `stocked` fixture above already records** — *"they passed only
+    while the real date still fell inside the constant range, and began failing the morning
+    after"* — at the one call site that was missed. TD-31.
+
+    ``oldest_days`` is asserted alongside the bucket so the expected bucket has a stated
+    reason: an age of 0 is in ``0-30`` by arithmetic, not by luck of the calendar.
+    """
+    table = reports.receivables_ageing(owner, as_of=TODAY)
     row = next(r for r in table.rows if r["code"] == credit_customer.code)
+    assert row["oldest_days"] == 0
     assert row["bucket"] == "0-30"
     assert row["outstanding"] > Decimal("0.00")
 
