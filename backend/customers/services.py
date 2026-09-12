@@ -221,6 +221,11 @@ def _customer_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "delivery_address",
         "credit_limit_amount",
         "credit_days",
+        # **Documentation, not a balance** (`04` §591, `ledger.models`). Setting it creates
+        # no ledger entry, so a customer record can read 4,500 while `receivables_position`
+        # and every report derive 0. The balance that counts is an `OPENING` entry written
+        # at go-live by ACT-E — `manage.py load_opening_balances`, which calls
+        # `receivables.services.load_opening_balance`. Never assign one here.
         "opening_balance_amount",
         "latitude",
         "longitude",

@@ -641,34 +641,69 @@ def test_only_a_violation_stops_the_release():
     )
 
 
-def test_the_preserved_dr8_evidence_recomputes_to_the_corrected_verdicts():
-    """**Recomputed from the saved run, not from a rebuilt dataset.**
+def test_the_recorded_dr8_evidence_recomputes_to_the_verdicts_it_carries():
+    """**The writer and the reader must agree about the run that actually happened.**
 
-    The DR-8 corpus costs 791 seconds to synthesise and would measure differently the
-    second time. `ops/perf-latest.json` holds the timings; the mapping is re-derived from
-    them, which is what makes correcting a verdict cheap and repeatable.
+    `evaluate_document` re-derives verdicts from saved timings, which is what made
+    correcting the M10.6a mapping cheap: the DR-8 corpus costs minutes to synthesise and
+    would measure differently the second time, so a verdict is fixed by re-reading the
+    artefact, never by re-running the benchmark.
 
-    Skipped rather than failed when the file is absent: the evidence is an artefact of a
-    run, not of the repository, and a contract that demands it would fail on a fresh clone.
+    **This asserts an invariant, not a dated result.** It compares the recomputed verdicts
+    against the `verdicts` block the harness itself wrote into the artefact. That holds for
+    every run — the 2026-09-07 FAIL and the 2026-09-08 PASS alike — and it catches something
+    the previous spelling could not: a drift between what `report_performance` records and
+    what `perf_verdicts` computes. The earlier version hard-coded the 2026-09-07 verdicts, so
+    it began failing the moment a *successful* run replaced the artefact — a test of one
+    day's result wearing the name of a contract.
+
+    **The historical failure is not lost, and was never held here.**
+
+    * The **artefact** is immutable in history: ``git show 3b75aa7:ops/perf-latest.json``
+      still carries `"NFR-PER-003": "NOT MEASURED"` and the 17.139 s timing, and
+      `docs/M10.6_Performance_Report.md` §3 and §9 record both runs side by side.
+      A test cannot read it — **the backend image contains no git** (`M10_Security_Review`
+      §NFR-SEC-007, where this project already made that mistake once) — so reaching for a
+      git object here would reproduce a defect the corpus has recorded.
+    * The **mapping** that produced those verdicts is held by behaviour, where it belongs:
+      `test_a_measured_breach_can_never_be_reported_as_not_measured` and
+      `test_only_a_violation_stops_the_release` (PER-003 and SCA-001 → FAIL),
+      `test_per_001_can_never_report_an_unqualified_pass_while_s4_does_not_exist` (PARTIAL),
+      `test_sca_003_reports_partial_assessability_rather_than_claiming_coverage` (PARTIAL)
+      and `test_per_005_is_a_process_requirement_and_is_independent_of_latency` (MET). Those
+      feed the mapping synthetic breaches and cannot go stale.
+
+    Skipped rather than failed when the file is absent: the evidence is an artefact of a run,
+    not of the repository, and a contract that demands it would fail on a fresh clone.
     """
     evidence = ROOT / "ops" / "perf-latest.json"
     if not evidence.exists():
-        pytest.skip("no preserved run in this tree")
+        pytest.skip("no recorded run in this tree")
 
     import json
 
     raw = evidence.read_text(encoding="utf-8")
     document = json.loads(raw[raw.index("{") :])
     module = _verdicts_module()
-    verdicts = {v.requirement: v.state for v in module.evaluate_document(document)}
 
-    assert verdicts == {
-        "NFR-PER-003": module.FAIL,
-        "NFR-PER-001": module.PARTIAL,
-        "NFR-SCA-001": module.FAIL,
-        "NFR-SCA-003": module.PARTIAL,
-        "NFR-PER-005": module.MET,
-    }, f"the 2026-09-07 DR-8 run no longer recomputes to its recorded verdicts: {verdicts}"
+    recorded = {entry["requirement"]: entry["state"] for entry in document["verdicts"]}
+    assert set(recorded) == {
+        "NFR-PER-003",
+        "NFR-PER-001",
+        "NFR-SCA-001",
+        "NFR-SCA-003",
+        "NFR-PER-005",
+    }, f"the artefact does not carry all five requirements: {sorted(recorded)}"
+
+    recomputed = {
+        verdict.requirement: verdict.state for verdict in module.evaluate_document(document)
+    }
+    assert recomputed == recorded, (
+        f"the recorded run no longer recomputes to the verdicts it carries.\n"
+        f"    recorded   ({document['measured_at']}): {recorded}\n"
+        f"    recomputed (perf_verdicts today)      : {recomputed}\n"
+        "The harness and the mapping disagree about a run that already happened."
+    )
 
 
 def test_only_the_evidence_document_reaches_stdout():

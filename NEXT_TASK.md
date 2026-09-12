@@ -1,5 +1,59 @@
 # Next Task
 
+## Done 2026-09-12 — M11.0, ACT-E: the opening-balance load and reconciliation
+
+**`02` §ACT-E is the first clause of the `00` §19.2 M11 → live gate**, and its two services —
+`receivables.services.load_opening_balance` and
+`purchasing.services.load_supplier_opening_balance` — had **no caller outside the test
+suite**. The first one's docstring speaks of *"re-running the whole import"* for an import
+that did not exist. `manage.py load_opening_balances` is that import.
+
+**R-6 is why it was worth doing carefully**: *"a corrupt starting position undermines every
+derived figure permanently."* Everything fails closed.
+
+| Property | How it behaves |
+| --- | --- |
+| Dry run | **the default**; `--commit` is required to write |
+| Refusals | fail the run in **both** modes, each named by line number |
+| Mixed input | one bad row stops the whole load; `--allow-partial` overrides and is named in the report |
+| Customer re-load | idempotent — the service returns the existing entry (D-10) |
+| Supplier re-load | the service *refuses*, so the command detects and reports `already carried` |
+| Reconciliation | **A** file · **B** `OPENING` entries · **C** derived balances, independently computed. A ≡ B is asserted on a committed run; B ≡ C is reported, never asserted |
+| Writes | through the services only — `record_entry` remains the single ledger writer (D-8) |
+
+**Rehearsed 2026-09-12** against the disposable `districore_perf`: 3 loaded, 7 refused,
+**A = B = C = 105,750.49**, re-run a no-op reporting `already carried`, development database
+untouched (0 `OPENING` rows), database dropped afterwards.
+`docs/runbooks/go-live-data.md` carries the full evidence.
+
+**ACT-E is ready to execute. It has not been executed** — the real load is an owner action
+against real figures, and the Load log stays empty until someone watches one.
+
+**Two defects were found and fixed before the rehearsal, both in this milestone's own work:**
+
+1. **The operator could not log in.** `bootstrap_owner --phone 9000000000` stores
+   `+919000000000`; the command looked the raw string up. `identity/phone.py` exists because
+   *"a superuser created as `7903324153` could therefore never log in"* — the same defect,
+   on a new surface. The twenty contracts missed it because the fixture passed
+   `owner.phone`, already canonical. Fixed by normalising through the shared function, with
+   a contract that passes the ten digits an operator types.
+2. **The dry run failed on a clean file.** The reconciliation gate was applied to a run that
+   deliberately writes nothing, so `A ≠ B` — the expected state of *"nothing loaded yet"* —
+   was scored as a failed reconciliation. The same conflation of *absent* with *failed* that
+   `ops/perf_verdicts.py` was written to prevent. Reconciliation now gates a **committed**
+   run only; refusals still fail both modes.
+
+**One requirement ambiguity, raised and not resolved:** a customer who is **in credit** at
+go-live has no representation. `load_opening_balance` refuses `<= 0`; the supplier side
+permits any non-zero. The corpus does not rule on it. The runbook tells the operator to stop
+and raise it rather than flip a sign.
+
+**Next:** the M11 → live gate's other two clauses — owner sign-off and training — both need a
+deployed system. A-03 host, A-04 domain, A-05 offsite target, S-04/S-05/S-07 and K-1 do not
+exist, and every one carries external lead time.
+
+---
+
 ## Done 2026-09-07 — M10.5, dependency hardening. **NFR-SEC-009 MET**
 
 | Gate | Result |
@@ -326,8 +380,9 @@ items that were waiting on nobody, which is exactly what a gate can do and all i
 > `make verify` figures for the M9 increments were not captured in the state documents and
 > are **not restated here from memory**.
 
-**Milestone:** M10 — Hardening (1.5 units, `00` §19.1); its `00` §19.2 gate is met, the
-milestone is not closed. M9 is not closed. M8 remains open on tasks 6 and 10 *(task 8 built
+**Milestone:** M11 — Go-live has **started** (ACT-E built and rehearsed 2026-09-12); M10 —
+Hardening is not closed, though its `00` §19.2 gate and its performance half both are.
+M9 is not closed. M8 remains open on tasks 6 and 10 *(task 8 built
 2026-09-06)*. **Next:** see *The immediate next action* above.
 
 ---
