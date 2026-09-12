@@ -14,7 +14,15 @@ mkdir -p "$DIR"
 echo "[backup] dumping"
 # Same reason as ops/restore.sh: the project directory is `docker/`, so compose
 # never finds the root `.env` on its own and `POSTGRES_PASSWORD` fails to interpolate.
-docker compose -f docker/compose.yml -f docker/compose.prod.yml --env-file .env exec -T db \
+#
+# **The prod overlay is not loaded, deliberately.** `db` is defined in the base file and
+# `exec` attaches to whatever is already running — the overlay only adds `ports: []`, which
+# `exec` does not consult, and the project name is fixed by `name: districore`. Loading it
+# made this script depend on every variable the overlay interpolates, including
+# `DISTRICORE_DOMAIN`, which `compose.prod.yml` now requires. A backup that stops because
+# the web server has no certificate name is the B-3 defect again: a compose file loaded for
+# no reason, taking the script down with it.
+docker compose -f docker/compose.yml --env-file .env exec -T db \
     pg_dump -U "${POSTGRES_USER:-districore}" -d "${POSTGRES_DB:-districore}" -Fc \
     > "$DIR/$NAME"
 

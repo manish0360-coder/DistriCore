@@ -1,0 +1,24 @@
+[Unit]
+# **Nightly**, as FD-16 states. `00` §13.1 alerts when no backup has completed in 26 hours,
+# so the cadence and the alarm are two hours apart on purpose: one missed run is visible
+# before a second is due.
+Description=Nightly DistriCore backup (00 §14, FD-16)
+Documentation=file:///opt/districore/docs/runbooks/deploy.md
+
+[Timer]
+# 02:30 local. Outside trading hours for a distributor, and well clear of the owner's
+# morning dashboard.
+OnCalendar=*-*-* 02:30:00
+
+# A host that was off at 02:30 still backs up when it comes back, rather than skipping a
+# night silently — the failure §13.1 calls "the most under-monitored in small systems".
+Persistent=true
+
+# Up to five minutes of jitter. Nothing else competes for this host today; it costs nothing
+# and it is the right habit before anything else is scheduled.
+RandomizedDelaySec=300
+
+Unit=districore-backup.service
+
+[Install]
+WantedBy=timers.target

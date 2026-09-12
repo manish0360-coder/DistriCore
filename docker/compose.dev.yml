@@ -53,6 +53,10 @@ services:
       - ../.github:/app/.github:ro
       - ../docs:/app/docs:ro
       - ../.gitignore:/app/.gitignore:ro
+      # M11.1: `test_deployment_readiness` asserts that every variable production refuses to
+      # start without is documented where an operator will look (`00` §9.1). **The example
+      # file only** — `.env` itself is never mounted and never committed (N-11).
+      - ../.env.example:/app/.env.example:ro
       - media_data:/srv/media
       - backup_data:/srv/backups
     ports:

@@ -1,5 +1,48 @@
 # Next Task
 
+## Done 2026-09-12 — M11.1, deployment readiness (repository side)
+
+**Three gaps, each of which would have appeared for the first time in production.**
+
+| # | Gap | Why it was silent |
+| --- | --- | --- |
+| 1 | `compose.prod.yml` never passed **`DISTRICORE_DOMAIN`** to Caddy | The Caddyfile is parameterised `{$DISTRICORE_DOMAIN:localhost}` and `compose.dev.yml` sets it, noting *"production supplies the real domain"*. It did not. Unset, Caddy chose its **internal** issuer and served a certificate no browser trusts — for a domain (A-04) already bought and pointed at the host. Nothing failed |
+| 2 | **Nothing ran the nightly backup** | FD-16 requires nightly; `00` §13.1 alerts at 26 hours; `/healthz` reads the stamp. `ops/backup.sh` is invoked by hand in three runbooks and by `make backup` — and by no scheduler. A fresh host would have had **no backups**, `backup.ok: false` for ever, and B-1 could not begin |
+| 3 | `ops/backup.sh` loaded the **production overlay it does not need** | `db` is in the base file and `exec` attaches to a running container. Loading the overlay coupled the backup to every variable it interpolates — so the moment `DISTRICORE_DOMAIN` became required, a missing certificate name would have stopped the nightly dump. The B-3 defect again: a compose file loaded for no reason, taking the script down with it |
+
+**Fixes.** `DISTRICORE_DOMAIN: ${DISTRICORE_DOMAIN:?…}` on the production Caddy — fail closed,
+the same posture `POSTGRES_PASSWORD` takes, because the value cannot be guessed and a wrong
+guess is worse than a refusal. `DISTRICORE_DOMAIN` documented in `.env.example` with the note
+that it must agree with `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` — three places, one name.
+`ops/districore-backup.{service,timer}` — nightly at 02:30, `Persistent=true` so a host that
+was off still backs up. **No new alerting was invented**: `/healthz` already reports
+`backup.age_hours`, and A-08 polling it is what raises `00` §13.1's email. The producer was
+the only thing missing.
+
+`docs/runbooks/deploy.md` gained a **first deploy only** section — the runbook was written
+for a repeat deploy and had no path for host number one.
+
+**Eight contracts, all mutation-proved.** One failed on its own explanation first —
+`backup.sh` now *documents* why it no longer loads the overlay, and a plain substring search
+read that prose as the thing it forbids. Comments are stripped before the search, with
+`test_the_comment_stripper_actually_strips` keeping that honest; the same lesson
+`test_mobile_boundary` records.
+
+**`.env.example` is now bind-mounted** into the app container. The contract that reads it
+would otherwise have failed on a missing mount rather than on its subject — the M10 defect,
+avoided by adding the mount in the same change as the test.
+
+**Everything else in M11.1 is operator work and none of it exists:** A-03 host, A-04 domain
+and DNS, A-05 offsite target, S-04 deploy key, S-05 SSH key, S-07 backup passphrase, A-08
+uptime monitor, and **K-1/S-06** — the Android keystore, which `00` §2.3 says can never be
+rotated.
+
+**Deliberately not touched.** `STATICFILES_STORAGE` remains inert (recorded, deferred:
+*"its own change, its own verify run"*), and it is not a deploy blocker because Caddy serves
+`/static/*` from the collected volume. **NFR-AVA-001 is untouched** — see below.
+
+---
+
 ## Done 2026-09-12 — M11.0, ACT-E: the opening-balance load and reconciliation
 
 **`02` §ACT-E is the first clause of the `00` §19.2 M11 → live gate**, and its two services —

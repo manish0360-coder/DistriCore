@@ -17,6 +17,20 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    environment:
+      # **The certificate identity, and production never supplied it.**
+      #
+      # `docker/Caddyfile` is parameterised as `{$DISTRICORE_DOMAIN:localhost}` and
+      # `compose.dev.yml` sets it to the emulator's host alias, noting that "production
+      # supplies the real domain". This overlay did not. With the variable unset Caddy fell
+      # back to `localhost`, selected its **internal** issuer, and served a certificate no
+      # browser trusts — for a domain (A-04) that had been bought and pointed at the host.
+      # Nothing would have failed loudly; TLS would simply have been wrong.
+      #
+      # `:?` rather than a default, for the reason `POSTGRES_PASSWORD` carries one in
+      # `compose.yml`: the value cannot be guessed, and a wrong guess is worse than a
+      # refusal. A deploy without a domain now stops at interpolation.
+      DISTRICORE_DOMAIN: ${DISTRICORE_DOMAIN:?DISTRICORE_DOMAIN is required — Caddy cannot obtain a certificate for a name it has not been given}
     ports:
       - "80:80"
       - "443:443"

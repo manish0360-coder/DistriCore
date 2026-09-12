@@ -1,0 +1,34 @@
+[Unit]
+# The producer behind `00` §13.1's third alert and `/healthz`'s `backup` check.
+#
+# FD-16 requires a **nightly** encrypted dump. `ops/backup.sh` existed from P0 and nothing
+# ever ran it on a schedule: it is invoked by hand in `deploy.md` (before a release),
+# `incident-response.md` and `make backup`. A fresh production host therefore had no
+# backups at all, `/healthz` reported `backup.ok: false` for ever, and B-1 — *"a backup that
+# has never been restored does not count as a backup"* — could not even begin.
+#
+# Installed by the operator on the server; see `docs/runbooks/deploy.md`.
+Description=DistriCore nightly encrypted database backup (00 §14, FD-16)
+Documentation=file:///opt/districore/docs/runbooks/deploy.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/districore
+# `backup.sh` reads DISTRICORE_BACKUP_PASSPHRASE (S-07) and DISTRICORE_BACKUP_REMOTE from
+# the environment, and the compose call reads POSTGRES_* from `--env-file .env`. One file,
+# 0600, owned by the deploy user — FD-13.
+EnvironmentFile=/opt/districore/.env
+ExecStart=/opt/districore/ops/backup.sh
+
+# The script is `set -euo pipefail`, so a non-zero exit is a real failure. systemd records
+# it; **the alert does not come from here.** `/healthz` reports `backup.ok: false` once the
+# stamp is older than DISTRICORE_BACKUP_MAX_AGE_HOURS (26), and the uptime monitor (A-08)
+# polling `/healthz` is what raises §13.1's email. One alert path, already built — this unit
+# only has to be the thing that writes the stamp.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
