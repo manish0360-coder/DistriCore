@@ -12,7 +12,7 @@ Written **before** production, not after an incident (SEC-6).
 | SMS API key | None if done in order | Create the new key at the provider, update `.env`, restart, then revoke the old |
 | Server SSH key | Lockout risk | Add the new key, verify login in a second session, **then** remove the old |
 | Backup passphrase | **Old archives stay encrypted with the old passphrase** | Keep both until every archive under the old one has expired |
-| Android upload keystore | **Cannot be rotated** | K-1. There is no procedure. This is why it is backed up twice |
+| Android upload keystore | **Cannot be rotated** | K-1. There is no rotation procedure and there cannot be one — this is why it is generated once and backed up twice: [android-keystore](android-keystore.md) |
 
 ## After any rotation
 

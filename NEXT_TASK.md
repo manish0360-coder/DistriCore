@@ -1,5 +1,50 @@
 # Next Task
 
+## Done 2026-09-12 — K-1, the keystore **procedure** (and the two gaps it exposed)
+
+**Scope: the procedure only. No keystore was generated and no secret was handled.**
+`M8_Design_Review` entry condition 4 — *"K-1 keystore procedure agreed"* — has been open
+since M8 for a simple reason: `rotate-secrets.md` said outright that *"there is no
+procedure."* AR-5 classifies losing the key as *"not an M8 code risk — an M8 **procedure**
+risk"*, so what was owed was a document, and now exists:
+**`docs/runbooks/android-keystore.md`** — generation command with every parameter fixed
+(`-storetype PKCS12 -alias upload -keyalg RSA -keysize 2048 -validity 10000`), a temporary
+location outside the repository tree, the password-manager entry, two off-machine backups
+**each verified by fingerprint**, the repository-side negative checks, and a log of
+non-secret facts only.
+
+**Writing it down exposed one real gap and one misplaced rule**, both reached only by the act
+of *complying* with K-1:
+
+| # | Finding | Why it was silent |
+| --- | --- | --- |
+| 1 | **Nothing ignored `*.p12`** | PKCS12 is `keytool`'s default store format since JDK 9, so the file the procedure produces matched no rule — not `*.jks`/`*.keystore` in the root `.gitignore`, and not `**/*.jks`/`**/*.keystore` in Flutter's generated `mobile/android/.gitignore` either. A pattern set covering every format except the generated one reads as protection and is not. `.pepk` was missing for the same reason |
+| 2 | **`key.properties` was ignored only by generated scaffolding** | The release block has no `signingConfig`; the recipe that supplies one reads `mobile/android/key.properties` — store password, key password, alias and path, **in clear**. Flutter's `mobile/android/.gitignore` *does* list it, **so this was not an open hole** — but that file is rewritten by `make mobile-android-scaffold` from the pinned SDK and guards one directory. N-11 is repository-wide and should not be inherited from a code generator, so the rule was hoisted to the root |
+
+**Finding 1 was checked, not assumed.** `git check-ignore -v` against all five names is what
+showed the nested Android file already covering `key.properties` — which corrected a stronger
+claim this entry was first drafted with. Only `.p12`/`.pepk` were genuinely uncovered.
+
+**Nine contracts in `backend/tests/adversarial/test_release_signing.py`, all fifteen
+mutations proved.** They assert on **`.gitignore`**, never `git ls-files` — *"the backend
+image contains no git"* (`M10_Security_Review` §NFR-SEC-007), the lesson
+`test_an_env_file_cannot_be_committed` already records: the right question in the wrong place
+fails in the authoritative environment and passes everywhere it does not matter. Two hold
+the signing path itself — no debug key on a release build (the line `flutter create`
+generates), and **no credential literal in `build.gradle.kts`, now or after the config is
+added**, which is the shortest path to a working release build and a secret in source
+control that no entropy scanner would reliably flag.
+
+**Android signing implementation deliberately unchanged.** A `signingConfig` written now
+would point at a keystore that does not exist and turn a correct refusal into a confusing
+failure. §8 of the runbook records the one bounded change it becomes, for the first real
+release build.
+
+**K-1 is NOT complete.** The keystore does not exist, the log is empty, and nothing here
+brings the M11 → live gate closer on its own.
+
+---
+
 ## Done 2026-09-12 — M11.1, deployment readiness (repository side)
 
 **Three gaps, each of which would have appeared for the first time in production.**
@@ -597,7 +642,7 @@ credential store (task 4) · **any dashboard DTO or dashboard-specific client co
 | 1 | §13 signed; both ADRs approved | ✔ |
 | 2 | §1.3 principles frozen | ✔ |
 | 3 | **TD-32 — retire the superseded `==` dev pins** | ☐ **Missed its window.** It was to land before the Dart toolchain; the toolchain arrived first. Still owed, now without that argument |
-| 4 | **K-1 — keystore procedure agreed** | ☐ |
+| 4 | **K-1 — keystore procedure agreed** | ◐ **Procedure written 2026-09-12** — `docs/runbooks/android-keystore.md`. The **keystore does not exist**; K-1 itself is open. See below |
 | 5 | **TD-11 — DLT registration started** | ☐ **External, unbounded** |
 | ~~6~~ | ~~Flutter/Dart SDK pinned, as `uv.lock` pins Python~~ | ✔ **Done in task 1** — `mobile/.flutter-version` + `mobile/pubspec.lock` (32 packages). **By version, not by bytes: TD-38** |
 | ~~7~~ | ~~OI-6 — the dashboard endpoint~~ | ✔ **Built and verified** |
@@ -615,6 +660,13 @@ credential store (task 4) · **any dashboard DTO or dashboard-specific client co
 
 Generated once, stored in the password manager, backed up to **two locations that are not
 the development machine**, never in Git (S-06, N-11). Done at M8, verified at M11.
+
+**The procedure now exists: `docs/runbooks/android-keystore.md`** (2026-09-12). Entry
+condition 4 asks for a procedure *agreed*, and `M8_Design_Review` AR-5 is explicit that this
+is *"not an M8 code risk — an M8 **procedure** risk"* — so the condition is satisfiable
+without generating anything, and that is what happened. **The keystore has not been
+generated and the log in that runbook is empty.** K-1 remains an open operator action, and
+the M11 verification it calls for has nothing to verify yet.
 
 ### The condition DV-4 is accepted on, and it is absolute
 
