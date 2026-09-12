@@ -715,6 +715,62 @@ verify: ## Docker verification — the ONLY authority (N-12, 00 §5.2)
 backup: ## Encrypted database dump
 	./ops/backup.sh
 
+# --- NFR-AVA-001: THE CONTINUOUS LAYER --------------------------------------
+#
+# `00` §5: every routine operation is a make target. These three are scheduled by systemd
+# on the server (ops/districore-wal-ship.timer, ops/districore-basebackup.timer) and exist
+# here because an operation you have to reconstruct the arguments for is not routine — the
+# same reasoning that gave `restore-rehearsal` a target and finally emptied its log.
+.PHONY: ship-wal
+ship-wal: ## Encrypt and ship new WAL segments offsite, then verify they arrived
+	./ops/ship-wal.sh
+
+.PHONY: basebackup
+basebackup: ## Physical base backup — the PITR anchor; also prunes offsite WAL
+	./ops/basebackup.sh
+
+# --- NFR-AVA-001: PITR REHEARSAL --------------------------------------------
+#
+# 02 §21.6 NFR-AVA-001: "RPO <= 15 minutes; RTO <= 4 hours (DR-5)."
+# 02 §21.6 NFR-AVA-002: "An untested backup does not satisfy this requirement."
+#
+# **`restore-rehearsal` cannot discharge NFR-AVA-001 and never could.** It rehearses the
+# logical layer — decrypt a dump, restore it, count rows — which proves a restore is
+# possible and says nothing about how much data would be lost. RPO is a property of the
+# continuous chain, so this target recovers from the offsite base backup, replays the
+# offsite WAL to an instant you choose, and reports the newest business fact that survived.
+#
+# That number is the achieved recovery point. It is the evidence, and configuration is not.
+#
+#   make pitr-rehearsal TARGET_TIME='2026-09-12 14:35:00+00'
+#
+.PHONY: pitr-rehearsal
+pitr-rehearsal: ## NFR-AVA-001: recover base + WAL to a chosen instant and measure the result
+	@test -n "$(TARGET_TIME)" || { \
+	  echo "TARGET_TIME is required — the instant to recover to."; \
+	  echo "  make pitr-rehearsal TARGET_TIME='$$(date -u +'%Y-%m-%d %H:%M:%S+00')'"; \
+	  echo ""; \
+	  echo "  Rehearse it properly: note the time, write something through the app,"; \
+	  echo "  wait six minutes for the segment to close and ship, then recover to the"; \
+	  echo "  time you noted and check whether that write came back."; \
+	  exit 2; }
+	@echo "==> NFR-AVA-001 PITR rehearsal"
+	@started=$$(date -u +%s); \
+	 started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	 if ./ops/restore-pitr.sh "$(TARGET_TIME)"; then outcome=PASS; else outcome=FAIL; fi; \
+	 elapsed=$$(( $$(date -u +%s) - started )); \
+	 echo ""; \
+	 echo "==> PITR $$outcome in $${elapsed}s  (RTO target 4h — NFR-AVA-001)"; \
+	 echo ""; \
+	 echo "    Paste into 'PITR rehearsal log' in docs/runbooks/restore-from-backup.md,"; \
+	 echo "    filling the achieved RPO from 'newest_fact_recovered' above. A FAIL is the"; \
+	 echo "    most valuable row that table will ever hold."; \
+	 echo ""; \
+	 printf "    | %s | %s | %ss | <achieved RPO> | %s | <your name> |\n" \
+	   "$$started_at" "$(TARGET_TIME)" "$$elapsed" "$$outcome"; \
+	 echo ""; \
+	 test "$$outcome" = PASS
+
 # --- B-3: RESTORE REHEARSAL --------------------------------------------------
 #
 # 00 §19.2, M10 -> M11: "Restore rehearsed and recorded (B-3); security review complete."

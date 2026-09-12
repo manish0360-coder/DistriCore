@@ -1,5 +1,129 @@
 # Next Task
 
+## Done 2026-09-12 — M11.2, NFR-AVA-001: the continuous layer that was never built
+
+**Architect decision, 2026-09-12: keep RPO ≤ 15 min / RTO ≤ 4 h. Single VPS, WAL/PITR,
+continuous encrypted offsite archival. No standby.** So `03` §4.4's unsigned deviation to
+≈1 hour is moot and no requirement wording changed — `02` §21.6, `01` DR-5 and `01` NFR-7 are
+untouched.
+
+**The gap was not "≈1 hour instead of 15 minutes". It was ≈24 hours.** FD-16 decided a
+continuous layer — *"WAL archiving · continuous · separate local volume"* — and derived its
+≈1-hour figure from it, but no WAL configuration existed anywhere: `wal_level`,
+`archive_mode`, `archive_command`, `pg_basebackup`, `restore_command` and every archiving
+tool returned zero hits repository-wide. The nightly dump was the only layer. **Neither
+NFR-AVA-001 nor NFR-AVA-002 appeared in `backend/` or in any verification report**, which is
+how it survived ten milestones.
+
+### The mechanism, and why each piece is where it is
+
+| Piece | Where | Why not elsewhere |
+| --- | --- | --- |
+| `archive_mode=on`, `archive_timeout=300`, `archive_command` | `docker/compose.yml` server flags | One fact in the file that starts the database. Consequence: a base backup copies `postgresql.conf`, so a *recovered* cluster inherits none of them — which is why the rehearsal cluster does not try to archive |
+| Local `cp` to the separate `wal_archive` volume | `archive_command` | It runs inside the PostgreSQL server's shell, which has no `gpg` and no `rclone`. A network upload there would let an unreachable A-05 stall WAL recycling until `pg_wal` fills and **writes stop**. So it does the one thing that cannot block |
+| Encrypt, ship, then **read the remote back** | `ops/ship-wal.sh`, 5-minutely | The host-side split `ops/backup.sh` already used (B-2). The verification is the point: `rclone` exiting zero is not the claim, retrievability from A-05 is |
+| Weekly physical base backup, which also owns **WAL retention** | `ops/basebackup.sh` | WAL cannot be replayed into a logical dump. And a segment stops being needed only when no retained base backup needs it, so the schedule that knows where the oldest chain starts is the only one allowed to prune. Two schedules pruning by their own clocks is how a recovery finds the archive begins *after* the base |
+
+**No pgBackRest, no WAL-G.** FD-16 alternative (c) calls them *"the recommended Edition 2
+upgrade"*; `03` §4.2 rules out a paid tier under A-19. `archive_command` plus `rclone` needs
+nothing that was not already installed for the nightly dump.
+
+### The 15 minutes is arithmetic, and a contract guards it
+
+```
+  300 s  segment closes      archive_timeout   (docker/compose.yml)
++ 300 s  next shipping run   OnUnitActiveSec   (districore-wal-ship.timer)
++  60 s  upload allowance
+  660 s  =  11 minutes  against NFR-AVA-001's 900
+```
+
+Raising `archive_timeout` to an hour to reduce write amplification is a one-line change that
+converts a met requirement into an unmet one, and nothing would have noticed.
+`test_the_rpo_budget_still_adds_up_to_less_than_the_requirement` recomputes the sum from all
+three files.
+
+### C-5, and two more defects of the same shape
+
+| # | Reported success while | Fix |
+| --- | --- | --- |
+| C-5a | The passphrase was missing — a stderr warning, then the stamp written anyway, so `/healthz` was green for a dump lying in clear (B-2) | `:?` on both variables in all three scripts. A warning is not a control |
+| C-5b | The remote was unset — offsite silently skipped, stamp written anyway, so `/healthz` was green for a backup on the machine being backed up (B-7, the rule it is a rule about) | Same, plus every script now lists the remote back and checks the name it uploaded **before** stamping |
+| **C-5c** | **The stamp, the dump and the media sync all used *host* paths**, while `backup_data` and `media_data` are Docker volumes mounted into `app`. `/healthz` runs in that container, so it could **never** see a stamp — `backup.ok` was false on a correctly backed-up host — and `rclone sync /srv/media` named a directory that does not exist on the host, which under `set -e` **failed the whole run every night** on any host with a remote configured | Stamps written through `exec -T app`, into the volume the endpoint reads. Media read out of `media_data` and **encrypted** — the old sync also shipped proof-of-delivery photographs to A-05 in clear |
+
+C-5c is the one that mattered most: every other guarantee in this milestone is unobservable
+without it. A monitor that cannot go green on a healthy system is a monitor that gets muted.
+
+### `/healthz`: four checks where there was one, plus one boolean
+
+`backup` (the nightly dump) · `wal_archive` (**`pg_stat_archiver`** — is PostgreSQL still
+archiving, and is `last_failed_time` newer than `last_archived_time`, which means `pg_wal` is
+filling) · `wal_offsite` (**the RPO observable** — lag in seconds, reported next to
+`rpo_target_seconds`) · `basebackup` (something to replay into) · and `recovery_ready`, the
+one field A-08 watches. `00` §13.1 permits four alerts and no more, so **no fifth channel was
+added**: these ride the endpoint the monitor already polls.
+
+Separate because each link fails alone and looks fine from the others. A shipper stamp cannot
+detect a stalled archiver — *"everything local is offsite"* is true of an archive that
+stopped growing an hour ago.
+
+### Evidence, not configuration
+
+`make pitr-rehearsal TARGET_TIME='…'` recovers a scratch cluster from the **offsite** base
+backup and WAL, waits for **`pg_is_in_recovery()` to go false** — not `pg_isready`, which
+succeeds *during* replay and would understate what was recovered — and reports
+`max(audit_log.occurred_at)`. That is the achieved recovery point. Row counts prove a restore
+happened; RPO is about how much was kept.
+
+**NFR-AVA-001 is recorded NOT MEASURED** (`docs/M11.2_Recovery_Report.md`). `02` §21.6
+verifies it by rehearsal, a rehearsal needs A-03 and A-05, and neither exists. The PITR log
+in the restore runbook is empty and a contract refuses a PASS on any line naming the
+requirement.
+
+**19 contracts, 44 mutations proved.** Two found defects in my own work: a plain substring
+search accepted `rclone lsf_DISABLED` as verification, and the shipper's staleness check used
+whatever sorted last in the archive — which can be a `.history` file written once at
+promotion, so a stalled archiver would have looked healthy.
+
+**One pre-existing gap fixed to make a general contract possible:**
+`DISTRICORE_DB_CONN_MAX_AGE` was read by settings and absent from `.env.example`, against
+`00` §9.1. `test_every_variable_the_application_reads_is_documented` now derives the list
+from the settings modules rather than hand-listing M11.2's eight new variables — retiring the
+class instead of policing an instance.
+
+### Recorded as technical debt, not silently accepted
+
+- **TD-49 — nightly media backup is a full encrypted tar.** Correct for B-2 and correct now
+  (the directory is near-empty at V1), but `04` §9 sizes media at ~24 GB after five years, at
+  which point a nightly full upload stops being reasonable. **Threshold: revisit when
+  `/srv/media` exceeds 2 GB.** Incremental *and* encrypted needs a real tool (rclone crypt,
+  or restic), which is an Edition 2 decision, not an eleventh-hour one.
+- **TD-50 — `archive_command` uses `cp` then `mv`, without `fsync`.** A segment under its
+  final name is complete, and the local archive shares a disk with the cluster it describes,
+  so if that disk is intact the file is intact. The authoritative copy is offsite, which
+  `rclone` checksums. Bounded, deliberate, and worth naming.
+- **`03` §194 says a 40 GB volume, §216 and §575 say 80 GB.** Not resolved here — it is a
+  sizing fact for A-03 provisioning and belongs to whoever buys the host.
+
+### Found at commit time, and it would have made this milestone inert
+
+**Every `ops/*.sh` was mode `100644` in git** — including `ops/backup.sh`, shipped at P0.
+The repository is developed on a Windows mount, so `core.filemode=false` and nobody saw it.
+On a fresh Linux clone `ExecStart=/opt/districore/ops/backup.sh` fails with **`203/EXEC`**,
+which means the nightly backup timer M11.1 added has never been able to run on a real host,
+and neither would either of M11.2's. Scheduled and unable to execute — the M11.1 defect
+family, one layer further down.
+
+Fixed in the index (`git update-index --chmod=+x`) for all five shell scripts. **No contract
+guards it, and that is a considered limit rather than an omission:** the backend image has no
+git, and a bind-mounted file's permissions are the mount's rather than the index's, so
+nothing inside `make verify` can observe the committed mode. `docs/runbooks/deploy.md` step 2
+now has the operator check it, which is the only place the fact is observable.
+
+**Not touched:** streaming replication / EP-K (explicitly out of scope), K-1 and mobile
+signing, `ops/perf-latest.json`, DR-8, LICENSE.
+
+---
+
 ## Done 2026-09-12 — K-1, the keystore **procedure** (and the two gaps it exposed)
 
 **Scope: the procedure only. No keystore was generated and no secret was handled.**

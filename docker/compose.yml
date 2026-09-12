@@ -11,6 +11,65 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - db_data:/var/lib/postgresql/data   # named volume, never a host bind (04 §8.2)
+      # **FD-16's continuous layer: "WAL archiving — continuous — separate local volume."**
+      # Separate from `db_data` deliberately. A WAL chain on the same volume as the cluster
+      # it describes survives logical corruption — a bad migration, a dropped table, an
+      # operator mistake — which is the common case. It does not survive the volume. That
+      # is what the offsite copy is for (`ops/ship-wal.sh`), and the two together are what
+      # NFR-AVA-001's 15 minutes rests on.
+      - wal_archive:/srv/wal_archive
+    # **The entrypoint is wrapped to create the archive directory, and this is not
+    # decoration.** A fresh named volume mounted at a path the image does not define is
+    # created root-owned, and `archive_command` runs as the `postgres` server user — so
+    # archiving would fail with EACCES on every segment, `pg_wal` would grow without bound,
+    # and PostgreSQL would eventually refuse to write at all. That failure is silent until
+    # the disk is gone.
+    #
+    # The container starts as root, so this runs as root, then hands over to the image's own
+    # entrypoint, which does its normal first-init work and drops to `postgres` via gosu.
+    # `$$@` is `$@` after Compose interpolation — the flags in `command:` below.
+    #
+    # A one-shot init service was the alternative. It was rejected: `make up` and `make
+    # verify` both pass `--wait`, and a service that exits is exactly what `--wait` handles
+    # least predictably. This keeps one service and one startup path.
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /srv/wal_archive
+        chown postgres:postgres /srv/wal_archive
+        chmod 750 /srv/wal_archive
+        exec docker-entrypoint.sh "$$@"
+      - --
+    command:
+      - postgres
+      # `replica` is already the default; stated because `archive_mode` requires at least
+      # this level and a future `minimal` would break archiving without touching this file.
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      # **Local copy only — no encryption, no network, nothing that can block.**
+      # `archive_command` runs inside the PostgreSQL server process's shell. It has no `gpg`
+      # and no `rclone` (this image ships neither), and putting a network upload here would
+      # let an unreachable A-05 stall WAL recycling and take the database down. So the split
+      # `ops/backup.sh` already established holds: PostgreSQL writes locally, the host
+      # encrypts and ships (B-2, "encrypted before they leave the host").
+      #
+      # `test -f` first, so re-archiving an already-archived segment succeeds instead of
+      # looping forever — the classic `cp`-only recipe fails there. `.part` then `mv` means
+      # a segment under its final name is always a complete segment, which is what lets the
+      # shipper treat "present" as "shippable".
+      - -c
+      - archive_command=test -f /srv/wal_archive/%f || ( cp %p /srv/wal_archive/%f.part && mv /srv/wal_archive/%f.part /srv/wal_archive/%f )
+      # **The first half of the RPO budget.** A segment is archived when it fills (16 MB) or
+      # when this elapses, whichever comes first — so on a quiet afternoon the worst-case
+      # wait for a committed row to reach the archive is 300 s. `ops/ship-wal.sh` runs on the
+      # same period, so the worst case offsite is 300 + 300 + upload ≈ 11 minutes against a
+      # 15-minute requirement. The arithmetic is in `docs/M11.2_Recovery_Report.md`; changing
+      # either number without the other invalidates it.
+      - -c
+      - archive_timeout=300
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-districore} -d ${POSTGRES_DB:-districore}"]
       interval: 10s
@@ -42,3 +101,6 @@ volumes:
   db_data:
   media_data:
   backup_data:
+  # FD-16's "separate local volume". Deliberately not inside `db_data`: the whole point of
+  # the continuous layer is to be a second artefact, not a second copy in the same place.
+  wal_archive:

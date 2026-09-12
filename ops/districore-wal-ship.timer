@@ -1,0 +1,36 @@
+[Unit]
+# **The second half of the RPO budget, and it must stay paired with `archive_timeout`.**
+#
+# A committed row reaches the local archive within `archive_timeout` (300 s in
+# `docker/compose.yml`) and reaches A-05 within one period of this timer. Worst case:
+#
+#     300 s  segment closes                (archive_timeout)
+#   + 300 s  this timer's next run         (OnUnitActiveSec below)
+#   +  ~60 s upload of one 16 MB segment
+#   = ~11 minutes against NFR-AVA-001's 15
+#
+# Four minutes of margin, and that is the entire justification for both numbers. Raising
+# either one without re-deriving the other invalidates the requirement — the arithmetic
+# lives in `docs/M11.2_Recovery_Report.md` and a contract asserts these two agree with it.
+Description=Continuous offsite WAL archival every 5 minutes (NFR-AVA-001)
+Documentation=file:///opt/districore/docs/M11.2_Recovery_Report.md
+
+[Timer]
+# From boot, then every five minutes after the previous run *finished* — not a wall-clock
+# calendar. A run that takes four minutes must not have the next one start on top of it.
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+# **No `Persistent=true`, deliberately**, and it is the opposite choice from the nightly
+# backup's timer. Catching up a missed nightly dump is valuable; catching up a missed
+# five-minute WAL run is meaningless — the next run ships everything that is not offsite
+# anyway, because the work is derived from the difference between the archive and the
+# remote rather than from a schedule.
+
+# No jitter. This is a recovery-point budget, not a politeness setting, and 300 s is already
+# spent in the arithmetic above.
+
+Unit=districore-wal-ship.service
+
+[Install]
+WantedBy=timers.target

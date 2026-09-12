@@ -1,0 +1,23 @@
+[Unit]
+# Weekly, and the interval is a cost, not a preference: a longer one means more WAL to
+# replay and a longer RTO, a shorter one means uploading the whole cluster more often. A
+# week of WAL at the DR-8 envelope replays well inside NFR-AVA-001's four-hour RTO.
+Description=Weekly physical base backup — the PITR anchor (NFR-AVA-001)
+Documentation=file:///opt/districore/docs/M11.2_Recovery_Report.md
+
+[Timer]
+# Sunday 01:30 local — an hour before the nightly dump at 02:30, so the two never contend
+# for the same network, and both are outside a distributor's trading hours.
+OnCalendar=Sun *-*-* 01:30:00
+
+# A host that was off on Sunday still takes its base backup when it returns. Unlike the
+# five-minute WAL timer, this one genuinely cannot catch itself up: every week without a
+# base backup is a week the replay chain grows, and eventually a week whose WAL has been
+# pruned against a base backup that is about to be retired.
+Persistent=true
+RandomizedDelaySec=300
+
+Unit=districore-basebackup.service
+
+[Install]
+WantedBy=timers.target

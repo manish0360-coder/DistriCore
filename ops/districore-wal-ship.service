@@ -1,0 +1,29 @@
+[Unit]
+# The transport half of FD-16's continuous layer, and the half NFR-AVA-001 depends on.
+#
+# PostgreSQL's `archive_command` (docker/compose.yml) only copies a closed segment to the
+# `wal_archive` volume — no encryption, no network, nothing that can block the server. This
+# unit encrypts each new segment and ships it to A-05, then reads the remote back to prove
+# it arrived. A run that cannot do all three exits non-zero and writes no stamp, so
+# `/healthz` reports `wal_offsite.ok: false` with the real lag rather than silence.
+#
+# Installed by the operator on the server; see `docs/runbooks/deploy.md`.
+Description=DistriCore continuous encrypted offsite WAL archival (00 §14, FD-16)
+Documentation=file:///opt/districore/docs/runbooks/deploy.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/districore
+# S-07's passphrase and A-05's remote. `ship-wal.sh` refuses to start without either —
+# unencrypted WAL must not leave the host (B-2) and WAL that never leaves it does not
+# survive losing it (B-7), which is the whole case for this unit existing.
+EnvironmentFile=/opt/districore/.env
+ExecStart=/opt/districore/ops/ship-wal.sh
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+[Unit]
+# The PITR anchor. WAL without a base backup to replay into recovers nothing, so this unit
+# and `districore-wal-ship` are one mechanism in two schedules — `/healthz` reports them
+# separately precisely so that losing one cannot look like health.
+#
+# It also owns **WAL retention**: a segment stops being needed only when no retained base
+# backup needs it, and this is the only place that knows where the oldest retained chain
+# starts. Pruning WAL on its own timer is how a recovery discovers, months later, that the
+# archive begins after the base backup.
+#
+# Installed by the operator on the server; see `docs/runbooks/deploy.md`.
+Description=DistriCore weekly encrypted physical base backup (00 §14, FD-16)
+Documentation=file:///opt/districore/docs/runbooks/deploy.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/districore
+EnvironmentFile=/opt/districore/.env
+ExecStart=/opt/districore/ops/basebackup.sh
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

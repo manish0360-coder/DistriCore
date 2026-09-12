@@ -34,7 +34,19 @@ to start if any is wrong.
 
 **2. Install the nightly backup** (`00` §14 FD-16, B-5). The script has always existed;
 nothing scheduled it, so a fresh host has no backups and `/healthz` reports
-`backup.ok: false` for ever:
+`backup.ok: false` for ever.
+
+**First, confirm the scripts are executable.** They are mode `100755` in git since M11.2, but
+the repository is developed on a Windows mount where `core.filemode=false`, so the bit can be
+dropped again by a future re-add without anyone noticing locally. A unit whose `ExecStart` is
+not executable fails with `203/EXEC` — scheduled and inert, which is the M11.1 defect exactly.
+No test can catch this: the backend image has no git, and a bind-mounted file's permissions
+are the mount's, not the index's.
+
+```bash
+ls -l /opt/districore/ops/*.sh          # every one must be -rwxr-xr-x
+chmod +x /opt/districore/ops/*.sh       # if any is not
+```
 
 ```bash
 sudo cp /opt/districore/ops/districore-backup.{service,timer} /etc/systemd/system/
@@ -46,13 +58,45 @@ sudo systemctl start districore-backup.service    # prove it works now, do not w
 
 Then confirm `/healthz` reports `backup.ok: true`.
 
-**3. Point the uptime monitor (A-08) at `https://<domain>/healthz`.** That endpoint already
-reports database, disk and backup age; the monitor polling it is what turns three of
-`00` §13.1's four alerts into email. Without it nothing watches, whatever the endpoint says.
+**`DISTRICORE_BACKUP_PASSPHRASE` and `DISTRICORE_BACKUP_REMOTE` are now mandatory.** All
+three backup scripts refuse to run without them and write no success stamp — unencrypted
+data must not leave the host (B-2) and a backup that never leaves it does not survive losing
+it (B-7). A warning was what they used to do, and `/healthz` reported health for an
+unencrypted host-only dump the whole time.
 
-**4. Rehearse the restore** — `docs/runbooks/restore-from-backup.md`. B-1: a backup that has
-never been restored does not count as one, and the first real one on a new host is the one
-worth proving.
+**3. Install the continuous layer** — this is what NFR-AVA-001's 15-minute RPO rests on
+(`docs/M11.2_Recovery_Report.md`). PostgreSQL archives WAL to the `wal_archive` volume on
+its own; these two timers encrypt it, ship it to A-05, and keep a base backup to replay it
+into:
+
+```bash
+sudo cp /opt/districore/ops/districore-wal-ship.{service,timer} /etc/systemd/system/
+sudo cp /opt/districore/ops/districore-basebackup.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now districore-wal-ship.timer districore-basebackup.timer
+
+# Take the first base backup now. Until one exists, PITR is impossible and the WAL
+# archive has nothing to be replayed into — do not wait for Sunday.
+sudo systemctl start districore-basebackup.service
+sudo systemctl start districore-wal-ship.service
+systemctl list-timers 'districore-*'
+```
+
+Then confirm **`recovery_ready: true`** on `/healthz`. That one boolean requires all three
+links — PostgreSQL still archiving, WAL verified present at A-05, and a base backup to
+recover into — and it is the field the monitor watches. If it is false, the three
+`wal_archive` / `wal_offsite` / `basebackup` checks say which link is missing.
+
+**4. Point the uptime monitor (A-08) at `https://<domain>/healthz`.** That endpoint reports
+database, disk, backup age and `recovery_ready`; the monitor polling it is what turns three
+of `00` §13.1's four alerts into email. Without it nothing watches, whatever the endpoint
+says.
+
+**5. Rehearse both recoveries** — `docs/runbooks/restore-from-backup.md`. B-1: a backup that
+has never been restored does not count as one, and the first real one on a new host is the
+one worth proving. **Two rehearsals, not one:** the logical restore (B-3) and the **PITR
+rehearsal**, which is the only thing that can discharge NFR-AVA-001. Its log is empty until
+you run it here.
 
 ---
 
@@ -76,13 +120,15 @@ curl -fsS https://<domain>/healthz
 
 Migrations run in the entrypoint under an advisory lock (D-6). No manual step.
 
-## Smoke test — all five, in order
+## Smoke test — all six, in order
 
 1. Sign in on the web admin.
 2. Request an OTP on a test number; verify it.
 3. `GET /api/v1/auth/me` returns the expected roles.
 4. `/healthz` reports `database.ok` and `disk.ok`.
-5. An audit row exists for the login.
+5. `/healthz` reports `recovery_ready: true` — a deploy that silently stopped the archiver
+   leaves the business with a 24-hour recovery point and nothing else complains.
+6. An audit row exists for the login.
 
 ## After
 

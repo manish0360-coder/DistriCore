@@ -210,6 +210,32 @@ BACKUP_STAMP_PATH = env.str("DISTRICORE_BACKUP_STAMP_PATH", default="/srv/backup
 BACKUP_MAX_AGE_HOURS = env.int("DISTRICORE_BACKUP_MAX_AGE_HOURS", default=26)
 DISK_WARN_PERCENT = env.int("DISTRICORE_DISK_WARN_PERCENT", default=85)
 
+# --------------------------------------------------------- recovery readiness (NFR-AVA-001)
+#
+# **The requirement, stated once, in seconds.** `02` §21.6: *"RPO <= 15 minutes; RTO <= 4
+# hours (DR-5)."* `/healthz` reports the measured offsite lag against this number so the
+# endpoint says what it is measuring rather than merely that something is fine. It is not a
+# tuning knob — `docs/M11.2_Recovery_Report.md` derives `archive_timeout` and the WAL
+# shipping period from it, and a contract asserts all three still agree.
+RPO_TARGET_SECONDS = env.int("DISTRICORE_RPO_TARGET_SECONDS", default=900)
+
+# Two archive_timeout periods (300 s each). Older than this and PostgreSQL has stopped
+# feeding the archive, which is a different failure from the transport failing — hence a
+# different check.
+WAL_ARCHIVE_MAX_AGE_SECONDS = env.int("DISTRICORE_WAL_ARCHIVE_MAX_AGE_SECONDS", default=600)
+# Written by `ops/ship-wal.sh` only after the remote has been read back and every local
+# segment proven present. Its age is the observable that stands behind the 15 minutes.
+WAL_STAMP_PATH = env.str(
+    "DISTRICORE_WAL_STAMP_PATH", default="/srv/backups/wal_offsite_last_success"
+)
+WAL_OFFSITE_MAX_AGE_SECONDS = env.int("DISTRICORE_WAL_OFFSITE_MAX_AGE_SECONDS", default=900)
+# Weekly base backup plus a day of slack. WAL with no base backup to replay into is not a
+# recovery position, so this is reported on its own rather than folded into the WAL checks.
+BASEBACKUP_STAMP_PATH = env.str(
+    "DISTRICORE_BASEBACKUP_STAMP_PATH", default="/srv/backups/basebackup_last_success"
+)
+BASEBACKUP_MAX_AGE_HOURS = env.int("DISTRICORE_BASEBACKUP_MAX_AGE_HOURS", default=192)
+
 # --------------------------------------------------------------------------- logging
 LOG_LEVEL = env.str("DISTRICORE_LOG_LEVEL", default="INFO")
 LOG_FORMAT = env.str("DISTRICORE_LOG_FORMAT", default="console")
