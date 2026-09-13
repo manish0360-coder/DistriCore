@@ -13,9 +13,91 @@ target reachable by `rclone` · **S-04** deploy key · **S-05** SSH key · **S-0
 passphrase · **A-08** uptime monitor. **K-1/S-06**, the Android keystore, is separate and
 irreversible — `00` §2.3.
 
-**1. `.env` on the server**, `0600`, owned by the deploy user (FD-13). Copy `.env.example`
-and fill it. Three entries must name the same domain, and the stack refuses to start
-otherwise:
+**1. Provision A-05 and configure `rclone`.** First, because step 2 cannot be filled in
+without the bucket name and steps 3–4 cannot succeed without the remote. Nothing in this
+repository creates any of it.
+
+**The bucket** — Backblaze B2:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Region | **EU Central (Amsterdam), `eu-central-003`** | B2 has no Indian region. See the residency note below |
+| Name | your choice, lowercase, globally unique | B2 bucket names are unique across all customers, so no convention can be fixed here |
+| Files | **Private** | |
+| Default encryption | **OFF** | Everything arrives as GPG AES256 ciphertext (B-2). Server-side encryption would encrypt ciphertext with a key the provider holds — cost without benefit |
+| Object Lock | **OFF** | It would make `rclone delete --min-age` fail on locked objects, and `ops/basebackup.sh` owns retention. Immutability and client-side retention are mutually exclusive |
+
+**The application key** — one, scoped to that bucket, **no expiry**. In the B2 console this is
+the *Read and Write* access type restricted to a single bucket, which grants exactly the five
+capabilities the scripts use:
+
+| Capability | Used by |
+| --- | --- |
+| `listBuckets` *(this bucket only)* | rclone resolving the bucket at authorise time |
+| `listFiles` | `rclone lsf` — including the twice-per-cycle verification in `ops/ship-wal.sh` |
+| `readFiles` | `rclone cat` — the whole of `ops/restore-pitr.sh` |
+| `writeFiles` | `rclone rcat` / `copy` |
+| `deleteFiles` | `rclone delete --min-age` and `deletefile` in `ops/basebackup.sh` |
+
+**Do not grant** `writeBuckets` · `deleteBuckets` · `bypassGovernance` · `writeKeys` ·
+`deleteKeys` · **"Allow List All Bucket Names"** · bucket encryption or retention
+capabilities. None is used. `writeBuckets` in particular is the one that turns a wrong path
+into a silently-created second bucket instead of a loud refusal, and *"Allow List All Bucket
+Names"* is the widely-repeated false fix for a `401` that is really a missing bucket segment
+in `DISTRICORE_BACKUP_REMOTE`.
+
+**An expiring key would silently end archival.** It fails closed — `/healthz` would report
+`recovery_ready: false` — but it is a self-inflicted outage with a calendar fuse.
+
+**The rclone remote** must be readable by **root**: none of the three units sets `User=`, so
+`districore-backup`, `districore-wal-ship` and `districore-basebackup` all run `ops/*.sh` as
+root, and rclone reads root's configuration.
+
+```bash
+sudo install -d -m 700 /root/.config/rclone
+sudo rclone config create districore b2 \
+    account <keyID> key <applicationKey> hard_delete true
+sudo chmod 600 /root/.config/rclone/rclone.conf
+```
+
+`hard_delete true` is **not optional**. B2 versions objects: rclone's default hides a file
+instead of deleting it, the original version remains, and it is still billed. Retention would
+appear to work and the archive would grow for ever.
+
+Store the keyID, the application key and the bucket name in the password manager beside
+S-07 — **the archive is unreadable and unreachable without both**. `00` §2.5's register has
+no S-number for this credential; that is an open Architect item, not a reason to leave it
+undocumented here.
+
+Prove it as root, the way the timers will:
+
+```bash
+sudo rclone lsd districore:                      # expect exactly your bucket
+sudo rclone lsf districore:<bucket>/             # expect empty
+```
+
+> **Residency.** B2 EU is correct where the business is a sole proprietorship or partnership
+> firm. If it is a company under the Companies Act 2013, Rule 3(5) of the Companies
+> (Accounts) Rules requires a **daily backup on servers physically located in India** — which
+> is satisfied by *adding* an India-resident destination for the nightly dump, not by changing
+> provider. Confirm the entity type before go-live; it is an owner question, not an
+> engineering one.
+
+**2. `.env` on the server**, `0600`, owned by the deploy user (FD-13). Copy `.env.example`
+and fill it. Two entries carry A-05 from step 1, and all three backup scripts refuse to run
+without them:
+
+```
+DISTRICORE_BACKUP_REMOTE=districore:<bucket>/districore
+DISTRICORE_BACKUP_PASSPHRASE=<S-07>
+```
+
+**The bucket segment is mandatory.** `districore:districore` — remote plus prefix, bucket
+omitted — makes rclone read `districore` as a bucket name, fail to find it, and try to create
+it; the scoped key refuses and the error reads `failed to create bucket: 401 unauthorized`.
+That message is accurate and describes a problem you do not have.
+
+Three further entries must name the same domain, and the stack refuses to start otherwise:
 
 ```
 DISTRICORE_DOMAIN=distri.example.com
@@ -32,7 +114,7 @@ it — a deploy without it stops at interpolation rather than serving an untrust
 of at least 50 characters — `config/settings/prod.py` asserts all five at import and refuses
 to start if any is wrong.
 
-**2. Install the nightly backup** (`00` §14 FD-16, B-5). The script has always existed;
+**3. Install the nightly backup** (`00` §14 FD-16, B-5). The script has always existed;
 nothing scheduled it, so a fresh host has no backups and `/healthz` reports
 `backup.ok: false` for ever.
 
@@ -64,7 +146,7 @@ data must not leave the host (B-2) and a backup that never leaves it does not su
 it (B-7). A warning was what they used to do, and `/healthz` reported health for an
 unencrypted host-only dump the whole time.
 
-**3. Install the continuous layer** — this is what NFR-AVA-001's 15-minute RPO rests on
+**4. Install the continuous layer** — this is what NFR-AVA-001's 15-minute RPO rests on
 (`docs/M11.2_Recovery_Report.md`). PostgreSQL archives WAL to the `wal_archive` volume on
 its own; these two timers encrypt it, ship it to A-05, and keep a base backup to replay it
 into:
@@ -87,12 +169,12 @@ links — PostgreSQL still archiving, WAL verified present at A-05, and a base b
 recover into — and it is the field the monitor watches. If it is false, the three
 `wal_archive` / `wal_offsite` / `basebackup` checks say which link is missing.
 
-**4. Point the uptime monitor (A-08) at `https://<domain>/healthz`.** That endpoint reports
+**5. Point the uptime monitor (A-08) at `https://<domain>/healthz`.** That endpoint reports
 database, disk, backup age and `recovery_ready`; the monitor polling it is what turns three
 of `00` §13.1's four alerts into email. Without it nothing watches, whatever the endpoint
 says.
 
-**5. Rehearse both recoveries** — `docs/runbooks/restore-from-backup.md`. B-1: a backup that
+**6. Rehearse both recoveries** — `docs/runbooks/restore-from-backup.md`. B-1: a backup that
 has never been restored does not count as one, and the first real one on a new host is the
 one worth proving. **Two rehearsals, not one:** the logical restore (B-3) and the **PITR
 rehearsal**, which is the only thing that can discharge NFR-AVA-001. Its log is empty until
@@ -105,7 +187,19 @@ you run it here.
 1. `main` is green in CI.
 2. `CHANGELOG.md` updated.
 3. Version bumped; annotated tag pushed.
-4. **Manual backup taken and verified** — `./ops/backup.sh` (B-6, MIG-7).
+4. **Manual backup taken and verified** (B-6, MIG-7) — **through the unit, not the script**:
+
+   ```bash
+   sudo systemctl start districore-backup.service
+   sudo journalctl -u districore-backup.service -n 20 --no-pager
+   ```
+
+   **Not `./ops/backup.sh`.** The timers run it as **root**, and rclone reads root's
+   configuration at `/root/.config/rclone/rclone.conf` (step 1). Running the script as the
+   deploy user reads *that user's* rclone config, which on this host does not exist — so a
+   pre-release backup would fail, or worse, a second config would be created and the manual
+   path would quietly diverge from the scheduled one. One execution path, one credential.
+
 5. Migrations reviewed against `docs/runbooks/migration-review.md`.
 
 ## Deploy

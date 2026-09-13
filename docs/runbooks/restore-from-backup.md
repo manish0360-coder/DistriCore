@@ -95,7 +95,22 @@ The case the continuous layer exists for. Targets: **RPO ≤ 15 minutes · RTO �
 1. Provision a host; install Docker, `gpg` and `rclone`.
 2. `git clone` the repository; check out the deployed tag.
 3. Restore `.env` from the password manager — **including `DISTRICORE_BACKUP_PASSPHRASE`,
-   without which the archive is unreadable** — and the `rclone` remote configuration.
+   without which the archive is unreadable** — and the `rclone` remote, which is not in
+   `.env` and is a separate artefact:
+
+   ```bash
+   sudo install -d -m 700 /root/.config/rclone
+   sudo rclone config create districore b2 \
+       account <keyID> key <applicationKey> hard_delete true
+   sudo chmod 600 /root/.config/rclone/rclone.conf
+   sudo rclone lsd districore:          # expect the bucket, and nothing else
+   ```
+
+   Remote name **`districore`**, type **`b2`**, `hard_delete true`, at
+   **`/root/.config/rclone/rclone.conf`** — root, because the units set no `User=`.
+   `DISTRICORE_BACKUP_REMOTE` must read `districore:<bucket>/districore`; **omit the bucket
+   and every command below fails with `401 unauthorized`.** Full procedure:
+   `docs/runbooks/deploy.md`, First deploy step 1.
 4. Recover the cluster to the latest available point:
    ```bash
    ./ops/restore-pitr.sh "$(date -u +'%Y-%m-%d %H:%M:%S+00')"

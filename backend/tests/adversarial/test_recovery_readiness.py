@@ -49,6 +49,7 @@ BACKUP = ROOT / "ops" / "backup.sh"
 PITR = ROOT / "ops" / "restore-pitr.sh"
 ENV_EXAMPLE = ROOT / ".env.example"
 SETTINGS = ROOT / "backend" / "config" / "settings"
+OPS = ROOT / "ops"
 HEALTH = ROOT / "backend" / "core" / "health.py"
 REPORT = ROOT / "docs" / "M11.2_Recovery_Report.md"
 RESTORE_RUNBOOK = ROOT / "docs" / "runbooks" / "restore-from-backup.md"
@@ -477,22 +478,38 @@ def test_healthz_separates_local_backup_success_from_verified_offsite_readiness(
 def test_every_variable_the_application_reads_is_documented():
     """`00` §9.1: *"Every variable the application reads appears here"* — as a contract.
 
-    M11.2 adds eight. Hand-listing them would police one instance of the defect;
-    deriving the list from the settings modules retires the class. `DISTRICORE_DB_CONN_MAX_AGE`
-    was already missing when this was written, which is how a general contract earns its
-    keep over a specific one.
+    M11.2 added eight. Hand-listing them would police one instance of the defect;
+    deriving the list retires the class. `DISTRICORE_DB_CONN_MAX_AGE` was already missing
+    when this was written, which is how a general contract earns its keep over a specific one.
+
+    **M11.3 widened it to `ops/`, because scanning only `backend/config/settings/` was the
+    same defect one level out.** The first version of this contract passed while
+    `DISTRICORE_PITR_IMAGE` and `DISTRICORE_PITR_WAIT_SECONDS` — read by
+    `ops/restore-pitr.sh`, the script that discharges NFR-AVA-001 — were undocumented. `00`
+    §9.1 says *the application*; an operator restoring a database at 03:00 does not care
+    which process reads the variable, only that the file they were told to copy names it.
+    `ops/` is already bind-mounted and already globbed by `test_restore_rehearsal`.
     """
-    read_pattern = r'env\.\w+\(\s*"(DISTRICORE_[A-Z0-9_]+)"'
+    settings_pattern = r'env\.\w+\(\s*"(DISTRICORE_[A-Z0-9_]+)"'
     read_by_app: set[str] = set()
     for module in sorted(SETTINGS.glob("*.py")):
-        read_by_app |= set(re.findall(read_pattern, module.read_text(encoding="utf-8")))
+        read_by_app |= set(re.findall(settings_pattern, module.read_text(encoding="utf-8")))
     assert read_by_app, "no settings variables found — this contract would be vacuous"
+
+    # `${VAR:-default}`, `${VAR:?message}` and bare `${VAR}` all count as reading it. The
+    # assignment form `VAR=...` deliberately does not: `REMOTE_WAL=` is a local, not an input.
+    ops_pattern = r'\$\{(DISTRICORE_[A-Z0-9_]+)[:}]'
+    read_by_ops: set[str] = set()
+    for script in sorted(OPS.glob("*.sh")):
+        read_by_ops |= set(re.findall(ops_pattern, script.read_text(encoding="utf-8")))
+    assert read_by_ops, "no ops variables found — the widened half would be vacuous"
 
     example = ENV_EXAMPLE.read_text(encoding="utf-8")
     documented = set(re.findall(r"^(DISTRICORE_[A-Z0-9_]+)=", example, re.MULTILINE))
-    undocumented = sorted(read_by_app - documented)
+
+    undocumented = sorted((read_by_app | read_by_ops) - documented)
     assert not undocumented, (
-        f"read by the application and absent from `.env.example`: {undocumented}. An "
-        "operator has nowhere documented to set them, which is a deploy that fails at the "
-        "one moment nobody wants to be reading source."
+        f"read by the application or by `ops/*.sh`, and absent from `.env.example`: "
+        f"{undocumented}. An operator has nowhere documented to set them, which is a deploy "
+        "— or a recovery — that fails at the one moment nobody wants to be reading source."
     )

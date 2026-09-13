@@ -1,5 +1,75 @@
 # Next Task
 
+## Done 2026-09-13 — M11.3, A-05 production provisioning: the deploy path that could not be followed
+
+**A-05 is locked: Backblaze B2, EU Central (Amsterdam), `eu-central-003`.** The disposable
+smoke test is **CLOSED/PASS** — authentication, bucket-scoped access, 16 MiB streaming upload,
+byte-exact round trip, `delete --min-age`, `deletefile`, and 1,200-object pagination. The
+24-hour billing observation is deferred to production week 1, where the traffic is real; a
+disposable bucket holding 1,200 static objects for a few hours cannot produce the sustained
+576-listings-per-day pattern that is the actual cost driver.
+
+**Documentation only, plus one widened contract. No mechanism changed.**
+
+### The gap: following `deploy.md` end to end produced a broken deploy
+
+| # | Defect | Fix |
+| --- | --- | --- |
+| 1 | **No step provisioned A-05 or configured `rclone`.** Steps 1–3 all assumed a working `districore:` remote that nothing ever created. A-05 was named once, in the provisioned-elsewhere list, and never returned to | New **First deploy step 1**, everything renumbered. Bucket, key, the five capabilities, the prohibited ones, `hard_delete`, and the remote path form |
+| 2 | `.env.example` shipped `DISTRICORE_BACKUP_REMOTE=` **with no format** | The format, with the bucket segment marked mandatory and the failure it causes spelled out |
+| 3 | **The units set no `User=`, so all three run as root** — but nothing said so, and `rclone` reads root's config | `/root/.config/rclone/rclone.conf`, 0600, stated in `deploy.md` and `restore-from-backup.md` |
+| 4 | *Before* step 4 told the operator to run `./ops/backup.sh` **by hand**, as the deploy user, while the timers run it as root | Standardised on `sudo systemctl start districore-backup.service`. One execution path, one credential |
+
+**Defect 2 is the one the smoke test found the hard way.** Setting
+`districore:districore` — remote plus prefix, bucket omitted — makes rclone read the prefix
+as a bucket name and attempt `b2_create_bucket`; a correctly scoped key refuses and the error
+reads `failed to create bucket: 401 unauthorized`. The message is accurate and describes a
+problem you do not have. The code was always right; the documentation gave no way to get it
+right.
+
+### The contract was scanning one level too narrowly
+
+`test_every_variable_the_application_reads_is_documented` derived its list from
+`backend/config/settings/*.py` only — and passed while `DISTRICORE_PITR_IMAGE` and
+`DISTRICORE_PITR_WAIT_SECONDS`, read by `ops/restore-pitr.sh`, were undocumented. **That is
+the same defect the contract exists to prevent, one level out.** `00` §9.1 says *the
+application*; an operator restoring at 03:00 does not care which process reads a variable,
+only that the file they were told to copy names it. It now scans `ops/*.sh` too — 12 more
+variables, matching `${VAR:` and `${VAR}` but deliberately **not** the assignment form, since
+`REMOTE_WAL=` is a local rather than an input.
+
+Both halves landed in the same commit: the widened contract fails until the two variables are
+documented. Same ordering lesson as M11.1's missing bind-mount.
+
+### Deliberately not done
+
+- **No format guard in the ops scripts.** Tempting after the 401, but they already fail
+  closed — the upload fails, no stamp, `/healthz` reports `recovery_ready: false`. A guard
+  would improve the error message, not the outcome, and would duplicate a check across four
+  scripts that share no library.
+- **No rclone version pin (T-06).** A real gap — rclone is an unpinned dependency of the
+  entire recovery path, against TD-21's own reasoning — but `00` is authoritative and this
+  blocks nothing. **TD-51.**
+- **No S-09.** `00` §2.5 registers S-01…S-08 and has **no entry for the B2 application key**,
+  which alone can delete every backup. Adding one means editing an authoritative document, so
+  it stays an Architect decision. Until then the credential is named in `deploy.md` step 1 and
+  stored beside S-07, which is where an operator will look.
+- No B2 retest, no retention redesign, no Object Lock, no change to NFR-AVA-001.
+
+### Residency, recorded
+
+B2 EU is correct for a sole proprietorship or partnership firm. **If the business is a
+company under the Companies Act 2013**, Rule 3(5) of the Companies (Accounts) Rules requires a
+**daily backup on servers physically located in India** — satisfied by *adding* an
+India-resident destination for the nightly dump, never by changing provider. It is an owner
+question, it is noted in `deploy.md` step 1, and it does not block provisioning.
+
+**NFR-AVA-001 remains NOT MEASURED.** Nothing here measures anything. It becomes measurable
+only after a real A-03 host, a real A-05 bucket, both timers enabled, `recovery_ready: true`,
+and one recorded PITR rehearsal.
+
+---
+
 ## Done 2026-09-12 — M11.2, NFR-AVA-001: the continuous layer that was never built
 
 **Architect decision, 2026-09-12: keep RPO ≤ 15 min / RTO ≤ 4 h. Single VPS, WAL/PITR,
