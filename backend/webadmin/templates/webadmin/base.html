@@ -1,70 +1,76 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="{{ request.LANGUAGE_CODE|default:'en' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <title>{% block title %}DistriCore{% endblock %}</title>
-  <style>
-    :root { --navy:#0d1f38; --line:#dde4ed; --muted:#69748a; --bad:#bc3b2c; }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-           color:#1c2331; background:#f6f8fb; line-height:1.5; }
-    header { background:var(--navy); color:#fff; padding:14px 20px; display:flex;
-             justify-content:space-between; align-items:center; }
-    header b { letter-spacing:.5px; }
-    main { max-width:960px; margin:32px auto; padding:0 20px; }
-    .card { background:#fff; border:1px solid var(--line); border-radius:4px; padding:24px; }
-    label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
-    input { width:100%; padding:10px; border:1px solid var(--line); border-radius:3px;
-            font-size:15px; margin-bottom:16px; }
-    button { background:var(--navy); color:#fff; border:0; padding:10px 20px;
-             border-radius:3px; font-size:15px; cursor:pointer; }
-    .error { background:#fdefee; border-left:3px solid var(--bad); padding:10px 14px;
-             margin-bottom:16px; font-size:14px; }
-    .muted { color:var(--muted); font-size:13px; }
-    nav a { color:#b9cbe4; text-decoration:none; margin-right:16px; font-size:14px; }
-    nav a:hover { color:#fff; }
-    table { width:100%; border-collapse:collapse; font-size:14px; }
-    th { text-align:left; background:#eef2f7; padding:8px; font-size:13px; color:var(--navy); }
-    td { padding:8px; border-bottom:1px solid var(--line); }
-    tr:hover td { background:#f9fbfd; }
-    .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-    .btn { background:var(--navy); color:#fff; padding:8px 16px; border-radius:3px;
-           text-decoration:none; font-size:14px; display:inline-block; }
-    .pager { margin-top:16px; font-size:13px; }
-    .r { text-align:right; }
-    .off { color:var(--bad); font-size:12px; }
-  </style>
+  {# One stylesheet, no build step (M11.4). ADR-003 chose server-rendered HTML to avoid a
+     second pipeline; FD-05 exists to keep Node out. This is plain CSS through Django's
+     own static pipeline — nothing to compile, nothing to install. #}
+  <link rel="stylesheet" href="{% static 'webadmin/districore.css' %}">
 </head>
 <body>
 {% block chrome %}
-  <header>
-    <b>DistriCore</b>
-    {% if user.is_authenticated %}<nav>
-      <a href="{% url 'webadmin:dashboard' %}">Home</a>
-      <a href="{% url 'webadmin:product-list' %}">Products</a>
-      <a href="{% url 'webadmin:customer-list' %}">Customers</a>
-      <a href="{% url 'webadmin:order-list' %}">Orders</a>
-      <a href="{% url 'webadmin:delivery-list' %}">Deliveries</a>
-      <a href="{% url 'webadmin:invoice-list' %}">Invoices</a>
-      <a href="{% url 'webadmin:payment-list' %}">Payments</a>
-      <a href="{% url 'webadmin:receivables-position' %}">Receivables</a>
-      <a href="{% url 'webadmin:report-sales' %}">Reports</a>
-      <a href="{% url 'webadmin:stock-list' %}">Stock</a>
-      <a href="{% url 'webadmin:supplier-list' %}">Suppliers</a>
-      <a href="{% url 'webadmin:purchase-order-list' %}">Purchases</a>
-      <a href="{% url 'webadmin:goods-receipt-list' %}">Goods in</a>
-      <a href="{% url 'webadmin:supplier-payment-list' %}">Supplier payments</a>
-      <a href="{% url 'webadmin:zone-list' %}">Zones</a>
-      <a href="{% url 'webadmin:reason-code-list' %}">Reasons</a>
-      <a href="{% url 'webadmin:business-profile' %}">Settings</a>
-    </nav>{% endif %}
+  {# COMMAND SURFACE — dark, persistent, quiet. Navigation and identity live here and
+     nothing else does. The work surface below is where the business happens. #}
+  <div class="command">
+    <div class="command-bar">
+      <div class="brand">DistriCore <span>· distribution control</span></div>
+      {% if user.is_authenticated %}
+        <form method="post" action="{% url 'webadmin:logout' %}">
+          {% csrf_token %}<button type="submit">Sign out</button>
+        </form>
+      {% endif %}
+    </div>
+
     {% if user.is_authenticated %}
-      <form method="post" action="{% url 'webadmin:logout' %}" style="margin:0">
-        {% csrf_token %}<button type="submit">Sign out</button>
-      </form>
+    {# Four groups, not eighteen peers. <details>/<summary> is the narrow-screen collapse:
+       native semantics, keyboard operable, announced by assistive technology, and no
+       JavaScript. At >=900px the stylesheet forces the rail open and hides the toggle. #}
+    <nav class="nav" aria-label="Sections">
+      <details open>
+        <summary class="nav-toggle">Menu</summary>
+        <div class="nav-groups">
+
+          <div class="nav-group" data-group="sell">
+            <span class="nav-label">Sell</span>
+            <a href="{% url 'webadmin:order-list' %}">Orders</a>
+            <a href="{% url 'webadmin:delivery-list' %}">Deliveries</a>
+            <a href="{% url 'webadmin:invoice-list' %}">Invoices</a>
+            <a href="{% url 'webadmin:payment-list' %}">Payments</a>
+            <a href="{% url 'webadmin:receivables-position' %}">Receivables</a>
+            <a href="{% url 'webadmin:customer-list' %}">Customers</a>
+            <a href="{% url 'webadmin:zone-list' %}">Zones</a>
+          </div>
+
+          <div class="nav-group" data-group="buy">
+            <span class="nav-label">Buy</span>
+            <a href="{% url 'webadmin:supplier-list' %}">Suppliers</a>
+            <a href="{% url 'webadmin:purchase-order-list' %}">Purchases</a>
+            <a href="{% url 'webadmin:goods-receipt-list' %}">Goods in</a>
+            <a href="{% url 'webadmin:supplier-payment-list' %}">Supplier payments</a>
+          </div>
+
+          <div class="nav-group" data-group="hold">
+            <span class="nav-label">Hold</span>
+            <a href="{% url 'webadmin:product-list' %}">Products</a>
+            <a href="{% url 'webadmin:stock-list' %}">Stock</a>
+          </div>
+
+          <div class="nav-group" data-group="config">
+            <span class="nav-label">Configure</span>
+            <a href="{% url 'webadmin:dashboard' %}">Home</a>
+            <a href="{% url 'webadmin:report-sales' %}">Reports</a>
+            <a href="{% url 'webadmin:reason-code-list' %}">Reasons</a>
+            <a href="{% url 'webadmin:business-profile' %}">Settings</a>
+          </div>
+
+        </div>
+      </details>
+    </nav>
     {% endif %}
-  </header>
+  </div>
 {% endblock %}
 <main>{% block content %}{% endblock %}</main>
 </body>

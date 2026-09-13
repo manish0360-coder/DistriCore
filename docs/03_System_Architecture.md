@@ -168,7 +168,7 @@ Nothing outside `inventory` writes a `StockMovement`. That single constraint is 
 | Layer | Choice | Why this, for this client |
 | --- | --- | --- |
 | Language / framework | **Python 3.12 + Django 5 + Django REST Framework** | Auth, migrations, admin scaffolding, ORM, permissions and CSRF come built in. For a lean MVP these are weeks of work not written. One developer can hold the whole stack |
-| Web admin UI | **Django templates + HTMX + Tailwind (CDN build)** | The admin is lists, forms and tables (direction 3). Server-rendered HTML delivers that with **no second build pipeline, no CORS, no duplicated auth, no separate deployment**. See ADR-003 |
+| Web admin UI | **Django templates + one hand-authored stylesheet. No JavaScript.** | The admin is lists, forms and tables (direction 3). Server-rendered HTML delivers that with **no second build pipeline, no CORS, no duplicated auth, no separate deployment**. See ADR-003. *Corrected at M11.4: this row read "HTMX + Tailwind (CDN build)" and neither was ever built — see `00` FD-05* |
 | Mobile | **Flutter (Dart)**, one binary, role-based routing | Confirmed direction. One codebase, Android first |
 | Mobile local store | **SQLite via Drift** | Typed queries, migrations, transactions. The outbox needs durability, not a sync framework |
 | Database | **PostgreSQL 16** | Correct decimal arithmetic, real transactions, JSONB when needed. Runs in ~200 MB |
@@ -388,7 +388,7 @@ Uploaded on a **separate queue** from transactional operations, so a 200 KB phot
 
 | Path | Mechanism | Notes |
 | --- | --- | --- |
-| Browser → Backend | HTTPS, HTML, session cookie | HTMX partial updates; full page loads where simpler |
+| Browser → Backend | HTTPS, HTML, session cookie | Full page loads throughout. No partial-update layer and no client-side script (M11.4) |
 | Flutter → Backend | HTTPS, REST/JSON, Bearer JWT | Versioned at `/api/v1/` |
 | Module → Module | **In-process Python function call** into `services.py` | No HTTP, no queue, no event bus. §2.1 rule 2 |
 | Backend → Postgres | psycopg over the Docker network | Never exposed to the internet |

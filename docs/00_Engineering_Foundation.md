@@ -200,19 +200,25 @@ Four layers. Each has a different lifetime and a different rule about what may l
 
 ---
 
-### FD-05 — Tailwind via the standalone CLI binary; **no Node.js in the backend toolchain**
+### FD-05 — Hand-authored CSS through Django's static pipeline; **no Node.js in the backend toolchain**
 
-**Decision.** CSS is built by the Tailwind standalone executable, invoked from a Makefile target and during the Docker build. Node.js, npm and `package.json` do not exist in the backend repository.
+> **Amended 2026-09-14 (M11.4) to describe what is built.** This decision read *"Tailwind via the standalone CLI binary"* from P0 until M11.4, and **Tailwind was never introduced**: no binary, no Makefile target, no config file, no build step at any point in the project's history. The web admin was styled by 71 lines of CSS inside four `<style>` blocks. `03` §171 and §391 carried the same error and are corrected with it.
+>
+> The amendment goes in this direction — removing Tailwind from the document rather than adding it to the repository — because the decision's *reason* was always "no second build pipeline", and the implementation satisfied that reason more completely than the stated mechanism would have. Resurrecting Tailwind to match a stale sentence would add the pipeline this decision exists to prevent.
+
+**Decision.** CSS is hand-authored in **one stylesheet**, `backend/webadmin/static/webadmin/districore.css`, served through Django's own static pipeline (`AppDirectoriesFinder` → `collectstatic` → whitenoise/Caddy). There is **no CSS build step and no JavaScript**. Node.js, npm and `package.json` do not exist in the backend repository.
+
+The stylesheet is a design system, not a file of rules: CSS custom properties carry the tokens (two surfaces, three semantic state colours, a focus ring, four navigation accents, and the spacing, type, radius, elevation and motion scales). `backend/tests/adversarial/test_visual_system.py` holds it — including WCAG AA contrast recomputed from the tokens on every run, a rule-size budget, and a gate against a second stylesheet, a `<script>` tag or an external dependency reappearing.
 
 **Why.** ADR-003 chose server-rendered HTML precisely to avoid a second build pipeline. Introducing Node solely to compile CSS would reintroduce exactly what that decision eliminated: a second runtime, a second lockfile, a second dependency-vulnerability surface, and a second thing to keep current. The standalone binary produces identical output with none of that.
 
-**Alternatives.** (a) Tailwind via npm — the conventional route; rejected as above. (b) Tailwind CDN — acceptable in development only; unacceptable in production (no purging, large payload, third-party dependency on every page load, NFR-PER-001). (c) Hand-written CSS — cheaper to start, more expensive to keep consistent. (d) Bootstrap — heavier and harder to keep visually clean.
+**Alternatives.** (a) Tailwind via the standalone CLI — the original decision; rejected at M11.4 because a utility framework's value is breadth, and this admin needs one coherent system across 38 templates, which is ~10 KB of rules. (b) Tailwind via npm — the conventional route; rejected as above. (c) Tailwind CDN — acceptable in development only; unacceptable in production (no purging, large payload, third-party dependency on every page load, NFR-PER-001). (c) Hand-written CSS — cheaper to start, more expensive to keep consistent. (d) Bootstrap — heavier and harder to keep visually clean.
 
-**Trade-offs.** The binary must be version-pinned and fetched in the Docker build. Minor.
+**Trade-offs.** Hand-authored CSS has no utility-class safety net, so consistency depends on the token layer and the contracts that guard it rather than on a compiler. In exchange there is nothing to pin, fetch, compile or keep in step with a second toolchain.
 
 **Long-term impact.** The backend stays a single-language project. Node enters only if and when a genuine JavaScript application is built — an Edition 3 concern.
 
-**Migration cost if changed later.** *Trivial* — the same config file works under the npm toolchain.
+**Migration cost if changed later.** *Low* — the tokens are CSS custom properties, which any framework or preprocessor consumes unchanged.
 
 ---
 
@@ -228,7 +234,7 @@ Below is only what DistriCore additionally requires.
 | --- | --- | :-: | --- | --- |
 | T-01 | `uv` | **Yes** | Python dependency resolution and lockfile (FD-04) | Single-binary install |
 | T-02 | `make` | **Yes** | One entry point for every developer command. Prevents undocumented tribal knowledge in shell history | `build-essential` |
-| T-03 | Tailwind standalone CLI, version-pinned | **Yes** | CSS build without Node (FD-05) | Fetched in Docker build; a host copy is convenience only |
+| ~~T-03~~ | ~~Tailwind standalone CLI, version-pinned~~ | — | **Retired at M11.4. It was never installed and never invoked** — the admin's CSS is hand-authored and needs no build tool (FD-05) | |
 | T-04 | `pre-commit` | **Yes** | Runs formatter, linter and secret scan before a commit exists (N-11) | Installed via `uv tool` |
 | T-05 | `gitleaks` | **Yes** | Secret scanning, in pre-commit and in CI | Enforces N-11 |
 | T-06 | `rclone` | Later | Offsite backup transport (§14) | Needed at deployment milestone, not now |
@@ -344,7 +350,7 @@ The complete Version 1 dependency surface. **A dependency not on this list does 
 | `djangorestframework-simplejwt` | Mobile authentication (§5 of `03`) | Hand-rolled JWT: a security-critical wheel not worth reinventing |
 | `django-axes` | Login rate limiting (FR-IAM-004) | Custom middleware: more code, worse coverage |
 | SMS provider SDK or plain HTTP | OTP login (V1 scope) | Plain `httpx` against the REST API — **preferred**, keeps the provider swappable |
-| HTMX | Server-rendered interactivity (ADR-003) | A single vendored JS file. No build step |
+| ~~HTMX~~ | ~~Server-rendered interactivity (ADR-003)~~ | **Retired at M11.4 — never vendored, never loaded.** The admin uses full page loads and ships no JavaScript at all, which is a stronger form of the same decision |
 
 ### 3.3 Development — mandatory
 
@@ -1519,7 +1525,7 @@ Once ratified, this document is amended only through §P.4.
 | FD-02 | All code executes only in Docker | 1 | Low → Medium |
 | FD-03 | Pin every version | 1 | Trivial → High |
 | FD-04 | `uv` with committed lockfile | 1 | Trivial |
-| FD-05 | Tailwind standalone; no Node | 1 | Trivial |
+| FD-05 | Hand-authored CSS, one stylesheet; no Node | 1 | Trivial |
 | FD-06 | Monorepo | 4 | Low |
 | FD-07 | Makefile as the developer interface | 4 | Trivial |
 | FD-08 | Trunk-based branching | 6 | Trivial |

@@ -1,5 +1,89 @@
 # Next Task
 
+## Done 2026-09-14 — M11.4, the visual system: "instrument, not ornament"
+
+**There was no design system to redesign.** The audit found 71 lines of CSS in four
+`<style>` blocks, **zero static files, zero JavaScript, zero media queries and zero focus
+rules** — and `order_detail.html` shipping `.note` and `.tot` with no rule behind them
+anywhere, the fragmentation already failing in production. The documented front end
+(Tailwind, HTMX) had never existed.
+
+### The direction, and what was rejected
+
+**Two planes, one edge.** A dark **command surface** — persistent, quiet, navigation and
+identity, the machine — and a light high-contrast **work surface** one elevation step above
+it, carrying tables, figures and forms. Depth is planes, rules and spacing. No 3D, no
+parallax, no glass, no gradient.
+
+**Colour means state.** Three semantic colours — settled, pending, breach — and nothing
+else. The four navigation accents are the single exception: they mark *where you are*, live
+only on the command surface, and never touch data. This is why per-page themes were
+rejected: if every screen owns a hue, the hue that means *overdue* is one of many, and the
+receivables screen stops being readable at a glance.
+
+**Rejected outright:** WebGL/Canvas/3D · per-page visual identities · HTMX · Tailwind · any
+framework · any external origin. The "futuristic" quality comes from precision, hierarchy
+and motion discipline; a distributor's *wow* is his ageing report opening instantly with the
+rupees aligned, on his phone, in the godown.
+
+### What changed
+
+| Area | Before | After |
+| --- | --- | --- |
+| Stylesheets | 4 private `<style>` blocks | **1** — `webadmin/static/webadmin/districore.css`, via `{% static %}` |
+| Navigation | **18 flat peer links** | 4 groups — Sell · Buy · Hold · Configure — with a 2px accent, collapsing on narrow screens through `<details>`/`<summary>` |
+| Width | `max-width: 960px` for everything | `min(96vw, 1440px)`; dense tables scroll inside the card |
+| Focus rules | **0** | One ring on every control (WCAG 2.4.7) |
+| Media queries | **0** | 2 breakpoints + print; first column pinned on narrow screens |
+| `prefers-reduced-motion` | **0** | All motion switched off |
+| Numerals | proportional | `tabular-nums` on every figure |
+| Contrast | never measured | **18 pairs measured, all AA, worst 5.73** |
+
+### The landmine, found before it went off
+
+`config/settings/test.py` sets `DEBUG = False`, and `STATICFILES_STORAGE` is whitenoise's
+**manifest** storage, whose `url()` is skipped only when `DEBUG` is true. Dev is fine
+(`DEBUG=True`); production is fine (the entrypoint runs `collectstatic`). **Tests are
+neither** — and 57 of them render a web-admin page. The first `{% static %}` call would have
+killed all of them with `Missing staticfiles manifest entry`, and it would have looked like a
+template bug. Fixed by testing against non-manifest storage rather than by dropping
+`{% static %}` and forfeiting production cache-busting.
+
+### 17 contracts, 30 mutations proved — three of which found defects in this work
+
+- A plain substring search accepted `parallax` from the stylesheet's own comment saying it
+  has none. **Third occurrence of this class** after `backup.sh` (M11.2) and
+  `test_release_signing` (K-1).
+- The `<details>` assertion was satisfied by `base.html`'s *comment* describing the menu
+  after the real markup had been replaced with a `<div>`.
+- The token check searched for `--s1`, which `var(--s1)` satisfies in 40 rules — it was
+  asserting the token is *used*, not that it *exists*.
+
+**And I amended one of my own acceptance criteria rather than weakening the work.** The
+≤12 KB budget was measured with `stat().st_size`, which counts comments and the Windows
+mount's CRLF pairs; it read 16 KB for a design that is **10,405 bytes of rules and 4,453
+bytes gzipped**. The criterion now measures the rules it was always about, plus a second and
+stricter check on the bytes actually sent.
+
+### Documentation corrected (item 16)
+
+`00` FD-05 rewritten from *"Tailwind via the standalone CLI"* to what exists; T-03 and the
+HTMX dependency row retired as never-installed; `03` §171 and §391 corrected. **The
+amendment removes Tailwind from the document rather than adding it to the repository**,
+because FD-05's reason was always "no second build pipeline" and the implementation honours
+that reason more completely than the stated mechanism would have.
+
+**Left for the Architect:** ADR-003 is still titled *"Django templates + HTMX"* in `00` §P.7
+and `03` §569. Renaming a ratified ADR is not an engineering call. The decision it records —
+server-rendered, not an SPA — is correct and unchanged.
+
+**Unchanged:** every view, URL, model, serializer, permission, business rule and the invoice
+PDF stylesheet, which stays independent because WeasyPrint renders a statutory document
+without the screen system. The dashboard's four figures and their meaning are untouched —
+`dashboard.html` argues its own case against charts and is right.
+
+---
+
 ## Done 2026-09-13 — M11.3, A-05 production provisioning: the deploy path that could not be followed
 
 **A-05 is locked: Backblaze B2, EU Central (Amsterdam), `eu-central-003`.** The disposable

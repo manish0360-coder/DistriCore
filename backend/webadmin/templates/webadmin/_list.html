@@ -9,7 +9,7 @@
   {% if page.object_list %}
     <table>{% block rows %}{% endblock %}</table>
   {% else %}
-    <p class="muted" style="margin:0">Nothing here yet.</p>
+    <p class="empty">Nothing here yet.</p>
   {% endif %}
 </div>
 {% if page.has_other_pages %}

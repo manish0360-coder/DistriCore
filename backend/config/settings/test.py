@@ -16,6 +16,24 @@ ALLOWED_HOSTS = ["*", "testserver"]
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 AXES_ENABLED = False
 
+# **Static storage without a manifest, and this is not a convenience (M11.4).**
+#
+# `base.STATICFILES_STORAGE` is whitenoise's CompressedManifestStaticFilesStorage. Its
+# `url()` consults a manifest that only `collectstatic` writes, and it is skipped entirely
+# when `DEBUG` is true. Both other environments are therefore fine: dev never looks
+# (DEBUG=True), production always has one (the entrypoint runs collectstatic).
+#
+# Tests are the single case that is neither: `DEBUG = False` above, and no collectstatic in
+# the test container. Before M11.4 nothing noticed, because the product had **no static
+# files at all** and no template called `{% static %}`. The moment `base.html` links one
+# stylesheet, every one of the ~57 tests that renders a web-admin page would die on
+# `ValueError: Missing staticfiles manifest entry for 'webadmin/districore.css'`.
+#
+# The fix is to test against storage that does not require a build artefact, rather than to
+# build one during tests or to drop `{% static %}` and lose production cache-busting. A
+# contract in `test_visual_system.py` asserts this override still exists.
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+
 # The in-memory SMS double. ConsoleSmsProvider deliberately has no ``sent`` list —
 # see docs/M0_Completion_Report.md §5 for why that contract is canonical.
 SMS_PROVIDER = "memory"

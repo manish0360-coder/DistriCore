@@ -1,0 +1,433 @@
+/* DistriCore web admin — "instrument, not ornament" (M11.4).
+ * One stylesheet. No build step, no Node, no framework, no JavaScript: ADR-003 chose
+ * server-rendered HTML to avoid a second pipeline and FD-05 keeps Node out.
+ *
+ * TWO PLANES, ONE EDGE.
+ *   COMMAND SURFACE — dark, persistent, quiet. Navigation and identity. The machine.
+ *   WORK SURFACE    — light, dense, high contrast. Tables, figures, forms. The business.
+ * Depth is planes, rules and spacing. No 3D, parallax, glass or gradient. A shadow means
+ * "floats above the page"; it never means "important".
+ *
+ * COLOUR MEANS STATE — settled, pending, breach. The four nav accents are the exception:
+ * they mark where you are, live only on the command surface, and never touch data.
+ */
+
+/* ─────────────────────────────────────────────────────────── tokens */
+:root {
+  /* Command surface. --navy is the existing identity, kept deliberately. */
+  --navy:        #0d1f38;
+  --command:     #0d1f38;
+  --command-2:   #15294a;
+  --command-ink: #e8eef7;
+  --command-dim: #a9bdd8;
+  --rule-dark:   rgba(255, 255, 255, .12);
+
+  /* Work surface. */
+  --work:   #ffffff;
+  --field:  #f5f7fa;
+  --ink:    #121a27;
+  --muted:  #55627a;
+  --line:   #dde4ed;
+  --rule-2: #eaeff5;
+
+  /* State. The only colours allowed on data. */
+  --ok:        #0f6b48;
+  --ok-bg:     #eaf5f0;
+  --attn:      #7a5200;
+  --attn-bg:   #fdf4e3;
+  --bad:       #a8291a;
+  --bad-bg:    #fdeeec;
+
+  /* Focus. Distinct from every state colour on purpose — a focus ring that looks like an
+   * error is a focus ring that gets misread. */
+  --focus: #1257b8;
+
+  /* Navigation groups. Low chroma, matched luminance, command surface only. */
+  --g-sell:   #7fb0d8;
+  --g-buy:    #cfa96d;
+  --g-hold:   #83b79c;
+  --g-config: #97a0b2;
+
+  /* Space, radius, elevation, motion. */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --r:  3px;
+  --lift: 0 1px 2px rgba(13, 31, 56, .06), 0 1px 1px rgba(13, 31, 56, .04);
+  --t-fast: 110ms;
+  --t: 170ms;
+  --ease: cubic-bezier(.2, 0, 0, 1);
+
+  /* Type. Three levels and a table size — no more. */
+  --font: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --fs-page: clamp(19px, .6vw + 16px, 23px);
+  --fs-sec:  15px;
+  --fs-body: 15px;
+  --fs-cell: 13px;
+  --fs-cap:  12.5px;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--field);
+}
+
+/* Money that does not align in a column cannot be scanned, and scanning a column is most
+ * of what this application is for. */
+td, th, input, select, .metric .v, .tot, .grand, .r { font-variant-numeric: tabular-nums; }
+
+/* ─────────────────────────── focus: one ring, everywhere.
+ * There were zero focus rules before M11.4; keyboard entry was invisible (WCAG 2.4.7). */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.command :where(a, button, summary):focus-visible {
+  outline-color: #ffffff;
+}
+
+/* ───────────────────────────────────────────────────── command surface */
+.command {
+  background: var(--command);
+  color: var(--command-ink);
+  border-bottom: 1px solid var(--rule-dark);
+}
+.command-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s3) var(--s5);
+}
+.brand {
+  font-weight: 600;
+  letter-spacing: .09em;
+  font-size: 14px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.brand span { color: var(--command-dim); font-weight: 400; letter-spacing: .02em; }
+
+.command form { margin: 0; }
+.command button {
+  background: transparent;
+  color: var(--command-dim);
+  border: 1px solid var(--rule-dark);
+  padding: 6px 12px;
+  font-size: var(--fs-cap);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.command button:hover { color: #fff; border-color: rgba(255, 255, 255, .34); }
+
+/* ───────────────────── navigation: four groups, no JavaScript.
+ * 18 peer links is a list, not a menu. <details>/<summary> is the narrow-screen collapse:
+ * native semantics, keyboard operable, announced by AT, zero script. Desktop forces open. */
+.nav { border-top: 1px solid var(--rule-dark); }
+.nav-toggle {
+  padding: var(--s3) var(--s5);
+  font-size: var(--fs-cap);
+  color: var(--command-dim);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.nav-toggle::-webkit-details-marker { display: none; }
+.nav-toggle::after { content: " ▾"; }
+details[open] > .nav-toggle::after { content: " ▴"; }
+
+.nav-groups { display: block; padding: 0 var(--s5) var(--s3); }
+.nav-group { padding: var(--s2) 0; border-top: 1px solid var(--rule-dark); }
+.nav-group:first-child { border-top: 0; }
+.nav-label {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--command-dim);
+  padding-bottom: var(--s1);
+  border-bottom: 2px solid var(--accent, var(--g-config));
+  margin-bottom: var(--s2);
+  width: max-content;
+  min-width: 54px;
+}
+.nav-group[data-group="sell"]   { --accent: var(--g-sell); }
+.nav-group[data-group="buy"]    { --accent: var(--g-buy); }
+.nav-group[data-group="hold"]   { --accent: var(--g-hold); }
+.nav-group[data-group="config"] { --accent: var(--g-config); }
+
+.nav-group a {
+  display: inline-block;
+  color: var(--command-dim);
+  text-decoration: none;
+  font-size: 13.5px;
+  padding: 5px 0;
+  margin-right: var(--s4);
+  border-bottom: 2px solid transparent;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.nav-group a:hover { color: #fff; border-bottom-color: var(--accent); }
+.nav-group a[aria-current="page"] { color: #fff; border-bottom-color: var(--accent); }
+
+@media (min-width: 900px) {
+  .nav-toggle { display: none; }
+  /* Force the group rail open regardless of the <details> state. */
+  .nav details > .nav-groups, .nav-groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--s6);
+    padding: var(--s2) var(--s5) var(--s3);
+  }
+  .nav-group { border-top: 0; padding: var(--s2) 0; }
+}
+
+/* ───────────────────────────────────────────────────────── work surface */
+main {
+  width: min(96vw, 1440px);
+  margin: var(--s6) auto var(--s6);
+  padding: 0 var(--s5);
+  animation: enter var(--t) var(--ease) both;
+}
+@keyframes enter { from { opacity: 0; } to { opacity: 1; } }
+
+h1, h2 { font-size: var(--fs-page); font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+h3 { font-size: var(--fs-sec); font-weight: 600; }
+
+/* One plane above the page. Not every element gets to float. */
+.card {
+  background: var(--work);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: var(--s5);
+  box-shadow: var(--lift);
+  overflow-x: auto;          /* dense tables scroll inside the plane, not the page */
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--s4);
+}
+.muted { color: var(--muted); font-size: var(--fs-cap); }
+.off   { color: var(--bad); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.r     { text-align: right; }
+
+/* ─────────────────────────────────────────────────────────────── tables */
+table { width: 100%; border-collapse: collapse; font-size: var(--fs-cell); }
+th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  background: var(--field);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+th.r { text-align: right; }
+td {
+  padding: 9px var(--s3);
+  border-bottom: 1px solid var(--rule-2);
+  line-height: 1.4;
+}
+/* A rule, not a wash: a coloured fill competes with the state colours that carry meaning. */
+tbody tr:hover td, table tr:hover td { background: #fbfcfe; box-shadow: inset 2px 0 0 var(--navy); }
+tr.tot td, tr.tot th {
+  border-top: 2px solid var(--line);
+  border-bottom: 0;
+  font-weight: 600;
+  background: var(--field);
+}
+tfoot th { background: var(--field); border-top: 2px solid var(--line); }
+
+/* ──────────────────────────────────────────────────────────────── forms */
+label {
+  display: block;
+  font-size: var(--fs-cap);
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: var(--s1);
+}
+input, select, textarea {
+  width: 100%;
+  padding: 9px var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  font-size: 14.5px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--work);
+  margin-bottom: var(--s4);
+  transition: border-color var(--t-fast) var(--ease);
+}
+input:hover, select:hover { border-color: #c3cedd; }
+input[readonly] { background: var(--field); color: var(--muted); }
+input[type="checkbox"] { width: auto; margin-bottom: 0; }
+
+button, .btn {
+  display: inline-block;
+  background: var(--navy);
+  color: #fff;
+  border: 1px solid var(--navy);
+  padding: 9px 18px;
+  border-radius: var(--r);
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+button:hover, .btn:hover { background: #16304f; }
+
+/* ───────────────────────────────────────── state: the only meaningful colour */
+.error, .note {
+  border-left: 3px solid;
+  border-radius: 0 var(--r) var(--r) 0;
+  padding: var(--s3) var(--s4);
+  margin-bottom: var(--s4);
+  font-size: 13.5px;
+}
+.error { background: var(--bad-bg);  border-left-color: var(--bad);  color: var(--bad); }
+.note  { background: var(--attn-bg); border-left-color: var(--attn); color: var(--attn); }
+.ok    { color: var(--ok); }
+
+/* ──────────────────────────────────────── dashboard (folded in).
+ * Four figures, no charts — dashboard.html argues that case itself and is right. M11.4
+ * changed their typography and nothing about their meaning. */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--s4);
+  margin-bottom: var(--s4);
+}
+.metric {
+  background: var(--work);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--navy);
+  border-radius: var(--r);
+  padding: var(--s4) var(--s5);
+  box-shadow: var(--lift);
+}
+.metric .k {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.metric .v {
+  display: block;
+  font-size: clamp(24px, 1.6vw + 16px, 31px);
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--navy);
+  margin: var(--s2) 0 var(--s1);
+  letter-spacing: -.02em;
+}
+.metric .c { display: block; font-size: var(--fs-cap); color: var(--muted); }
+
+/* ───────────────────────────────────────────────────── reports (folded in) */
+nav.reports {
+  margin: 0 0 var(--s5);
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+}
+nav.reports a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13.5px;
+  padding: 3px 0;
+  border-bottom: 2px solid transparent;
+}
+nav.reports a:hover { color: var(--ink); }
+nav.reports a.on { color: var(--navy); font-weight: 600; border-bottom-color: var(--navy); }
+
+form.filters {
+  display: flex;
+  gap: var(--s3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--s4);
+}
+form.filters label { margin: 0 0 2px; }
+form.filters input, form.filters select { width: auto; margin: 0; }
+
+.meta { font-size: var(--fs-cap); color: var(--muted); margin-bottom: var(--s4); }
+.meta p { margin: 0 0 var(--s1); }
+
+/* ──────────────────────────────────────────────────────── pager, empty state */
+.pager { margin-top: var(--s4); font-size: 13px; display: flex; gap: var(--s3); align-items: center; }
+.pager a { color: var(--navy); text-decoration: none; font-weight: 500; }
+.pager a:hover { text-decoration: underline; }
+
+/* Text-first, no illustration. The action that fills the page is already in the toolbar. */
+.empty {
+  margin: 0;
+  padding: var(--s6) 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* ───────────────────────────────────────────────────────────── responsive */
+@media (max-width: 899px) {
+  main { width: 100%; margin: var(--s4) auto; padding: 0 var(--s4); }
+  .card { padding: var(--s4); border-radius: 0; border-left: 0; border-right: 0;
+          margin-left: calc(var(--s4) * -1); margin-right: calc(var(--s4) * -1); }
+  .command-bar { padding: var(--s3) var(--s4); }
+  .nav-groups { padding: 0 var(--s4) var(--s3); }
+  .nav-toggle { padding: var(--s3) var(--s4); }
+  /* The first column identifies the row; it stays put. A ledger reflowed into cards is
+     unreadable, so the table stays a table. */
+  td:first-child, th:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--work);
+    box-shadow: 1px 0 0 var(--rule-2);
+  }
+  th:first-child { background: var(--field); z-index: 2; }
+}
+
+@media (max-width: 520px) {
+  :root { --fs-body: 14.5px; }
+  .toolbar { align-items: stretch; }
+  .toolbar .btn { text-align: center; }
+}
+
+/* ─────────────────────────────────────────── motion discipline.
+ * Four transitions, all <=200ms, all opacity or colour, none touching layout. Nothing
+ * loops, nothing moves on its own, nothing delays an interaction. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  .command, .pager { display: none; }
+  .card { border: 0; box-shadow: none; padding: 0; }
+  main { width: auto; margin: 0; padding: 0; }
+}
