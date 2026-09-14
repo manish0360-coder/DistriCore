@@ -163,6 +163,7 @@ final class CompanionController extends Notifier<CompanionState> {
         Refused(:final code) when code == 'PERMISSION_DENIED' =>
           'This account is not allowed to see these figures.',
         MalformedResponse() => 'The server sent something we could not read.',
+        CertificateRejected() => "Can't verify this server. Contact the office if this continues.",
         // Reachable only through a local read, which this screen never makes. Named rather
         // than defaulted, because `Failure` is sealed and a new member should fan out here.
         StorageFull() => 'Not enough storage to load this.',

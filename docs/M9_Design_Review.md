@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M9_Design_Review` |
-| Version | **1.6.0** |
-| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (authorised, unwritten). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45. D-M9-9 ruled 2026-09-05 — the FR-SYN-010 trigger is a fixed-cadence retry; **gives TD-41 a mechanism without discharging FR-SYN-010**, folds in FR-SYN-017, opens TD-47. **B1 measured and PASSED 2026-09-06 (§5.1): 67 046 ms of 120 000 ms; FR-SYN-010 is satisfied at the measured configuration, TD-45 and TD-47 unchanged. D-M9-10 ruled 2026-09-06 — FR-RPT-009 delivered at M9 per A-5; proposes `02` amendment S-7.**|
+| Version | **1.8.0** |
+| Status | **Signed — R-1…R-5, T-3 and FR-SYN-009 all ruled 2026-08-21, recorded as D-M9-1…D-M9-7. Authority for `02` §18.1 S-1…S-5 (applied) and S-6 (applied 2026-09-14). D-M9-8 ruled 2026-08-25 — authority for the `M8_Design_Review` §5.6 cipher amendment (applied, v1.8.0); opens TD-42…TD-45. D-M9-9 ruled 2026-09-05 — the FR-SYN-010 trigger is a fixed-cadence retry; **gives TD-41 a mechanism without discharging FR-SYN-010**, folds in FR-SYN-017, opens TD-47. **B1 measured and PASSED 2026-09-06 (§5.1): 67 046 ms of 120 000 ms; FR-SYN-010 is satisfied at the measured configuration, TD-45 and TD-47 unchanged. D-M9-10 ruled 2026-09-06 — FR-RPT-009 delivered at M9 per A-5; proposes `02` amendment S-7 (not yet written). D-M9-11 ruled 2026-09-14 — FR-SYN-007's stock-snapshot clause moves to `Rel = v2.0`; authority for `02` S-8 (applied); closes D-M9.4-1's CONTRACT GAP. D-M9-12 ruled 2026-09-14 — FR-SYN-010's 2-minute bound is foreground-scoped for V1; authority for `02` S-9 (applied); closes TD-47. D-M9-13 ruled 2026-09-14 — orphaned `RECEIVED` recovery needs no proactive sweep in V1; corrects `PROJECT_STATE.md` item 3 and this document's own §9 row 4, which had never been updated after the 2026-08-21 replay-on-resend fix.**|
 | Date | 2026-08-21 |
 | Milestone | M9 — Sync (`00` §19.1) |
 | Scope | Push receiver · mobile drain · server sync status · pull and device cache · **the Edition-1 conflict model** |
@@ -35,9 +35,11 @@
 
 | Version | Date | Change |
 | --- | --- | --- |
+| **1.8.0** | **2026-09-14** | **§6 D-M9-12 and D-M9-13 added.** D-M9-12: FR-SYN-010's 2-minute bound is foreground-scoped for Edition 1/V1 — background/suspended/Doze sync is best-effort, not an acceptance criterion; closes **TD-47**; B1's existing foreground-only measurement (PASSED 2026-09-06) is the complete V1 evidence; no `WorkManager`/background-execution mechanism added; `SyncScheduler` unchanged. **Authorises and writes `02` S-9 the same day.** D-M9-13: orphaned `RECEIVED` rows need **no proactive server-side sweep** in Edition 1/V1 — replay-on-resend (`05` §11.5, fixed 2026-08-21) is already the complete mechanism; no `02`/`04` requirement names a sweep. **No `02` amendment.** Corrects `PROJECT_STATE.md` item 3 and this document's own §9 row 4, both of which still cited the superseded pre-fix clause. **Minor, not patch: two decisions were added.** No API, schema, logic or code change |
 | 1.0.0 | 2026-08-21 | Issued and signed. **D-M9-1 … D-M9-5** — the Edition-1 conflict model. Authority for `02` §18.1 **S-1 … S-4**, which were applied the same day |
 | **1.2.0** | **2026-08-21** | **§6 D-M9-7 added — FR-SYN-009 moves to `Rel = v2.0`, priority `M` and requirement text unchanged, nothing deleted.** Three Edition-1 prerequisites are deferred by `02A` and **each is sufficient alone**: the admin console (§7.12), the `SALESMGR`/`ADMIN` roles (§7.1 — Edition 1 has four, and neither is among them), and the registered `device` entity (§13.2, `04`). `03` §11.3 and `05` §11.5 recorded as **documentation inconsistencies, not counter-evidence**, and **not amended**. **OC-3 stays separate and Edition 1.** An independent Gemini review reaching the same conclusion is recorded as **corroboration, not authority**. **Authorises `02` S-6, which is not written here.** **Minor, not patch: a decision was added.** No API, schema, logic, code or test change |
 | **1.1.0** | **2026-08-21** | **§6 D-M9-6 added — FR-SYN-008's *"count of unresolved conflicts"* is undefined and is replaced.** The smallest truthful V1 quantity is `sync_operation.status = 'REJECTED'`, already specified at `05` §11.5 as `rejected_count` and already displayed. `DEFERRED` is excluded from the **device-side** count because it auto-retries; it stays in the **owner's** exception list (`04` T-26). M8's *"failed count"* recorded as drift evidence, **not** authority. Proposed FR-SYN-008 wording: *"count of operations the server has rejected"*. **Authorises `02` S-5, which is not written here.** FR-SYN-009 untouched. **Minor, not patch: a decision was added** (`M8_Design_Review` 1.6.1's rule). No API, schema, logic, code or test change |
+| **1.7.0** | **2026-09-14** | **§6 D-M9-11 added — FR-SYN-007's stock-snapshot clause moves to `Rel = v2.0`, priority `M` and the rest of the requirement text unchanged.** DV-1 (`02A` §5) removed field order capture from Edition 1, and no Edition-1 mobile workflow consumes a stock snapshot without it. Closes `05` D-M9.4-1's CONTRACT GAP by removing the clause it was gapped against. **Authorises and writes `02` S-8 the same day** (unlike S-6, which was authorised here but written later). **Minor, not patch: a decision was added.** No API, schema, logic or code change |
 | **1.3.0** | **2026-08-25** | **§6 D-M9-8 added — the Edition-1 cipher is SQLite3MultipleCiphers, not SQLCipher.** Authority for the `M8_Design_Review` §5.6 amendment, applied the same day at v1.8.0. **`02` is not amended: FR-SYN-016 and NFR-SEC-008 name no cipher**, so the requirement is untouched and no `S-` row is authorised. **The preamble's *"reverses no architecture decision"* is qualified, not deleted.** Records the device proof — Pixel 8a API 34 emulator, `android-x64`, **not arm64 and not physical hardware** — and closes the encryption gate only; **`00` §19.2's durability gate stays open** (§9 item 5). Opens **TD-42…TD-45**; **TD-37 unchanged**. **Minor, not patch: a decision was added.** No API, schema, logic or requirement change; the code and gate it records were built under Changes 1–3 and are already verified |
 
 ---
@@ -820,7 +822,7 @@ handler appears, so reversing this is a deliberate act.
 | --- | --- | --- | --- |
 | **B1** | ~200 operations + a pull **complete** within 120 s of a real reconnection | `02` NFR-PER-004's own words: *"Timed sync at representative volume"* | **PASSED 2026-09-06 — 67 046 ms of a 120 000 ms budget.** §5.1 |
 | **B2** | Battery and radio cost of the cadence while offline and backgrounded | Device measurement | **Not measured** |
-| **B3** | Behaviour under Doze / App Standby | Device measurement | **Not measured** — **TD-47** |
+| **B3** | Behaviour under Doze / App Standby | Device measurement | **Not measured — not a V1 gate (D-M9-12, 2026-09-14).** TD-47 ruled foreground-scoped; B3 may remain future/non-V1 work |
 
 #### 5.1 B1 — the measurement, verbatim
 
@@ -869,6 +871,8 @@ figure that grows on a slower link; the 60 s is fixed by `syncRetryInterval`.
    outstanding confirmation whose consequence is *"test targets remain provisional"*.
 4. **Foreground only.** The app was in the foreground for the whole measurement. **TD-47** — does
    FR-SYN-010 bind while backgrounded — is untouched and still needs a Product Architect ruling.
+   **Ruled 2026-09-14 — D-M9-12: foreground-scoped for V1.** B1's foreground-only coverage is
+   therefore the complete V1 acceptance evidence, not a gap awaiting a background counterpart.
 5. **Nothing about B2 or B3.** Battery cost and Doze behaviour were not measured.
 
 **FR-SYN-017** — *"partial progress MUST be retained **and retried**"* — **is folded into TD-41
@@ -1022,10 +1026,137 @@ Narrowing it is a question for all eight reports and belongs to the Product Arch
 #### 5. What this does **not** do
 
 1. **No stock snapshot.** D-M9.4-1's CONTRACT GAP on FR-SYN-007 is untouched and still open.
+   *(Superseded 2026-09-14 by D-M9-11, below: the gap is closed by deferring the clause it
+   was gapped against, not by building it.)*
 2. **Nothing about TD-47, TD-45 or TD-48.** All three stand exactly as recorded.
 3. **No field-device evidence.** The report is server-side; `make verify` is its whole gate.
 4. **No claim about production fleets.** It is proven against seeded rows, not against 50 real
    devices at the DR-8 envelope, which `01` §16.3 **CF-4** still calls provisional anyway.
+
+### D-M9-11 — FR-SYN-007's stock-snapshot clause moves to `Rel = v2.0`
+
+*Ruled 2026-09-14. Authorises `02` amendment **S-8**, written the same day. Closes `05`
+D-M9.4-1's recorded CONTRACT GAP.*
+
+#### 1. The gap this closes
+
+D-M9.4-1 (2026-08-16) recorded that M9.4 shipped no stock collection, and could not: `04`
+N-03/E-01, ADR-008 and `M8_Design_Review` §2 all forbid a stored or cached stock quantity on
+principle, so a device cannot be handed one without violating the architecture on the way.
+That left FR-SYN-007's stock-snapshot clause an **unbuilt requirement with no available
+implementation** rather than an unbuilt requirement awaiting effort — the same shape as
+D-M9-3's finding about conflict classes, applied to a different requirement.
+
+#### 2. Why the gap closes by deferral rather than by design
+
+FR-SYN-007 was written against the frozen baseline, where a salesman captured orders offline
+and needed a device-local answer to *"is this in stock?"* before committing one. `02A` §5's
+DV-1 removed exactly that capability from Edition 1: the salesman screens (`M8_Design_Review`
+§3.3) read assigned customers and write visit records; nothing on the device prices a line,
+allocates stock, or commits an order. **No Edition-1 workflow asks the question the stock
+snapshot exists to answer.** Building a snapshot mechanism now would be engineering effort
+spent on a consumer that does not exist — the reverse of the ordering `02A` §5 itself argues
+for elsewhere in this milestone.
+
+This is the same shape as S-2 (FR-SYN-013/014): a requirement whose *subject* Edition 1 does
+not have, returning when the capability that gives it a subject returns.
+
+#### 3. Scope — narrow, deliberately
+
+**Only the stock-snapshot clause moves.** FR-SYN-007's other four clauses — customers on
+assigned routes, products, prices, schemes — are untouched, stay `v1.0`, and this ruling says
+nothing about their consumer mapping, which D-M9.4-2 already left open for a later decision.
+Nothing here revisits `04` N-03/E-01 or ADR-008: the "no stock cache" rule is not being
+worked around, its one Edition-1 consumer is being removed.
+
+#### 4. What this does not do
+
+1. Does not reopen D-M9.4-2 — `products`, `offers`, `zones`, `reason_codes`, `orders` remain
+   separately, later decisions.
+2. Does not touch `Owner` Companion Mode — it never consumed a device stock snapshot; its
+   figures come from live server queries (`M8_Design_Review` §3.4).
+3. No production code, test, schema, API or contract changes as a consequence of this ruling.
+
+---
+
+### D-M9-12 — FR-SYN-010's 2-minute bound is foreground-scoped for Edition 1/V1
+
+*Ruled 2026-09-14. Authorises `02` amendment **S-9**, written the same day. Closes **TD-47**.*
+
+#### 1. The question this closes
+
+FR-SYN-010 (`02`) names no application state: *"Full sync of a typical daily volume MUST
+complete within 2 minutes of reconnection at the DR-8 envelope."* D-M9-9 built a mechanism
+(`SyncRound` + `SyncScheduler`, 60 s fixed cadence) and measured it (**B1, PASSED
+2026-09-06** — 67 046 ms of 120 000 ms, §5.1), but that measurement was **foreground only**,
+and D-M9-9 §5.2 recorded the gap explicitly: *"does FR-SYN-010 bind while backgrounded — is
+untouched and still needs a Product Architect ruling."* Recorded as **TD-47**. No device
+measurement could settle that question, because it is a question of intended scope, not of
+mechanism behaviour.
+
+#### 2. The ruling
+
+**FR-SYN-010's 2-minute bound applies while DistriCore is in the foreground and connectivity
+has been restored.** Background, suspended, Doze and App Standby synchronisation is
+best-effort in Edition 1/V1 and is **not** part of the acceptance criterion. B1's
+foreground-only measurement is therefore the **complete** V1 performance verification for
+FR-SYN-010 — not a partial result awaiting a background counterpart.
+
+#### 3. What this does not do
+
+1. **No `WorkManager`, `JobScheduler`, foreground service, or other Android
+   background-execution mechanism is added for V1.**
+2. **D-M9-9's `SyncScheduler` architecture is unchanged and is now confirmed correct as
+   built**: 60 s cadence, wired to `onResume`/`onDetach` only. The deliberate absence of
+   `onPause`/`onInactive` cancellation (D-M9-9 §4) stands, and the structural contract that
+   fails the build on a pause handler (D-M9-9 §6) stays in force.
+3. **B3 — behaviour under Doze/App Standby (D-M9-9 §5 table) — is not promoted to a V1
+   acceptance gate.** It may remain scoped as future/non-V1 work; nothing here schedules it.
+4. No API, schema, or mobile code changes as a consequence of this ruling.
+
+---
+
+### D-M9-13 — Orphaned `RECEIVED` recovery needs no proactive sweep in Edition 1/V1
+
+*Ruled 2026-09-14. No `02` amendment — no requirement in `02` or `04` names a sweep. Corrects
+`PROJECT_STATE.md` item 3 and this document's own §9 row 4.*
+
+#### 1. What this closes
+
+`05` §11.5, amended 2026-08-21, already documents the actual V1 mechanism: a device that
+receives no verdict resends its operation under the same `client_uuid`; if the row is still
+`RECEIVED`, the server re-enters the original handler rather than answering `DUPLICATE`,
+settling it `ACCEPTED` or `REJECTED`. That fix repaired a real silent-loss defect — found by
+reading the receiver, reproduced and fixed in the same change (`5efff82`) — and is proven
+11/11 by `test_sync_integrity.py` (the M9→M10 gate, `M9_Verification_Report.md` §3).
+
+**No `D-M9-N` ruling was ever recorded for it.** It shipped as an engineering correction
+against `04` T-26's own durability guarantee — the operation row must exist before the
+business effect is attempted — not as a Product Architect scope decision. `PROJECT_STATE.md`
+item 3 and this document's own §9 row 4 were never updated to reflect the fix, and continued
+to cite `05` §11.5's **superseded** pre-fix clause (*"not specified and is not built ...
+Deferred to M9.4/M10"*) as if the gap were still open.
+
+#### 2. The ruling
+
+**No proactive server-side sweep of orphaned `RECEIVED` rows is a V1 requirement.**
+Replay-on-resend is the complete Edition-1 recovery mechanism: a device that eventually
+reconnects and resends recovers cleanly; a device that never reconnects leaves a `RECEIVED`
+row that is an operational alarm (`05` §11.5's `pending_count` — *"an alarm, not a queue
+depth"*), not a data-loss condition, because the business effect was either never attempted or
+remains recoverable the moment the device returns. **Checked directly: `02` and `04` contain
+zero mentions of "orphan" or "sweep."** This ruling adds no requirement and removes none —
+it corrects the record to what was already true.
+
+#### 3. What this does not do
+
+1. Does not add a scheduled task, cron, or periodic server-side process. None exists today,
+   and none is authorised by this ruling.
+2. Does not touch `05` §11.5's replay-on-resend text, which already correctly describes the
+   V1 mechanism and already preserves the superseded clause for history.
+3. No API, schema, or backend code changes as a consequence of this ruling.
+
+---
 
 ## 7. Explicitly preserved
 
@@ -1077,11 +1208,11 @@ evidence are in `PROJECT_STATE.md` *"Open at M9"*.
 | --: | --- | --- |
 | 1 | **FR-RPT-009** — sync health report, placed *at M9* by `02` ruling A-5 and `M7_Design_Review` §C-4. No implementation; **no endpoint in `05`** | Open |
 | ~~2~~ | ~~**FR-SYN-009** — `SALESMGR`/`ADMIN` per-device view~~ | **RULED — D-M9-7 (v1.2.0).** Moves to `Rel = v2.0`; leaves Edition 1 unbuilt. `02` amendment **S-6** authorised and unwritten. **The `03` §11.3 and `05` §11.5 inconsistencies it exposed remain open** — §8 OC-4, OC-5 |
-| 3 | **FR-SYN-007 remainder / stock snapshot** — D-M9.4-2 implements customers and deliveries only; D-M9.4-1 records the stock snapshot as an unclosed contract gap | Open — recorded gap |
-| 4 | **Orphaned `RECEIVED` recovery** — `05` §11.5 deferred it *"to M9.4/M10"*; M9.4 shipped without it | Open |
+| ~~3~~ | ~~**FR-SYN-007 remainder / stock snapshot**~~ | **RULED — D-M9-11 (2026-09-14).** Stock-snapshot clause moves to `Rel = v2.0` (`02` S-8); customers/products/prices/schemes unaffected. DV-1 removed the clause's only Edition-1 consumer |
+| ~~4~~ | ~~**Orphaned `RECEIVED` recovery**~~ | **RULED — D-M9-13 (2026-09-14).** Already closed in fact by the 2026-08-21 replay-on-resend fix (`05` §11.5); this row and `PROJECT_STATE.md` item 3 simply were never updated to match. No proactive sweep is a V1 requirement |
 | 5 | **M8 → M9 gate** (`00` §19.2, M8 task 10) | **No recorded evidence of this gate was found in the repository** — an absence of an artefact, not proof that nothing was run |
 | 6 | **M9 → M10 gate** — *"adversarial sync suite passes: zero loss, zero duplicates"* | **The suite does not exist** — `backend/tests/adversarial/` holds 13 suites, none for sync |
-| 7 | **TD-41 / FR-SYN-010** — ~~launch-only sync trigger; no connectivity mechanism in the frozen mobile stack~~ | **Mechanism ruled and built — D-M9-9 (v1.4.0).** `SyncRound` + `SyncScheduler`, 60 s fixed cadence, no new dependency. **FR-SYN-017 folded in and closed.** **FR-SYN-010 stays open** until B1 — a timed device/staging run — exists. Background scope is **TD-47**, a Product Architect ruling |
+| ~~7~~ | ~~**TD-41 / FR-SYN-010** — launch-only sync trigger; no connectivity mechanism in the frozen mobile stack~~ | **CLOSED for V1 — D-M9-9 (v1.4.0) + D-M9-12 (2026-09-14).** `SyncRound` + `SyncScheduler`, 60 s fixed cadence, no new dependency. **FR-SYN-017 folded in and closed. B1 PASSED 2026-09-06** — 67 046 ms of 120 000 ms (§5.1). **FR-SYN-010's bound is foreground-scoped for V1 (D-M9-12)**, so B1's foreground-only measurement is the complete acceptance evidence, not a partial one. Background/Doze (B3) is not a V1 gate |
 
 ---
 

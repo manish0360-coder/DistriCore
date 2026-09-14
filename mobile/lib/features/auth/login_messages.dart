@@ -20,6 +20,10 @@ String messageForFailure(Failure failure, {required LoginMode mode}) => switch (
       Unauthenticated() => 'Your session has ended. Please sign in again.',
       MalformedResponse() =>
         'The server sent something we could not read. Try again in a moment.',
+      // Distinct from `MalformedResponse` on purpose (see that type's own doc): the chain
+      // did not verify, which is worth saying plainly rather than folding into "try again".
+      CertificateRejected() =>
+        "Can't verify this is the right server. Contact the office if this continues.",
       StorageFull() => failure.message,
       Refused(:final code) => _refusal(code, mode, const []),
       ProblemFailure(:final code, :final errors) => _refusal(code, mode, errors),

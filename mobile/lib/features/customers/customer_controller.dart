@@ -112,6 +112,7 @@ final class CustomerListController extends Notifier<CustomerListState> {
         Unauthenticated() => 'Your session has ended. Please sign in again.',
         StorageFull() => 'Not enough storage to save this. Free some space and try again.',
         MalformedResponse() => 'The server sent something we could not read.',
+        CertificateRejected() => "Can't verify this server. Contact the office if this continues.",
         Refused() || ProblemFailure() => 'That could not be saved. Try again.',
       };
 }

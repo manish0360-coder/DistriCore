@@ -1,4 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- **Not merged in from debug/profile — each build variant's manifest is independent.**
+         `src/debug/AndroidManifest.xml` and `src/profile/AndroidManifest.xml` each declare
+         this permission with a comment saying it is "required for development... the
+         Flutter tool needs it to communicate with the running application, to allow
+         setting breakpoints, to provide hot reload, etc." That comment described why the
+         *tool* needs it, not why the *app* does, and this manifest — the one every release
+         build actually ships — was left with no declaration at all. A release build is
+         `AppConfig`'s entire reason to exist (`lib/app/config.dart`: a compiled-in server
+         address), and every `Dio` request it makes would have been refused by the OS
+         before leaving the device.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="districore"
         android:name="${applicationName}"

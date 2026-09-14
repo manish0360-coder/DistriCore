@@ -30,6 +30,8 @@ pytestmark = pytest.mark.adversarial
 ROOT = Path(__file__).resolve().parents[3]
 MOBILE = ROOT / "mobile"
 LIB = MOBILE / "lib"
+RELEASE_MANIFEST = MOBILE / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
+SOAK_TEST = MOBILE / "integration_test" / "offline_soak_test.dart"
 
 #: Everything this module reads from the repository. The backend image contains only
 #: `backend/`; these arrive by bind-mount from `docker/compose.dev.yml`, and a path that is
@@ -41,6 +43,7 @@ REQUIRED_PATHS = (
     "mobile/.flutter-version",
     "mobile/pubspec.yaml",
     "mobile/lib",
+    "mobile/android/app/src/main/AndroidManifest.xml",
     "docker/flutter.Dockerfile",
     "docker/compose.dev.yml",
     "scripts/win-flutter.sh",
@@ -516,16 +519,31 @@ def test_no_device_serial_is_hard_coded_in_a_recipe():
 
 
 #: Everything that touches a **real device**: the three gates and the preflight they share.
-#: `emulator-trust-ca` is deliberately absent — it is a developer convenience, not a gate,
-#: and its `adb push build/$(CA_HASH).0` passes a *host* path across the WSL boundary, a
-#: different problem with a different fix, which these contracts would misreport if they
-#: claimed it. `device-gate-preflight` must stay in this list: the guards moved there out of
-#: the gates, and omitting it would quietly stop checking them.
+#: `emulator-trust-ca` is deliberately absent — it is a developer convenience, not a gate —
+#: but it is not therefore unchecked: `test_emulator_trust_ca_invokes_no_bare_adb` below
+#: covers it on its own, because lumping a fourth, differently-shaped target into this tuple
+#: would make `_gate_recipe_lines` responsible for a target it was not written to describe.
+#: `device-gate-preflight` must stay in this list: the guards moved there out of the gates,
+#: and omitting it would quietly stop checking them.
+#:
+#: **2026-09-14:** this comment previously claimed `emulator-trust-ca`'s bare `adb` was "a
+#: different problem with a different fix" (a host path crossing the WSL boundary) and left
+#: it unchecked on that basis. Live evidence contradicted that: the recipe failed with the
+#: exact symptom `test_no_device_gate_invokes_a_bare_adb` already documents for the other
+#: three targets — `adb: command not found`, because bare `adb` is not `adb.exe` and WSL does
+#: not append the suffix. The exclusion from `DEVICE_GATES` stands for the reason given above
+#: (a different *shape* of target); the claim that it needed a different *fix* did not.
+#:
+#: **2026-09-14: `mobile-device-soak` added.** Same shape as the three it joins —
+#: `device-gate-preflight` prerequisite, `$(FLUTTER_HOST_RUN) drive` phases with
+#: `--keep-app-running`, `$(ADB)` for the radio toggles between them — so it is covered by
+#: every contract below for free rather than needing a parallel checker.
 DEVICE_GATES = (
     "device-gate-preflight",
     "mobile-device-kill",
     "mobile-device-storage",
     "mobile-device-encryption",
+    "mobile-device-soak",
 )
 
 #: Shell string literals. `echo "…the adb server is Windows-side…"` is prose about adb, not
@@ -568,6 +586,50 @@ def test_no_device_gate_invokes_a_bare_adb():
     assert not offenders, (
         "a device gate invokes a bare `adb`, which in WSL resolves to a Linux adb server that "
         f"cannot see a Windows emulator; use $(ADB): {offenders}"
+    )
+
+
+def _recipe_lines_for(target: str) -> list[str]:
+    """Every recipe line of one named target, continuations joined, quotes stripped.
+
+    `_gate_recipe_lines` above does the same walk restricted to `DEVICE_GATES`; this is the
+    same walk for a single target outside that tuple, so `emulator-trust-ca` can be checked
+    without being folded into a constant that describes a different kind of target.
+    """
+    text = (ROOT / "Makefile").read_text(encoding="utf-8")
+    joined = re.sub(r"\\\n\s*", " ", text)
+
+    collected: list[str] = []
+    active = False
+    for line in joined.splitlines():
+        if line.startswith("\t"):
+            if active:
+                collected.append(_QUOTED.sub(" ", line))
+            continue
+        active = line.split(":", 1)[0].strip() == target
+    return collected
+
+
+def test_emulator_trust_ca_invokes_no_bare_adb():
+    """**Found 2026-09-14, from a real WSL run, not a review.**
+
+    `make emulator-trust-ca` failed with `adb: command not found` even after the operator
+    put `platform-tools` on `PATH` and confirmed `adb.exe devices` could see the emulator
+    directly — because bash resolves a bare `adb`, and there is no `adb` on a stock WSL
+    `PATH`, only `adb.exe`, which bash does not try appending. `$(ADB)` exists and is
+    documented exactly above (`ADB ?= $(MOBILE_ANDROID_SDK)/platform-tools/adb.exe`) for
+    this reason, and every device gate uses it — `test_no_device_gate_invokes_a_bare_adb`
+    has proven that since before this target existed. `emulator-trust-ca` was simply never
+    added to what that test scans (see the comment on `DEVICE_GATES`), so its five bare
+    `adb` calls shipped unnoticed until an operator hit them.
+    """
+    lines = _recipe_lines_for("emulator-trust-ca")
+    assert lines, "emulator-trust-ca recipe not found — this test would pass vacuously"
+
+    offenders = [line.strip()[:110] for line in lines if re.search(r"(?<![-\w$/.)])adb\b", line)]
+    assert not offenders, (
+        "emulator-trust-ca invokes a bare `adb`, which WSL's bash cannot resolve to "
+        f"`adb.exe`; use $(ADB): {offenders}"
     )
 
 
@@ -946,6 +1008,105 @@ def test_the_storage_gate_places_no_ballast_from_the_runner():
     assert not offenders, (
         "the runner places a ballast again. An APK cannot be installed onto a full disk and "
         f"`flutter drive` always installs, so this can only ever fail: {offenders}"
+    )
+
+
+def test_the_soak_gate_exercises_both_write_paths_under_the_local_write_bound():
+    """**NFR-OFF-001, M8 §10 task 10 — the anti-vacuity guard for the soak harness itself.**
+
+    `M8_Design_Review` §5.6.3 records what the harness must do; this is what stops the harness
+    silently doing less than that while `mobile-device-soak` still exits 0. Three properties,
+    mirrored from the storage gate's own two-part contract above:
+
+    1. **Both write paths are actually called** — `recordVisit` and `DeliveryRepository`'s
+       `complete`, the two that exist on a device today. A soak that only exercised one would
+       report a pass while proving nothing about the other.
+    2. **The delivery path has an anti-vacuity guard of its own.** A delivery is terminal once
+       completed (`canComplete` goes false), so the seed cannot be cycled the way customers
+       are; a run against zero dispatched deliveries would silently soak visits only and never
+       say so. `arm` must refuse to proceed rather than let that pass quietly.
+    3. **NFR-PER-002's 500ms bound is asserted on the write itself**, not merely logged — a
+       heartbeat that only prints a number proves nothing the way an `expect` does.
+    """
+    assert SOAK_TEST.exists(), f"{SOAK_TEST} missing — would pass vacuously"
+    source = SOAK_TEST.read_text(encoding="utf-8")
+
+    assert re.search(r"\brecordVisit\s*\(", source), (
+        "the soak harness never calls recordVisit — the visit write path is unexercised"
+    )
+    assert re.search(r"\.complete\s*\(\s*\n?\s*delivery\s*:", source), (
+        "the soak harness never calls DeliveryRepository.complete — the delivery write path "
+        "is unexercised"
+    )
+
+    # The anti-vacuity guard: at least one `expect(dispatched, greaterThan(0), ...)`-shaped
+    # assertion over the dispatched-deliveries count, so a zero-delivery seed fails loudly
+    # instead of silently degrading to visits only.
+    assert re.search(r"dispatched[,\s\S]{0,80}greaterThan\(0\)", source), (
+        "no anti-vacuity guard found on the dispatched-deliveries count; a soak run with zero "
+        "dispatched deliveries would pass while never exercising DeliveryRepository.complete"
+    )
+
+    assert "_localWriteBoundMs" in source and re.search(
+        r"lessThanOrEqualTo\(_localWriteBoundMs\)", source
+    ), (
+        "NFR-PER-002's 500ms bound is not asserted against a measured write latency"
+    )
+
+
+def test_the_soak_gate_verifies_through_the_real_sync_status_endpoint():
+    """**NFR-OFF-002/003 — zero loss, zero duplicates, proven from the server's own view.**
+
+    `05` §11.5: the local outbox reaching zero proves every operation was *sent and
+    acknowledged*; it does not by itself prove none was *rejected*, since a `REJECTED` row
+    leaves the local outbox by the same path `ACCEPTED` does. Only `GET /sync/status` — reached
+    here through `syncStatusRepositoryProvider`, the same port the sync-status screen and M9.3
+    already use — carries that distinction. A harness that only checked local outbox depth
+    would look identical to this one while proving a strictly weaker claim.
+    """
+    assert SOAK_TEST.exists(), f"{SOAK_TEST} missing — would pass vacuously"
+    source = SOAK_TEST.read_text(encoding="utf-8")
+
+    assert "syncStatusRepositoryProvider" in source, (
+        "the soak harness does not read syncStatusRepositoryProvider — NFR-OFF-002/003 would "
+        "be checked only against the device's own outbox, not the server's view (05 §11.5)"
+    )
+    assert re.search(r"\.isHealthy\b", source), (
+        "the soak harness does not assert on ServerSyncStatus.isHealthy (pending == 0 && "
+        "rejected == 0) — the server-side zero-loss/zero-duplicate claim is unverified"
+    )
+
+
+def test_the_soak_gate_stays_offline_for_the_whole_run_phase():
+    """**Unlike B1, the radio must not move mid-phase.**
+
+    B1 measures a reconnection, so its `measure` phase starts offline and the radio returns
+    partway through, timed and backgrounded. This gate has 8 hours of writes to prove, not a
+    reconnection to time, so the Makefile must toggle the radio once between `arm`/`run` and
+    once between `run`/`verify` — never inside the `run` invocation itself, which would leave
+    part of the soak silently exercised online.
+    """
+    lines = _recipe_lines_for("mobile-device-soak")
+    assert lines, "mobile-device-soak recipe not found — this test would pass vacuously"
+
+    joined = " ".join(lines)
+    arm_at = joined.find("GATE_PHASE=arm")
+    run_at = joined.find("GATE_PHASE=run")
+    verify_at = joined.find("GATE_PHASE=verify")
+    assert -1 not in (arm_at, run_at, verify_at) and arm_at < run_at < verify_at, (
+        f"mobile-device-soak must invoke arm, then run, then verify, in that order: {lines}"
+    )
+
+    disable_at = joined.find("svc wifi disable")
+    assert arm_at < disable_at < run_at, (
+        "the radio must be disabled between arm and run, and nowhere else in this recipe — "
+        f"found the disable at the wrong position: {lines}"
+    )
+    # No enable between run and its own GATE_PHASE=run invocation — the run phase itself must
+    # contain no radio toggle, only the boundary before verify may re-enable it.
+    between_run_and_verify = joined[run_at:verify_at]
+    assert "svc wifi enable" in between_run_and_verify or "svc data enable" in joined[run_at:], (
+        "the radio is never re-enabled before verify; reconnection would never be attempted"
     )
 
 
@@ -1716,4 +1877,33 @@ def test_every_landing_screen_can_reach_settings():
     assert action.exists(), "the shared Settings action is gone; four copies is not the fix"
     assert "'/settings'" in action.read_text(encoding="utf-8"), (
         "the Settings action no longer navigates to the route `router.dart` declares"
+    )
+
+
+def test_the_release_manifest_declares_internet_permission():
+    """Found 2026-09-14: the release/main manifest is a networked app with no network.
+
+    Flutter's template writes `<uses-permission android:name="android.permission.INTERNET"/>`
+    into `src/debug/AndroidManifest.xml` and `src/profile/AndroidManifest.xml` — both
+    carry the comment *"required for development... the Flutter tool needs it to
+    communicate with the running application"* — but never into `src/main/`, because the
+    template assumes a generated app has no network needs of its own. Android does not
+    merge debug's permissions into a release build; each variant manifest is independent.
+    DistriCore's `main` manifest was still the bare template: every `Dio` call in a release
+    or profile-signed-as-release build would be refused by the OS before the request left
+    the device — a defect invisible on `flutter run` (debug) and on every device-gate test
+    (also debug), and visible only in the one build variant nothing here exercises.
+
+    Mutation-proved: deleting the `<uses-permission>` line from `src/main/` — the exact
+    regression this guards — fails this assertion.
+    """
+    assert RELEASE_MANIFEST.exists(), f"missing: {RELEASE_MANIFEST}"
+    text = RELEASE_MANIFEST.read_text(encoding="utf-8")
+    assert re.search(
+        r'<uses-permission\s+android:name="android\.permission\.INTERNET"\s*/>', text
+    ), (
+        "src/main/AndroidManifest.xml has no INTERNET permission. debug/ and profile/ "
+        "carry one each for the Flutter tool's own use, but Android does not merge a "
+        "variant manifest into main — a release build needs its own declaration to make "
+        "a single network call."
     )

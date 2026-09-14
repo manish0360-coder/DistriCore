@@ -11,14 +11,40 @@
 | Depends on | `01_Project_Vision.md` v0.2.0 |
 | Audience | Engineering, QA, business owner |
 
+> **Amendment in v0.4.0, recorded 2026-09-14.** **S-9** — FR-SYN-010's 2-minute bound is
+> **foreground-scoped for Edition 1/V1**. The requirement named no application state; a Product
+> Architect ruling (`M9_Design_Review.md` §6 D-M9-12) resolves that silence: the bound applies
+> while the application is in the foreground and connectivity has been restored, and background
+> / suspended / Doze / App Standby synchronisation is best-effort in V1, not part of the
+> acceptance criterion. **No `WorkManager`/`JobScheduler`/foreground-service mechanism is added.**
+> `NFR-PER-004`'s existing device measurement (B1, PASSED 2026-09-06, foreground) is therefore
+> the complete V1 verification, not a partial one awaiting a background counterpart. **Priority
+> `M` and release `v1.0` unchanged; requirement text unchanged; nothing deleted.** See §18.1 S-9.
+>
+> **Amendment in v0.4.0, recorded 2026-09-14.** **S-8** — FR-SYN-007's stock-snapshot clause
+> moves to `Rel = v2.0`; customers, products, prices and schemes in the same requirement are
+> unaffected. `02A` §5's DV-1 removed field order capture from Edition 1, and no remaining
+> Edition-1 mobile workflow checks stock availability or contends for it — the requirement's
+> own justification has no subject. This is an **Architect ruling** (D-M9-11), closing `05`
+> D-M9.4-1's recorded CONTRACT GAP by removing what it was gapped against. **Priority `M`
+> unchanged; the rest of FR-SYN-007's text unchanged; nothing deleted.** See §18.1 S-8.
+>
+> **Amendment in v0.4.0, recorded 2026-09-14.** **S-6** — FR-SYN-009 moves to `Rel = v2.0`.
+> The gap the previous paragraph names — *"an independent `S1` gap awaiting its own
+> ruling"* — was closed the same day it was written: `M9_Design_Review.md` §6 D-M9-7
+> (v1.2.0) ruled it later on 2026-08-21 than D-M9-6 (v1.1.0), which is what this document had
+> been amended against. This row is that later ruling, transcribed. **Priority `M` unchanged;
+> requirement text unchanged; nothing deleted.** See §18.1 S-6.
+>
 > **Amendment in v0.4.0.** **S-5** — FR-SYN-008's third field read *"count of unresolved
 > conflicts"*, a phrase this document used twice and defined nowhere, and which the existing
 > implementation already represented as `rejected_count`. It now reads *"count of operations the server
 > has rejected"*, which names a quantity `05` §11.5 already specifies as `rejected_count` and
 > `05` §11.2 already requires be flagged to the user. **Priority `M` and release `v1.0`
 > unchanged; no API field is added or renamed.** Authority: `docs/M9_Design_Review.md` §6
-> D-M9-6 (v1.1.0). **FR-SYN-009 carries the same undefined phrase and is deliberately not
-> amended** — it is an independent `S1` gap awaiting its own ruling.
+> D-M9-6 (v1.1.0). **FR-SYN-009 carried the same undefined phrase and was deliberately not
+> amended here** — it was, at the time this paragraph was written, an independent `S1` gap
+> awaiting its own ruling. **Now closed — see the S-6 paragraph above.**
 >
 > **Amendments in v0.3.0.** M9 established that the synchronisation block, like the
 > receivables and reporting blocks before it, was written against the frozen baseline and
@@ -704,10 +730,10 @@ Governed by §5. These requirements make those semantics testable.
 | FR-SYN-004 | Sync MUST be resumable: an interrupted batch MUST NOT lose, duplicate or partially apply transactions. | M | v1.0 | CORE, S2 | §10.3 |
 | FR-SYN-005 | `CORE` MUST classify every rejected transaction into a §5.3 class and persist it as a `SyncConflict` in `PENDING_RESOLUTION`. **[S-1 — in Edition 1 the §5.3 taxonomy reduces to the two automatic classes (`02A` §5); persistence is discharged by `sync_operation` (`04` T-26). `SyncConflict` is a §4.1 conceptual entity name, not a schema requirement.]** | M | v1.0 | CORE | BR-014, BR-015 |
 | FR-SYN-006 | A transaction MUST NOT be discarded under any circumstance, including malformed payloads, which MUST be quarantined and reported rather than dropped. | M | v1.0 | CORE | BR-014 |
-| FR-SYN-007 | Sync MUST deliver master-data updates to the device: customers on assigned routes, products, prices, schemes and stock snapshot. | M | v1.0 | CORE, S2 | FR-CUS-013 |
+| FR-SYN-007 | Sync MUST deliver master-data updates to the device: customers on assigned routes, products, prices, schemes and stock snapshot. **[S-8 — the stock-snapshot clause moves to `v2.0`; customers, products, prices and schemes are unaffected and remain `v1.0`. DV-1 (`02A` §5) removed field order capture from Edition 1, and stock snapshot has no other Edition-1 consumer — no V1 mobile workflow checks availability or contends for stock. Returns with field order capture, the same event that returns FR-SYN-013/014 (S-2).]** | M | v1.0 / **v2.0 (stock only)** | CORE, S2 | FR-CUS-013 |
 | FR-SYN-008 | The device MUST display its last successful sync time, count of pending transactions, and count of operations the server has rejected. **[S-5 — the third field previously read *"count of unresolved conflicts"*, a phrase defined nowhere in this document. Edition 1's smallest truthful quantity is `sync_operation.status = 'REJECTED'`, which `05` §11.2 already requires be flagged to the user. `DEFERRED` is excluded: it auto-retries, so it belongs to the owner's exception list (`04` T-26) and not to the device's count.]** | M | v1.0 | S2, S3 | §5.4 |
-| FR-SYN-009 | `SALESMGR` and `ADMIN` MUST be able to view, per device: last sync time, pending transaction count and unresolved conflicts. | M | v1.0 | S1 | §5.4 |
-| FR-SYN-010 | Full sync of a typical daily volume MUST complete within 2 minutes of reconnection at the DR-8 envelope. | M | v1.0 | CORE | §10.3 |
+| FR-SYN-009 | `SALESMGR` and `ADMIN` MUST be able to view, per device: last sync time, pending transaction count and unresolved conflicts. **[S-6 — Edition 2. Three Edition-1 prerequisites are absent at once: no admin console exists for it to live in (`02A` §7.12), Edition 1 has no `SALESMGR`/`ADMIN` role to gate it (§7.1 — four fixed roles, neither among them), and there is no registered `device` entity to view (`04` §13.2). Any one would be sufficient; all three hold. Priority `M` and requirement text unchanged; nothing deleted.]** | M | **v2.0** | S1 | §5.4 |
+| FR-SYN-010 | Full sync of a typical daily volume MUST complete within 2 minutes of reconnection at the DR-8 envelope. **[S-9 — foreground-scoped for Edition 1/V1: the bound applies while the application is in the foreground and connectivity has been restored. Background/suspended/Doze/App Standby sync is best-effort in V1 and is not part of this acceptance criterion. Priority `M` and release `v1.0` unchanged; requirement text unchanged.]** | M | v1.0 | CORE | §10.3 |
 | FR-SYN-011 | Sync MUST occur over an encrypted transport and MUST authenticate both user and device. | M | v1.0 | CORE | NFR-5, FR-IAM-009 |
 | FR-SYN-012 | Sync MUST transmit only records the device's user is authorised to hold, minimising data at rest on the device. | M | v1.0 | CORE | NFR-5, R-8 |
 | FR-SYN-013 | Conflicts MUST be resolvable on `S1` with sufficient context to decide: captured values, current values, customer, salesman and capture time. **[S-2 — Edition 2. No Edition-1 conflict class requires human resolution (`02A` §5), so this requirement has no subject. Moved to v2.0 exactly as FR-REC-004 (B-1) and FR-RPT-006 (A-3) were: still a requirement, not deleted.]** | M | **v2.0** | S1 | BR-015, FR-ORD-034 |
@@ -748,6 +774,9 @@ must be able to see it was considered and deferred rather than forgotten.
 | **S-3** | **BR-014's guarantee is unchanged; only the named artefact.** The Edition-1 vehicle is `sync_operation` with retained `payload` and a non-empty `error_code`, enforced by `ck_sync_operation_rejected` — a rejection with no reason is refused by the database. Nothing is discarded, and `04` T-26 states it is *"the table that makes 'no transaction is ever lost' true rather than aspirational"* | `04` T-26 · `03` §6.2 · `M9_Design_Review` §6 D-M9-2 |
 | **S-4** | **§5.3's four non-automatic classes are Edition 2, and FR-SYN-006 quarantine is distinct from the taxonomy.** Recorded as a ruling: this document did not previously draw that distinction, and FR-SYN-005's *"every rejected transaction"* read wider than §5.3 can support. **No `SC-*` class is created** | `02A` §5 · `M9_Design_Review` §6 D-M9-3 |
 | **S-5** *(2026-08-21)* | **FR-SYN-008's third field reworded; nothing else in the requirement changes.** *"Count of unresolved conflicts"* was undefined — the phrase appeared twice before this amendment, both in this document, and neither §5.4 (its only trace) nor `05` §11.5 defines it. The Edition-1 quantity is `sync_operation.status = 'REJECTED'`, which `05` §11.2 already obliges the client to *"flag to the user"*. **No API field is added or renamed: the existing `rejected_count` (`05` §11.5) satisfies the amended quantity**, and no schema, contract or logic changes. `DEFERRED` stays out of the device count because it auto-retries. **Priority `M` and release `v1.0` are unchanged**; FR-SYN-009, FR-SYN-006 and BR-014 are untouched by this row | `05` §11.2, §11.5 · `04` T-26 · `M9_Design_Review` §6 D-M9-6 |
+| **S-6** *(2026-08-21, written 2026-09-14)* | **FR-SYN-009 → `v2.0`**, annotated in place; priority `M` and requirement text unchanged, nothing deleted. Ruled the same day as S-1…S-5, by a later decision (D-M9-7, v1.2.0) than the one this document had been updated against (D-M9-6, v1.1.0) — this row closes that gap. `02A` §7.12 places the admin console in Edition 2; Edition 1 has no `SALESMGR`/`ADMIN` role (§7.1); `04` has no registered `device` entity until §13.2's Edition-2 activation. Returns in Edition 2 with all three | `02A` §7.1, §7.12 · `04` §13.2 · `M9_Design_Review` §6 D-M9-7 |
+| **S-8** *(2026-09-14)* | **FR-SYN-007's stock-snapshot clause → `v2.0`.** The rest of the requirement — customers on assigned routes, products, prices, schemes — is untouched and stays `v1.0`; only the named clause moves, priority `M` unchanged, nothing deleted. DV-1 removed field order capture from Edition 1; the requirement's own reason for existing (a salesman checking availability before committing an offline order) has no subject when no order is committed offline. Closes `05` D-M9.4-1's CONTRACT GAP by removing the requirement it was gapped against, rather than by building against it. Returns with field order capture, the same event that returns S-2 | `02A` §5 · `05` §11.1 D-M9.4-1, D-M9-11 |
+| **S-9** *(2026-09-14)* | **FR-SYN-010 and NFR-PER-004 annotated in place: the 2-minute bound is foreground-scoped for Edition 1/V1.** Neither requirement named an application state; TD-47 (`PROJECT_STATE.md`) flagged that silence as a scope question no engineering measurement could settle alone. Ruled: the bound applies in the foreground with connectivity restored; background/suspended/Doze/App Standby sync is best-effort in V1, not an acceptance criterion. **No `WorkManager`/`JobScheduler`/foreground-service mechanism is added**; the existing `D-M9-9` `SyncScheduler` (60 s cadence, `onResume`/`onDetach` only) is unchanged and is now confirmed correct as built. B1's foreground-only measurement (PASSED 2026-09-06, 67 046 ms of 120 000 ms) is the complete V1 acceptance evidence. **Priority `M` and release `v1.0` unchanged; requirement text unchanged; nothing deleted** | `M9_Design_Review` §6 D-M9-9, D-M9-12 |
 
 > **S-4 is the one to read twice.** S-1, S-2 and S-3 record departures `02A` had already
 > decided and this document had merely never been told about. **S-4 decides something the
@@ -868,7 +897,7 @@ Vision §13 states goals. This section makes them testable. **A non-functional g
 | NFR-PER-001 | Interactive `S1` and `S4` operations MUST complete within 2 seconds at the 95th percentile under the DR-8 envelope. | Load test at envelope |
 | NFR-PER-002 | `S2` order capture actions MUST respond within 500 ms, bounded by local storage and independent of network state. | Device test on the minimum-specification handset |
 | NFR-PER-003 | Reports MUST return within 10 seconds over five years of history (FR-RPT-015). | Load test against a synthesised five-year dataset |
-| NFR-PER-004 | Sync of typical daily volume MUST complete within 2 minutes (FR-SYN-010). | Timed sync at representative volume |
+| NFR-PER-004 | Sync of typical daily volume MUST complete within 2 minutes (FR-SYN-010). **[S-9 — verified in the foreground only; B1 (foreground, PASSED 2026-09-06) is the complete V1 evidence. Background/Doze behaviour is not a V1 acceptance gate.]** | Timed sync at representative volume, foreground |
 | NFR-PER-005 | Performance MUST be re-measured against the five-year projected dataset before each release, not only against a fresh database. | Release gate |
 
 ### 21.4 Scalability (`SCA`) — Vision NFR-4, DR-8

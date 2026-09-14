@@ -556,7 +556,15 @@ The consolidated answer to "what is built now, and what is merely left possible.
 
 ### 11.3 Observability
 
-Structured JSON logs to stdout, captured by Docker. `/healthz` endpoint. Sync status per device visible in the admin (FR-SYN-009). **No APM, no metrics stack, no log aggregation service** — at one process on one host, `docker logs` and a health check answer every question worth asking, at zero cost.
+Structured JSON logs to stdout, captured by Docker. `/healthz` endpoint. **No APM, no metrics stack, no log aggregation service** — at one process on one host, `docker logs` and a health check answer every question worth asking, at zero cost.
+
+> **Corrected 2026-09-14 (OC-4).** This row previously asserted *"Sync status per device
+> visible in the admin (FR-SYN-009)"* as built. It never was, and per `M9_Design_Review.md`
+> §6 D-M9-7 (`02` S-6) it is Edition 2 — this document derives its scope from `02A`
+> (`03` header, "Scope: Edition 1 (1a + 1b)"), so the earlier line was `03` out of step with
+> its own governing document, not a missing feature. The sync status that does exist in
+> Edition 1 is on the device (`M8_Design_Review` §3.1) and in `GET /sync/status` (`05` §11.5),
+> neither of which is an admin-console view.
 
 ---
 

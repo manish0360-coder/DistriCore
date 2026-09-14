@@ -119,6 +119,7 @@ final class SyncStatusController extends Notifier<SyncStatusState> {
         Offline() ||
         Unauthenticated() ||
         MalformedResponse() ||
+        CertificateRejected() ||
         Refused() ||
         ProblemFailure() =>
           // None of these can arise from a local read today. Named rather than defaulted,

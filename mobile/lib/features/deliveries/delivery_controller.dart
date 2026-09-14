@@ -126,6 +126,7 @@ final class DeliveryListController extends Notifier<DeliveryListState> {
         // rather than implying the app is merely waiting for signal.
         StorageFull() => 'Not enough storage to save this. Free some space and try again.',
         MalformedResponse() => 'The server sent something we could not read.',
+        CertificateRejected() => "Can't verify this server. Contact the office if this continues.",
         Refused() || ProblemFailure() => 'That could not be saved. Try again.',
       };
 }

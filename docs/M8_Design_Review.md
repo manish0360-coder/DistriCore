@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Document ID | `M8_Design_Review` |
-| Version | **1.12.0** |
-| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–5, 7, 8 and 9 built; TD-39 done. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). §11.2 items 7 (OI-7) and 8 (TD-36) both CLOSED 2026-09-06. **Task 8 — Owner Companion Mode — built (§3.4).** Remaining: task 6 (GPS/media, `Rel = v1.1`, not V1) and task 10 (the 8-hour soak)** |
+| Version | **1.13.0** |
+| Status | **Phase 1 FROZEN. Phase 2 — tasks 0–5, 7, 8 and 9 built; TD-39 done. `00` §19.2's durability gate CLOSED: kill PASSED 2026-09-01 (§5.6.1), storage PASSED 2026-09-04 (§5.6.2). §11.2 items 7 (OI-7) and 8 (TD-36) both CLOSED 2026-09-06. **Task 8 — Owner Companion Mode — built (§3.4).** **Task 10's harness built and committed 2026-09-14 (§5.6.3) — NFR-OFF-001 and TD-45 remain OPEN until the authoritative physical-device run.** Remaining: task 6 (GPS/media, `Rel = v1.1`, not V1) and task 10's authoritative run** |
 | Date | 2026-08-16 |
 | Milestone | M8 — Mobile app (3.0 units, `00` §19.1) |
 | Scope | Flutter shell · auth · delivery · visits · GPS · photo · **local outbox** |
@@ -31,6 +31,7 @@
 | **1.11.0** | **2026-09-06** | **§3.4.1b added — TD-36 CLOSED.** The defect §3.4.1a recorded at task 0 is fixed, in its own change with its own verify as §11.2 item 8 required. **Eight endpoints, not seven** — FR-RPT-009 landed in between and carried it. The fix is a semantic `ColumnKind` (`TEXT`/`COUNT`/`MONEY`/`QUANTITY`/`RATE`) on `reporting.tables.Column`, with `numeric` **derived** from it, so the CSV path is byte-identical and the screen is untouched; `_as_json` encodes `MONEY`/`QUANTITY`/`RATE` through `core.fields` and leaves `COUNT` a JSON integer. A boolean could not have done this: stringifying `rank`, `oldest_days` and the sync counters would have shipped the opposite defect. `05` **AD-02.1** added — `RATE` is a decimal string, a count is not; **AD-02 itself, `02` and §9.11.2's metric definition are unchanged**. New adversarial suite over every registered report, fourteen mutations each proved to fail. **The client needed no change.** §11.2 item 8 struck; §12.8's row struck. **Minor, not patch: a published response type changed shape.** |
 | **1.11.1** | **2026-09-06** | **§3.4.1b — the first authoritative `make verify` run of TD-36, and the three things it found.** 1155 passed / 3 failed / 1 error at `604f545`, all fixed forward. **(a)** A blank `COUNT` was leaving as `""` in the `receivables` and `top-customers` total rows — shipped since M7, invisible to a suite that asserted values and never types. Now `null`; `0` rejected because rank-zero is a measurement. `05` **AD-02.1** states it. **(b)** The customer statement's JSON path renders `StatementSerializer`, **not** a `ReportTable`, so `COERCE_DECIMAL_TO_STRING` already covered it and TD-36 never reached it — the test was corrected to the shipped contract rather than the contract to the test. **(c)** A latent `CustomerFactory`/`credit_customer` collision on **C-0142**, exposed by the milestone's case count and not caused by it; generated codes take a reserved `C-T` prefix and a new adversarial suite holds the rule. **Patch: no decision changed.** |
 | **1.12.0** | **2026-09-06** | **§11.2 item 7 (OI-7) RULED, and task 8 — Owner Companion Mode — built (§3.4).** M-14 stays cut: `02A` §13 governs over §7.12, the same precedence M7's C-1…C-6 established. "Needs attention" is **two** filtered reads — confirmed-not-dispatched orders and failed deliveries. **"Overdue balances" is excluded from V1**: no overdue rule exists in the corpus, `Customer.credit_days` is stored and read by nothing, and defining one is a `receivables` decision (D-3) rather than a label on a phone. Screen 3 is included and takes the first ten rows of the **server-ordered** ageing report — presentation, not derivation (§2.3). **Online-only**: no new cache architecture, so no second source of truth for figures the web admin owns. One additive backend change, `assigned_user_name` (`05` **§9.4.1**), because §3.4 asks for the salesman's name and the payload carried only an id. **Minor, not patch: a screen inventory grew and an open item closed.** |
+| **1.13.0** | **2026-09-14** | **§5.6.3 added — the task 10 soak harness designed and built.** `integration_test/offline_soak_test.dart` (arm/run/verify) and `make mobile-device-soak`, reusing B1's `_wire`/radio-off-probe/`--keep-app-running` conventions rather than new infrastructure. ~200 operations paced at ~144s over 8 real hours, alternating `recordVisit` (unbounded, cycled) and `DeliveryRepository.complete` (bounded — an anti-vacuity guard fails `arm` if no delivery is dispatched to the seed salesman), each write asserted against NFR-PER-002's 500ms bound, verified by draining the real `SyncRound`/`SyncScheduler` and reading `GET /sync/status` for `pending == 0 && rejected == 0` (NFR-OFF-002/003). **§12 item 3's self-critique is resolved by this row — the design now exists.** **This entry records the harness, not a pass**: no run has been executed against any device, emulator or physical. **NFR-OFF-001 and TD-45 remain open** until the authoritative run named in §5.6.3 completes, on a physical device. **Minor, not patch: new evidence of a design, not yet a gate result.** No production code changed. |
 
 ---
 
@@ -733,6 +734,72 @@ live object and matching it by type is sound rather than lucky.
 **Not claimed by this run:** `arm64`, physical hardware, and any device other than the one
 named above. **TD-45 stands.**
 
+
+### 5.6.3 The soak harness — task 10, NFR-OFF-001. Designed and built; not yet run.
+
+**This section records a harness, not a gate result.** §12 item 3's self-critique named the
+gap: *"How it is actually run — a real device, a day of representative volume, who watches
+it — is not settled here."* `integration_test/offline_soak_test.dart` and
+`make mobile-device-soak` are that design. No run has been executed on any device — emulator
+or physical — and NFR-OFF-001 and **TD-45** remain exactly as open as they were before this
+section was written.
+
+#### 1. Why this is a separate design from B1, not B1 run longer
+
+B1 (§5.1) proves reconnection is **fast** once it happens. NFR-OFF-001 is a different claim —
+that the app stays **usable for the entire offline stretch before any reconnection** — with
+its own method (`02` §21.2): *"Soak test: 8 hours offline at representative transaction
+volume."* The harness reuses B1's wiring (`_wire`, the radio-off probe, `--keep-app-running`)
+rather than re-deriving it, but the phases and what they prove are distinct.
+
+| Field | Value |
+| --- | --- |
+| Harness | `mobile/integration_test/offline_soak_test.dart` |
+| Makefile target | `make mobile-device-soak` |
+| Phases | `arm` (radio ON, authenticate, pull cache) → `run` (radio OFF, 8h paced writes) → `verify` (radio ON, real `SyncRound`/`SyncScheduler` drain, `GET /sync/status`) |
+| Volume | ~200 operations, the same DR-8 derivation B1 uses, paced ~144s apart |
+| Write paths exercised | `OutboxCustomerRepository.recordVisit` and `OutboxDeliveryRepository.complete` — the two that exist on a device today |
+| Local-write bound asserted | NFR-PER-002, 500ms, per operation |
+| Reconnection proof | `ServerSyncStatus.isHealthy` (`pending == 0 && rejected == 0`) via `GET /sync/status` (`05` §11.5) — the server's view, not only the device's own |
+
+#### 2. The precondition this design cannot satisfy itself
+
+The delivery write path needs at least one delivery **dispatched** and assigned to the seed
+salesman. `scripts/seed-b1.sh` deliberately does not seed one — its own comment states why: a
+delivery completion needs *"a real assigned delivery in the right state, which means seeding
+orders and dispatch as well,"* a workflow this harness does not script. `arm` asserts
+`dispatched > 0` and fails immediately, before any of the 8 hours is spent, if the precondition
+is unmet — the same anti-vacuity shape §5.6.2's ballast guard uses. Satisfying it is three
+ordinary web-admin actions (order, invoice, dispatch), not new tooling.
+
+#### 3. What a rehearsal proves, and what only the authoritative run proves
+
+`make mobile-device-soak` on `emulator-5554`, `SOAK_OPERATIONS`/`SOAK_DURATION_MINUTES`
+overridden for a short run, proves the harness's own mechanics — pacing, the two write paths,
+the 500ms assertion, the drain and the `GET /sync/status` check. It does **not** close
+NFR-OFF-001 or move TD-45: the design's own gate cell (§10 task 10) reads *"Measured on a real
+device, not assumed,"* worded differently from every other row in that table on purpose. **The
+authoritative run is on physical hardware**, at the default 200 operations over the full 8
+hours, and its evidence belongs in this section as a dated addendum — §5.6.1 and §5.6.2's
+format — once it exists.
+
+#### 4. What this section does not attempt
+
+**NFR-OFF-004** (three days' local storage capacity without sync) is a separate, larger claim
+and a separate, larger soak. It is explicitly out of scope here, not silently covered by an
+8-hour run, and is recorded as its own follow-up rather than folded into task 10.
+
+#### 5. The exact command for the authoritative run
+
+```
+make mobile-device-soak MOBILE_DEVICE_ID=<physical device id>
+```
+
+Defaults (`SOAK_OPERATIONS=200`, `SOAK_DURATION_MINUTES=480`) are the ones that count; do not
+override them for the run that closes this gate. Requires the dev stack up, the dev CA trusted
+on the device, `scripts/seed-b1.sh` run, and §2's precondition (≥1 dispatched delivery)
+satisfied first.
+
 ---
 
 ## 6. State management
@@ -927,7 +994,7 @@ so a review has something to check against.
 | 7 | Customers, visits | P-1, P-8 | — |
 | 8 | **Owner Companion Mode** — Today · pending deliveries · receivables · needs attention | **P-1, P-8, P-9** | Read-only; every cached figure carries `as_of`; no write path exists |
 | 9 | Sync-status screen (outbox depth) | P-8 | FR-SYN-008, necessarily partial until M9 |
-| 10 | **The 8-hour offline soak** (NFR-OFF-001) and the M8→M9 gate | P-2, P-5 | **Measured on a real device, not assumed** |
+| 10 | **The 8-hour offline soak** (NFR-OFF-001) and the M8→M9 gate | P-2, P-5 | **Measured on a real device, not assumed.** Harness built 2026-09-14 (§5.6.3); authoritative physical-device run outstanding |
 
 ### 10.1 What the ordering is actually protecting
 
@@ -1024,6 +1091,11 @@ design finds the shape wrong, M8 will have shipped dead code that looks load-bea
 names the task. How it is actually run — a real device, a day of representative volume, who
 watches it — is not settled here, and a soak test nobody schedules is a requirement nobody
 meets. FR-RPT-015 sat unmeasured for exactly this reason until three days ago.
+**Resolved 2026-09-14 — §5.6.3.** The harness now exists and is scheduled by
+`make mobile-device-soak`; the device is a real one and the volume is representative. What
+remains is running it — the authoritative pass is still outstanding, and this critique stays
+correct in spirit until it is: a soak nobody has actually run is still a requirement nobody has
+met.
 
 **4. Effort.** 3.0 units, the largest single milestone in Edition 1, and the first in a
 language and toolchain this project has never built in. Every M5–M7 estimate held; **none of

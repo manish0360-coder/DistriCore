@@ -65,6 +65,21 @@ final class MalformedResponse extends Failure {
   final int? status;
 }
 
+/// **The TLS chain did not verify.** `problem.dart` reaches this from two Dio outcomes that
+/// share one cause — `badCertificate`, and `unknown` wrapping a `HandshakeException` — and
+/// used to report both as [MalformedResponse]. That collapsed a security-relevant,
+/// specifically-actionable fact ("this is not really talking to the server") into the same
+/// generic "try again in a moment" text used for an HTML error page or a slow decode, which
+/// is indistinguishable from every other cause once it reaches a screen. A screen that wants
+/// to say something more useful than "could not read" needs the two apart at the type level,
+/// not by matching [Failure.message] against a string a later edit could quietly change.
+///
+/// `Failure` is sealed, so adding this member fans out at compile time across every `fold`
+/// in the app — exactly the reasoning [StorageFull] already states for the same pattern.
+final class CertificateRejected extends Failure {
+  const CertificateRejected() : super('The server certificate was rejected.');
+}
+
 /// **D-C3 — the durable write could not be made, because there is no room for it.**
 ///
 /// Deliberately **not** [Offline], and the distinction is behavioural rather than tidy:

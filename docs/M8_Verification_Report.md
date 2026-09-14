@@ -124,7 +124,12 @@ have found it — the classification unit tests passed throughout.
    Android SDK and no JDK, so every Android artefact comes from an unpinned host toolchain
    `make verify` cannot see. Half of TD-42 was retired on 2026-09-01 — `make` in WSL now reaches
    the Windows launcher — but the CI half stands.
-3. **M8 is not closed.** Phase 2 tasks **6 and 8 have no commit**. This gate is task 10.
+3. **M8 is not closed.** Phase 2 task 6 has no commit (GPS/media, `Rel = v1.1`, not V1).
+   **Task 10 is larger than this gate**: `M8_Design_Review` §10 assigns it both the kill/storage
+   durability gate reported here **and** the 8-hour offline soak (NFR-OFF-001). Only the first
+   half is closed by this report. The soak's harness was built 2026-09-14
+   (`M8_Design_Review` §5.6.3, `make mobile-device-soak`) but has not been run on any device —
+   **NFR-OFF-001 and TD-45 remain open** until the authoritative physical-device run completes.
 4. **One accepted analyzer warning** — **TD-46**. `storage_failure.dart` imports
    `package:drift/remote.dart`, which drift marks experimental; the gate passes it only because
    `--no-fatal-warnings` is set. Deliberate: without `DriftRemoteException` a full disk is not

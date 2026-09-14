@@ -970,6 +970,19 @@ GET /api/v1/sync/pull?since=2026-08-05T04:00:00Z
 > share a reading, and a `stock_levels` field invented to bridge them would be a new contract
 > written by an implementer. **Deferred to a formal amendment.** M9.4 ships no stock.
 >
+> **Resolved 2026-09-14 — the formal amendment, D-M9-11.** FR-SYN-007's stock-snapshot clause
+> moves to `Rel = v2.0` (`02` S-8). DV-1 (`02A` §5) removed field order capture from Edition
+> 1: the salesman device reads assigned orders and writes delivery status and visit records,
+> none of which contends for stock, prices out an order, or checks availability. FR-SYN-007
+> was written for the frozen baseline, where a salesman needed a live answer to *"is this in
+> stock?"* before committing an offline order — a question no Edition-1 screen asks. **No
+> Edition-1 mobile workflow consumes a stock snapshot.** This does not reopen D-M9.4-1's
+> reasoning about *how* stock would travel to a device (`04` N-03/E-01, ADR-008,
+> `M8_Design_Review` §2 all stand, unchanged) — it removes the question by removing the
+> consumer that made it necessary. `products`, `offers`, `zones`, `reason_codes` and `orders`
+> from D-M9.4-2 below are **untouched by this ruling** — their consumer mapping remains a
+> separate, later decision.
+>
 > **D-M9.4-2 — M9.4 implements `customers` and `deliveries` only.** These are the two
 > collections with verified shipped consumers: T6's customer round and T5's delivery
 > workflow. `products`, `offers`, `zones`, `reason_codes` and `orders` are **not implemented
@@ -1271,7 +1284,13 @@ A salesman offline creates a new shop, then records a visit and takes a payment 
 }
 ```
 
-Nothing fails silently (FR-SYN-008/009). The device shows its own outbox depth; this endpoint shows the **server's** view, so a disagreement between the two is visible rather than assumed away.
+Nothing fails silently (FR-SYN-008). The device shows its own outbox depth; this endpoint shows the **server's** view, so a disagreement between the two is visible rather than assumed away.
+
+> **Corrected 2026-09-14 (OC-5).** This caption previously read *"(FR-SYN-008/009)"*. The
+> FR-SYN-008 half is genuine — this endpoint plus the device's own count discharge it. The
+> FR-SYN-009 half never was: it names a `SALESMGR`/`ADMIN` per-device console view, which
+> this endpoint (scoped to the caller's own device by D-M9.3-1's JWT rule) cannot serve, and
+> which `02` S-6 (`M9_Design_Review` §6 D-M9-7) has since moved to Edition 2 outright.
 
 | Field | Meaning |
 | --- | --- |

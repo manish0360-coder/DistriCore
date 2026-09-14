@@ -31,7 +31,7 @@ Failure failureFromDioException(DioException error) {
       // make sense of it, retrying later is the only safe move.
       return const MalformedResponse('The response could not be decoded in time.');
     case DioExceptionType.badCertificate:
-      return const MalformedResponse('The server certificate was rejected.');
+      return const CertificateRejected();
     case DioExceptionType.badResponse:
     case DioExceptionType.unknown:
       break;
@@ -52,9 +52,10 @@ Failure failureFromDioException(DioException error) {
   // This is the same argument `transformTimeout` above already makes — *"Calling it
   // `Offline` would tell a salesman standing in signal that they have none"* — applied to
   // the case that was missed. The verdict matches `badCertificate` because the cause is
-  // identical: the chain did not verify.
+  // identical: the chain did not verify. Both return `CertificateRejected`, not
+  // `MalformedResponse` — see that type's own doc for why the two must stay apart.
   if (error.error is HandshakeException) {
-    return const MalformedResponse('The server certificate was rejected.');
+    return const CertificateRejected();
   }
 
   final response = error.response;

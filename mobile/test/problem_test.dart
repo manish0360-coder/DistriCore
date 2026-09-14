@@ -105,8 +105,30 @@ void main() {
         error: const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
       ),
     );
-    expect(failure, isA<MalformedResponse>());
+    expect(failure, isA<CertificateRejected>());
     expect(failure, isNot(isA<Offline>()));
+  });
+
+  // **The defect found 2026-09-14: a working connection described as an unreadable one.**
+  //
+  // The line above proved a rejected certificate is not `Offline`. It used to land on
+  // `MalformedResponse` instead — a type shared with an HTML error page, a truncated body
+  // and a slow decode, all four rendered by `login_messages.dart` as the identical "The
+  // server sent something we could not read." A developer holding that screen cannot tell
+  // "your dev CA is stale" from "the server sent junk" from it, and neither could the person
+  // reading this repository trying to diagnose it — which is exactly what happened.
+  test('a rejected certificate is its own type, not a MalformedResponse', () {
+    final failure = failureFromDioException(
+      DioException(
+        requestOptions: RequestOptions(path: '/auth/login'),
+        type: DioExceptionType.unknown,
+        error: const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+      ),
+    );
+    expect(failure, isA<CertificateRejected>());
+    // `Failure` is sealed and the two are siblings, not a subtype relationship — a case
+    // written as `MalformedResponse()` cannot silently reabsorb this one.
+    expect(failure, isNot(isA<MalformedResponse>()));
   });
 
   test('the verdict matches badCertificate — the cause is the same', () {
@@ -114,7 +136,7 @@ void main() {
     // "no signal" and the other "certificate rejected" would be reporting the transport
     // rather than the problem.
     String messageOf(DioException error) =>
-        (failureFromDioException(error) as MalformedResponse).message;
+        (failureFromDioException(error) as CertificateRejected).message;
 
     expect(
       messageOf(DioException(

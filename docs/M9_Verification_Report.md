@@ -120,11 +120,17 @@ Stated explicitly, because a gate that is cited beyond its evidence is worse tha
    is needed"*. `SyncConflict` exists in no schema, no endpoint and no model. The suite cannot
    test an entity that does not exist and does not attempt to. **Open item 5 is untouched by
    this report.**
-2. **Nothing about the stock snapshot.** **D-M9.4-1**'s recorded CONTRACT GAP against `04`
-   N-03/E-01 and ADR-008 is unclosed. `FR-SYN-007`'s pull covers customers and deliveries only.
-3. **Nothing about orphaned `RECEIVED` recovery as a scheduled process.** The suite proves an
-   orphan is *recoverable on replay*. `05` §11.5 defers a sweeper *"to M9.4/M10"*; M9.4 shipped
-   without one, so nothing reclaims an orphan that is never replayed.
+2. **Nothing about the stock snapshot.** **D-M9.4-1**'s recorded CONTRACT GAP was closed
+   2026-09-14 by **D-M9-11**, not by this report: the stock-snapshot clause of `FR-SYN-007`
+   moves to `Rel = v2.0` (`02` S-8). `FR-SYN-007`'s pull continues to cover customers and
+   deliveries only, and now correctly so — nothing in `v1.0` scope was left unbuilt.
+3. **Nothing about orphaned `RECEIVED` recovery as a scheduled process — ruled 2026-09-14 as
+   not required.** The suite proves an orphan is *recoverable on replay*, which **D-M9-13**
+   (`docs/M9_Design_Review.md` §6) has since ruled is the complete V1 mechanism: no proactive
+   sweep is a V1 requirement, and a device that never replays leaves an operational alarm, not
+   a loss. The line this bullet previously cited — `05` §11.5's *"defers a sweeper to
+   M9.4/M10"* — is `05`'s own superseded pre-fix clause, kept there for history, not the
+   current state.
 4. **No concurrency beyond one row lock.** `recovery_locks_the_operation_row_before_re_entering_the_handler`
    proves the lock is taken. Multi-device contention, and two servers racing on one operation,
    are not exercised.
@@ -143,16 +149,20 @@ Two rows of `PROJECT_STATE.md`'s *Open at M9* are closed by evidence:
 | 6 | M9 → M10 gate — adversarial sync suite | **CLOSED** — this report, §2–§3 |
 | 7 | M8 → M9 gate — outbox survives kill, restart, storage exhaustion | **CLOSED** — `M8_Design_Review` §5.6.1 (2026-09-01) and §5.6.2 (2026-09-04); `docs/M8_Verification_Report.md` |
 
-Six remain, and **five of them are questions no engineer may answer alone**:
+Six were open when this report was written; **three are closed as of 2026-09-14 (D-M9-11,
+D-M9-12, D-M9-13)**. Three remain — this table's own labels have not been re-verified against
+`PROJECT_STATE.md`'s current state elsewhere in the corpus, which records two of the three
+(rows 1 and 2 below) as already closed by other rulings; **flagged, not corrected, in this
+pass**, since today's ruling was scoped to rows 3 and 8 only:
 
 | # | Item | Owner |
 | --: | --- | --- |
 | 1 | FR-RPT-009 sync health report — placed at M9 by **A-5**, unbuilt, no endpoint in `05` | Product Architect |
 | 2 | FR-SYN-009 — `05` §11.5 claims coverage **D-M9.3-1** makes unreachable | Product Architect |
-| 3 | Orphaned `RECEIVED` recovery — deferred *"to M9.4/M10"*; arrived at M10 by default | Engineering |
-| 4 | FR-SYN-007 remainder / stock snapshot — **D-M9.4-1**'s CONTRACT GAP | Product Architect |
+| ~~3~~ | ~~Orphaned `RECEIVED` recovery~~ | **CLOSED 2026-09-14 — D-M9-13.** Already closed in fact by the 2026-08-21 replay-on-resend fix (`05` §11.5); this row was simply never updated after that. No proactive sweep is a V1 requirement |
+| ~~4~~ | ~~FR-SYN-007 remainder / stock snapshot~~ | **CLOSED 2026-09-14 — D-M9-11.** Stock-snapshot clause → `Rel = v2.0` (`02` S-8); DV-1 removed its only Edition-1 consumer |
 | 5 | FR-SYN-005/013/014 conflict console — direct contradiction between `02` and `05` | Product Architect |
-| 8 | TD-41 / FR-SYN-010 — launch-only trigger, no connectivity mechanism | Engineering |
+| ~~8~~ | ~~TD-41 / FR-SYN-010 — launch-only trigger, no connectivity mechanism~~ | **CLOSED 2026-09-14 — D-M9-9 (mechanism) + D-M9-12 (scope).** B1 PASSED 2026-09-06 (67 046 ms of 120 000 ms); the bound is ruled foreground-scoped for V1, so B1's foreground-only coverage is complete V1 evidence, not a partial result |
 
 **No milestone number is proposed here.** `00` §19.1 defines M9 = Sync and M10 = Hardening and
 defines no sub-milestones; `M9.1`–`M9.4` are working labels for four commits.

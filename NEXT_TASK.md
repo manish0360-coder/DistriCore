@@ -771,9 +771,9 @@ items that were waiting on nobody, which is exactly what a gate can do and all i
 | 4 | ~~**M8 → M9 gate** (M8 task 10)~~ — **CLOSED 2026-09-04.** `make mobile-device-kill` passed 2026-09-01, `make mobile-device-storage` passed 2026-09-04; `docs/M8_Verification_Report.md`. *M8 tasks 6 and 8 still have no commit and remain open* | ~~Engineering~~ + Product *(tasks 6 and 8)* |
 | 5 | ~~**M9 → M10 gate** — no adversarial sync suite exists~~ — **CLOSED 2026-09-04.** The suite has existed since `4d4854e` (2026-08-22); this line was written against `bf94b8e` and was seven commits stale. 11/11, `docs/M9_Verification_Report.md` | ~~Engineering~~ |
 | 6 | **FR-SYN-007 remainder / stock snapshot** — D-M9.4-1's recorded CONTRACT GAP | Product Architect |
-| 7 | **Orphaned `RECEIVED` recovery** — deferred by `05` §11.5 *"to M9.4/M10"*; M9.4 has passed, so it landed on M10 by default | Engineering |
+| ~~7~~ | ~~**Orphaned `RECEIVED` recovery**~~ — **CLOSED 2026-09-14 (D-M9-13).** Already closed in fact by the 2026-08-21 replay-on-resend fix (`05` §11.5); this row was simply never updated after that. No proactive sweep is a V1 requirement | ~~Engineering~~ |
 | ~~8~~ | ~~**TD-41 / FR-SYN-010 + FR-SYN-017**~~ — **CLOSED 2026-09-06.** B1 passed on a Pixel 8a API 34 `x86_64` emulator: **67 046 ms of a 120 000 ms budget**, 200 operations, one push batch, one pull page. FR-SYN-017 closed by the same mechanism. **TD-45 unchanged** (`arm64`/physical unproven); transport was host loopback, not a field link | ~~Engineering~~ |
-| 9 | **TD-47 — does FR-SYN-010 bind while the app is backgrounded?** `02` names no application state, and Doze/App Standby mean **no** in-process mechanism can hold the bound there. A ruling decides whether this is a `WorkManager` milestone or out of scope | Product Architect |
+| ~~9~~ | ~~**TD-47 — does FR-SYN-010 bind while the app is backgrounded?**~~ — **RULED 2026-09-14 (D-M9-12).** Foreground-scoped for V1: the bound applies foregrounded with connectivity restored; background/Doze sync is best-effort, not an acceptance criterion. No `WorkManager` added; B1's foreground measurement is the complete V1 evidence | ~~Product Architect~~ |
 
 > **Why this is a task and not a preamble.** Until 2026-08-21 this file said *"Next: task 3"*
 > and `PROJECT_STATE.md` said *"M9 — Not started"*, while fourteen commits had landed past
@@ -900,16 +900,17 @@ line instead of re-argued. The three that cannot be repaired after the fact:
 | ~~7~~ | ~~Customers, visits~~ | ✔ **COMMITTED** — `11bb370` |
 | ~~8~~ | ~~**Owner Companion Mode**~~ | ✔ **BUILT 2026-09-06.** Four read-only screens over endpoints that already existed, owner-gated through the existing `TabSpec`/`RoleShell`. **OI-7 ruled** (M-14 stays cut; "Needs attention" is orders + failed deliveries; **overdue excluded** — no rule exists to read) and **TD-36 closed**, which were its two blockers. **Online-only**, so no `as_of` cache label: what the screen shows is what the request returned |
 | ~~9~~ | ~~Sync-status screen~~ | ✔ **COMMITTED** — `feeb85d`, extended by M9.3 (`e26aa87`) |
-| **10** | **8-hour offline soak** (NFR-OFF-001) and the **M8→M9 gate** | **Measured on a real device. No commit, and no recorded evidence of this gate was found in the repository** |
+| **10** | **8-hour offline soak** (NFR-OFF-001) and the **M8→M9 gate** | **M8→M9 gate (kill + storage) CLOSED** — `M8_Verification_Report.md`, §5.6.1/§5.6.2. **Soak harness built and committed 2026-09-14** (`M8_Design_Review` §5.6.3, `make mobile-device-soak`); **the authoritative physical-device run has not happened — NFR-OFF-001 and TD-45 remain open** |
 
-**Tasks 6 and 10 remain** *(task 8 built 2026-09-06)*. §10.1 is explicit that of the three, only task 8 could ever
-move: *"task 8 is the first thing that can move to M8.1 without breaking the milestone gate —
-**task 10 cannot**."* Task 10 carries the M8→M9 gate condition from `00` §19.2 — *"outbox
-survives kill, restart and storage exhaustion"* — and §14.11 assigned it the two halves of
-task 3's durability proof that task 3 itself did not make. **No recorded evidence of this gate
-was found in the repository** — which is an absence of an artefact, not proof that nothing was
-run. A soak measured on a device leaves no trace here unless someone writes it down. This
-document records the absence; it does not rule on it.
+**Task 6 and task 10's authoritative soak run remain** *(task 8 built 2026-09-06; task 10's
+M8→M9 gate half closed 2026-09-01/04)*. §10.1 is explicit that of the three, only task 8 could
+ever move: *"task 8 is the first thing that can move to M8.1 without breaking the milestone
+gate — **task 10 cannot**."* Task 10 carried two obligations: the M8→M9 gate condition from
+`00` §19.2 — *"outbox survives kill, restart and storage exhaustion"* — which §5.6.1/§5.6.2
+closed; and NFR-OFF-001's 8-hour soak, whose harness now exists (`M8_Design_Review` §5.6.3,
+`integration_test/offline_soak_test.dart`) but has not been run on any device, physical or
+emulated. **A soak measured on a device leaves no trace here unless someone writes it down** —
+this document will record the run once it exists, not before.
 
 **Tasks 1 and 2 precede every feature deliberately.** `reporting`'s four AST tests were
 written when it had one file; that is why the contract still holds at seven. Written last,

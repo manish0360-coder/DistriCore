@@ -509,18 +509,18 @@ dev-ca-b64: dev-ca ## Print the --dart-define for the development trust anchor
 
 .PHONY: emulator-trust-ca
 emulator-trust-ca: dev-ca ## Install that CA into the RUNNING emulator's user trust store
-	@adb devices | grep -qw device || { echo "No emulator. Start the AVD first."; exit 1; }
+	@$(ADB) devices | grep -qw device || { echo "No emulator. Start the AVD first."; exit 1; }
 	@echo "==> hashing (Android names CA files by subject hash)"
 	$(eval CA_HASH := $(shell openssl x509 -inform PEM -subject_hash_old -in $(DEV_CA) | head -1))
 	@test -n "$(CA_HASH)" || { echo "could not hash $(DEV_CA)"; exit 1; }
 	@echo "==> pushing as $(CA_HASH).0"
 	@cp $(DEV_CA) build/$(CA_HASH).0
-	@if adb root >/dev/null 2>&1 && adb shell 'mkdir -p /data/misc/user/0/cacerts-added' 2>/dev/null; then \
-		adb push build/$(CA_HASH).0 /data/misc/user/0/cacerts-added/$(CA_HASH).0 && \
-		adb shell chmod 644 /data/misc/user/0/cacerts-added/$(CA_HASH).0 && \
-		echo "  installed to the user trust store. Reboot the AVD: adb reboot"; \
+	@if $(ADB) root >/dev/null 2>&1 && $(ADB) shell 'mkdir -p /data/misc/user/0/cacerts-added' 2>/dev/null; then \
+		$(ADB) push build/$(CA_HASH).0 /data/misc/user/0/cacerts-added/$(CA_HASH).0 && \
+		$(ADB) shell chmod 644 /data/misc/user/0/cacerts-added/$(CA_HASH).0 && \
+		echo "  installed to the user trust store. Reboot the AVD: $(ADB) reboot"; \
 	else \
-		adb push $(DEV_CA) /sdcard/Download/districore-dev-ca.crt && \
+		$(ADB) push $(DEV_CA) /sdcard/Download/districore-dev-ca.crt && \
 		echo "  adb root is unavailable on this image (Google Play images disallow it)."; \
 		echo "  FALLBACK, once: on the emulator open"; \
 		echo "    Settings > Security > More security settings > Encryption & credentials"; \
@@ -942,4 +942,71 @@ mobile-device-sync-latency: device-gate-preflight ## B1: FR-SYN-010 timed sync. 
 	@echo
 	@echo "==> B1 complete. The GATE:b1 lines above are the evidence record."
 	@echo "    x86_64 emulator only - TD-45 is unchanged by this run."
+
+# **NFR-OFF-001 — the 8-hour offline soak. M8 §10 task 10, the M8->M9 gate's last open half.**
+#
+# `02` §21.2 names the method in six words: "Soak test: 8 hours offline at representative
+# transaction volume." `M8_Design_Review` §12 self-critique item 3 recorded this as "specified
+# and not designed"; `integration_test/offline_soak_test.dart` is that design, and its own
+# header comment is the fuller account of the three phases below. Read it before touching this
+# block — the reasoning lives there, not here.
+#
+# **Same real-server shape as B1, not the local-only shape of kill/storage/encryption above.**
+# This gate authenticates and syncs against the dev stack, so it needs the dev CA exactly as
+# B1 does, and reuses B1's own seed (`scripts/seed-b1.sh`) for the salesman/zone/customers.
+# **It additionally needs >=1 delivery dispatched to SOAK_PHONE** — seed-b1.sh deliberately does
+# not seed that (its own comment says why: "seeding orders and dispatch as well"), so `arm`
+# fails loudly, before any of the 8 hours is spent, if none is found.
+#
+# **Unlike B1, the radio does not move mid-phase.** B1 times a reconnection, so its `measure`
+# phase starts offline and the radio returns partway through, backgrounded, while the drive
+# holds the foreground. This gate has nothing to time — it has 8 hours of writes to prove — so
+# the radio toggles once between phases, not inside one.
+SOAK_BASE_URL          ?= https://10.0.2.2/api/v1
+SOAK_OPERATIONS        ?= 200
+#: 8 hours, `02` §21.2's own figure. Override together with SOAK_OPERATIONS for a fast
+#: rehearsal that still paces realistically — e.g. SOAK_OPERATIONS=5 SOAK_DURATION_MINUTES=5.
+#: The authoritative run uses both defaults, on a physical device.
+SOAK_DURATION_MINUTES  ?= 480
+SOAK_PHONE             ?= +919876500001
+SOAK_PASSWORD          ?= b1-acceptance-only
+
+SOAK_DEFINES = --dart-define=DISTRICORE_API_BASE_URL=$(SOAK_BASE_URL) \
+	--dart-define=DISTRICORE_DEV_CA_B64=$$(base64 -w0 $(CURDIR)/$(DEV_CA)) \
+	--dart-define=SOAK_OPERATIONS=$(SOAK_OPERATIONS) \
+	--dart-define=SOAK_DURATION_MINUTES=$(SOAK_DURATION_MINUTES) \
+	--dart-define=SOAK_PHONE=$(SOAK_PHONE) \
+	--dart-define=SOAK_PASSWORD=$(SOAK_PASSWORD)
+
+SOAK_DRIVE = $(FLUTTER_HOST_RUN) drive --driver=test_driver/integration_test.dart \
+	--target=integration_test/offline_soak_test.dart --keep-app-running \
+	-d $(MOBILE_DEVICE_ID)
+
+.PHONY: mobile-device-soak
+mobile-device-soak: device-gate-preflight ## NFR-OFF-001 8h soak, M8 task 10. Needs the dev stack, the B1 seed, a trusted dev CA and >=1 dispatched delivery. Physical device required for the authoritative run.
+	@test -f $(CURDIR)/$(DEV_CA) || { \
+		echo "$(CURDIR)/$(DEV_CA) is missing. Run 'make up' then 'make dev-ca', then"; \
+		echo "'make emulator-trust-ca' with the device running."; exit 1; }
+	@echo "==> phase 1/3 arm: authenticate, pull cache (customers + assigned deliveries)"
+	@echo "    Fails loudly here if no delivery is dispatched to SOAK_PHONE — see"
+	@echo "    integration_test/offline_soak_test.dart for the three-step precondition."
+	@$(ADB) shell svc wifi enable  >/dev/null 2>&1 || true
+	@$(ADB) shell svc data enable  >/dev/null 2>&1 || true
+	cd mobile && $(FLUTTER_HOST_RUN) pub get --enforce-lockfile && $(SOAK_DRIVE) $(SOAK_DEFINES) --dart-define=GATE_PHASE=arm
+	@echo "==> phase 2/3 run: radio OFF for the full $(SOAK_DURATION_MINUTES)-minute soak"
+	@echo "    ~$(SOAK_OPERATIONS) operations paced across the window. The GATE:soak lines"
+	@echo "    printed during this phase are the evidence record — this does not return"
+	@echo "    until the window ends."
+	@$(ADB) shell svc wifi disable >/dev/null 2>&1 || true
+	@$(ADB) shell svc data disable >/dev/null 2>&1 || true
+	cd mobile && $(SOAK_DRIVE) $(SOAK_DEFINES) --dart-define=GATE_PHASE=run
+	@echo "==> phase 3/3 verify: radio ON, reconnect through the real SyncRound/SyncScheduler"
+	@$(ADB) shell svc wifi enable  >/dev/null 2>&1 || true
+	@$(ADB) shell svc data enable  >/dev/null 2>&1 || true
+	cd mobile && $(SOAK_DRIVE) $(SOAK_DEFINES) --dart-define=GATE_PHASE=verify
+	@echo
+	@echo "==> soak complete. The GATE:soak lines above are the evidence record."
+	@echo "    A pass on $(MOBILE_DEVICE_ID) proves the harness; it does NOT close NFR-OFF-001"
+	@echo "    or TD-45. Both close only on a physical-device run recorded at"
+	@echo "    docs/M8_Design_Review.md §5.6.3."
 
