@@ -184,6 +184,29 @@ final class AppConfig {
     // (`config/urls.py`) while the client declares paths as `/auth/login`. Trailing slashes
     // are trimmed so that concatenation cannot produce `…/api/v1//auth/login`.
     final path = uri.path.replaceAll(_trailingSlashes, '');
+
+    // **The sentence above said "required" for five milestones and nothing enforced it.**
+    //
+    // `config/urls.py` mounts the API under `path("api/v1/", …)` and everything else under
+    // `path("", include("webadmin.urls"))`. A base URL with no prefix therefore sends
+    // `/auth/otp/request` into the *web admin* URLconf, which has no such route, and every
+    // call 404s with an HTML body — so the app reports "the server sent something we could
+    // not read" and the developer looks at the network.
+    //
+    // This has now cost two emulator sessions. The Makefile records the first against
+    // `B1_BASE_URL`: *"written without it once and cost an emulator run: Caddy showed
+    // `POST /auth/login` routed and Django answered `Not Found: /auth/login`."* A comment
+    // is not a control; this is.
+    //
+    // Refused **before `runApp`**, naming the fix, exactly as a missing host is — the same
+    // rule, applied to the same class of build defect.
+    if (path.isEmpty) {
+      throw const ConfigurationException(
+        baseUrlVariable,
+        'has no path prefix — the API is mounted at /api/v1/, so the URL must end '
+        'with it (for example https://10.0.2.2/api/v1)',
+      );
+    }
     return AppConfig._(
       uri.replace(path: path).toString(),
       _parseOfflineWindow(rawOfflineWindowDays),

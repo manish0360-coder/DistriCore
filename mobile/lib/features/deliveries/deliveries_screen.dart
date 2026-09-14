@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../settings/settings_action.dart';
 import '../../core/as_of.dart';
 import '../../domain/delivery/delivery.dart';
 import 'delivery_controller.dart';
@@ -46,7 +47,10 @@ class _DeliveriesScreenState extends ConsumerState<DeliveriesScreen> {
     final state = ref.watch(deliveryListProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Deliveries')),
+      appBar: AppBar(
+        title: const Text('Deliveries'),
+        actions: const [SettingsAction()],
+      ),
       body: RefreshIndicator(
         onRefresh: ref.read(deliveryListProvider.notifier).load,
         child: Column(

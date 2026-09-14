@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../settings/settings_action.dart';
 import '../../core/as_of.dart';
 import '../../domain/companion/companion.dart';
 import 'companion_controller.dart';
@@ -47,7 +48,10 @@ class _CompanionScreenState extends ConsumerState<CompanionScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Companion')),
+      appBar: AppBar(
+        title: const Text('Companion'),
+        actions: const [SettingsAction()],
+      ),
       body: Column(
         children: [
           _SectionBar(

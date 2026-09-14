@@ -87,6 +87,7 @@ final class TokenSessionRepository implements SessionRepository {
   /// | `outbox_operation` rows | §8.3 — a signed-out device still owes the business its work |
   ///
   /// The cached identity does **not** survive: it is the one thing here that names a person.
+  @override
   Future<void> signOut() async {
     await _tokens.clear();
     await _identity.clear();

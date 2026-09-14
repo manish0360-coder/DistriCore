@@ -107,8 +107,37 @@ void main() {
   });
 
   group('the build supplied a usable value', () {
-    test('a plain https origin is accepted unchanged', () {
-      expect(AppConfig.parse('https://api.example.com').baseUrl, 'https://api.example.com');
+    test('a bare origin with no path prefix is REFUSED', () {
+      // **The defect this test exists for, and it has now cost two emulator sessions.**
+      //
+      // `config/urls.py` mounts the API under `path("api/v1/", …)` and everything else
+      // under `path("", include("webadmin.urls"))`. A base URL of `https://10.0.2.2` sends
+      // `/auth/otp/request` into the web-admin URLconf, which has no such route: every call
+      // 404s with an HTML body, and the app reports that it could not read the response
+      // while the developer looks at the network.
+      //
+      // `AppConfig` documented this as "required" for five milestones and did not enforce
+      // it. A comment is not a control.
+      expect(
+        () => AppConfig.parse('https://api.example.com'),
+        _rejects('has no path prefix'),
+      );
+      expect(
+        () => AppConfig.parse('https://10.0.2.2/'),
+        _rejects('has no path prefix'),
+      );
+    });
+
+    test('the refusal names the fix rather than the symptom', () {
+      // A build error that says what to type is the difference between a fixed build and a
+      // session spent in the wrong layer.
+      expect(
+        () => AppConfig.parse('https://10.0.2.2'),
+        throwsA(
+          isA<ConfigurationException>()
+              .having((e) => e.reason, 'reason', contains('/api/v1')),
+        ),
+      );
     });
 
     test('a path prefix is preserved — the API is mounted at /api/v1', () {
@@ -122,7 +151,6 @@ void main() {
     });
 
     test('a trailing slash is trimmed so concatenation cannot double it', () {
-      expect(AppConfig.parse('https://api.example.com/').baseUrl, 'https://api.example.com');
       expect(
         AppConfig.parse('https://api.example.com/api/v1/').baseUrl,
         'https://api.example.com/api/v1',
@@ -143,8 +171,8 @@ void main() {
     test('surrounding whitespace is tolerated', () {
       // A shell variable or CI value that picked up a newline is a build-system accident,
       // not an intent to point at a different host.
-      expect(AppConfig.parse('  https://api.example.com \n').baseUrl,
-          'https://api.example.com');
+      expect(AppConfig.parse('  https://api.example.com/api/v1 \n').baseUrl,
+          'https://api.example.com/api/v1');
     });
 
     test('the result concatenates cleanly with the paths the API layer declares', () {
@@ -161,9 +189,9 @@ void main() {
     test('make mobile-verify supplies DISTRICORE_API_BASE_URL', () {
       expect(
         AppConfig.fromEnvironment().baseUrl,
-        'https://api.test',
+        'https://api.test/api/v1',
         reason: 'run this through `make mobile-verify`, which passes '
-            '--dart-define=DISTRICORE_API_BASE_URL=https://api.test. That value is '
+            '--dart-define=DISTRICORE_API_BASE_URL=https://api.test/api/v1. That value is '
             'verification-only and is deliberately not a default in the application.',
       );
     });
@@ -190,9 +218,9 @@ void main() {
     test('absent means null — the production path, and not an error', () {
       // The overwhelmingly common case. A release build supplies no CA and must behave
       // exactly as it did before this mechanism existed.
-      expect(AppConfig.parse('https://api.example.com').devTrustAnchor, isNull);
+      expect(AppConfig.parse('https://api.example.com/api/v1').devTrustAnchor, isNull);
       expect(
-        AppConfig.parse('https://api.example.com', rawDevTrustAnchor: '   ').devTrustAnchor,
+        AppConfig.parse('https://api.example.com/api/v1', rawDevTrustAnchor: '   ').devTrustAnchor,
         isNull,
         reason: 'blank and unset must fail through one path, as they do for the base URL',
       );
@@ -200,7 +228,7 @@ void main() {
 
     test('a valid CA is decoded to its bytes', () {
       final config =
-          AppConfig.parse('https://api.example.com', rawDevTrustAnchor: encoded);
+          AppConfig.parse('https://api.example.com/api/v1', rawDevTrustAnchor: encoded);
       expect(config.devTrustAnchor, isNotNull);
       expect(ascii.decode(config.devTrustAnchor!), pem);
     });
@@ -209,7 +237,7 @@ void main() {
       // Fails closed. Falling back to the default roots would present as the same generic
       // "no connection" the developer was already trying to diagnose.
       expect(
-        () => AppConfig.parse('https://api.example.com', rawDevTrustAnchor: 'not base64!!'),
+        () => AppConfig.parse('https://api.example.com/api/v1', rawDevTrustAnchor: 'not base64!!'),
         rejectsAnchor('not valid base64'),
       );
     });
@@ -219,7 +247,7 @@ void main() {
       // over the leaf instead of the CA. Both decode cleanly and neither is a trust anchor.
       expect(
         () => AppConfig.parse(
-          'https://api.example.com',
+          'https://api.example.com/api/v1',
           rawDevTrustAnchor: base64.encode(ascii.encode('-----BEGIN PRIVATE KEY-----')),
         ),
         rejectsAnchor('PEM certificate'),

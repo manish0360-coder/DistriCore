@@ -1653,3 +1653,67 @@ def test_companion_mode_reaches_only_endpoints_that_already_existed():
 
     missing = sorted(path for path in paths if f'"{path}"' not in routes)
     assert not missing, f"Companion Mode calls paths the API does not route: {missing}"
+
+
+# ────────────────────────────── sign-out must be reachable, not merely implemented
+#
+# `M8_Design_Review` §3.1 specifies the Settings screen as *"Version, device id, sign out"*.
+# `TokenSessionRepository.signOut()` was written at M8, is correct, and is covered by
+# `session_restoration_test.dart` — *"signOut emits null, clears tokens and KEEPS the device
+# id"*. It was also **called from nowhere in `lib/`**: the route existed, the screen behind
+# it rendered the word "Settings", and no control navigated to it.
+#
+# A tested mechanism with no caller is the defect these two contracts exist to catch. It is
+# the same shape as M11.1's unscheduled backup script and M11.3's unprovisioned A-05, one
+# layer up: correct code the product cannot invoke.
+
+#: Every screen a session can land on. `_landingFor` picks the first tab the roles allow, and
+#: `RoleShell` renders no tab bar at all below two tabs — so a delivery-only user reaches
+#: exactly one of these and nothing else. Sign-out has to be on all of them or it is missing
+#: for somebody.
+LANDING_SCREENS = (
+    "features/companion/companion_screen.dart",
+    "features/customers/customers_screen.dart",
+    "features/deliveries/deliveries_screen.dart",
+    "features/sync_status/sync_status_screen.dart",
+)
+
+
+def test_sign_out_is_called_from_the_user_interface():
+    """The mechanism must have a caller outside its own file and its own tests."""
+    callers = sorted(
+        path.relative_to(LIB).as_posix()
+        for path in LIB.rglob("*.dart")
+        if "signOut()" in path.read_text(encoding="utf-8")
+        and path.name != "token_session_repository.dart"
+    )
+    assert callers, (
+        "`signOut()` is defined and tested but called from nowhere in `lib/`. "
+        "`M8_Design_Review` §3.1 requires sign-out on the Settings screen; a user who "
+        "cannot reach it cannot hand the phone back."
+    )
+
+
+def test_every_landing_screen_can_reach_settings():
+    """One entry point per screen a role can land on — the tab bar cannot carry this.
+
+    `RoleShell` returns the bare child when fewer than two tabs are visible, so a
+    delivery-only user has no tab bar. An action placed there would be missing for exactly
+    the person most likely to be handed a shared device.
+    """
+    missing = [
+        screen
+        for screen in LANDING_SCREENS
+        if "SettingsAction()" not in (LIB / screen).read_text(encoding="utf-8")
+    ]
+    assert not missing, (
+        f"no route to Settings — and therefore to sign-out — from: {missing}. "
+        "Each landing screen builds its own AppBar, so the action cannot be injected by "
+        "the shell."
+    )
+
+    action = LIB / "features" / "settings" / "settings_action.dart"
+    assert action.exists(), "the shared Settings action is gone; four copies is not the fix"
+    assert "'/settings'" in action.read_text(encoding="utf-8"), (
+        "the Settings action no longer navigates to the route `router.dart` declares"
+    )

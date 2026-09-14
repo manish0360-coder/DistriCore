@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../settings/settings_action.dart';
 import '../../domain/outbox/outbox_operation.dart';
 import 'sync_controller.dart';
 
@@ -38,7 +39,10 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync status')),
+      appBar: AppBar(
+        title: const Text('Sync status'),
+        actions: const [SettingsAction()],
+      ),
       body: RefreshIndicator(
         onRefresh: ref.read(syncStatusProvider.notifier).load,
         child: ListView(

@@ -84,7 +84,11 @@ FLUTTER_ANALYZE_SEVERITY := --no-fatal-infos --no-fatal-warnings
 # is supplied by the release build, not by this file.
 #
 # `flutter analyze` does not need it: nothing is evaluated at analysis time.
-MOBILE_DART_DEFINES := --dart-define=DISTRICORE_API_BASE_URL=https://api.test
+#: **With the `/api/v1` prefix `AppConfig` now requires.** The API is mounted under
+#: `path("api/v1/", …)` and a base URL without it 404s into the web admin URLconf; the
+#: check that enforces that runs in `AppConfig.parse`, so a verification value without the
+#: prefix would fail the gate it exists to run.
+MOBILE_DART_DEFINES := --dart-define=DISTRICORE_API_BASE_URL=https://api.test/api/v1
 
 .PHONY: help
 help: ## Show this help

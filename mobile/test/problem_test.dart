@@ -1,4 +1,6 @@
 // `05` §5. The client branches on `code`; `title` and `detail` may be reworded freely.
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:districore/core/failure.dart';
 import 'package:districore/data/api/problem.dart';
@@ -82,5 +84,61 @@ void main() {
       expect(isAccessTokenExpired(err(401, 'INVALID_CREDENTIALS')), isFalse);
       expect(isAccessTokenExpired(err(403, 'TOKEN_EXPIRED')), isFalse);
     });
+  });
+
+  test('a rejected certificate is NOT reported as "no connection"', () {
+    // **The defect: a working connection described as a missing one.**
+    //
+    // Dio raises `badCertificate` only when a `badCertificateCallback` returns false, and
+    // this codebase deliberately has none — `test_no_certificate_verification_is_bypassed`
+    // fails the build if one appears. A failed TLS handshake therefore arrives as `unknown`
+    // wrapping a `HandshakeException`, with no response, and fell through to `Offline`.
+    //
+    // On the emulator the app said "No connection. Check your signal and try again." after
+    // the TCP handshake had already succeeded, which points the developer at networking
+    // when the fault is the trust anchor. In the field it tells a salesman standing in full
+    // signal that they have none.
+    final failure = failureFromDioException(
+      DioException(
+        requestOptions: RequestOptions(path: '/auth/otp/request'),
+        type: DioExceptionType.unknown,
+        error: const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+      ),
+    );
+    expect(failure, isA<MalformedResponse>());
+    expect(failure, isNot(isA<Offline>()));
+  });
+
+  test('the verdict matches badCertificate — the cause is the same', () {
+    // Two routes to one fact: the chain did not verify. A client that called one of them
+    // "no signal" and the other "certificate rejected" would be reporting the transport
+    // rather than the problem.
+    String messageOf(DioException error) =>
+        (failureFromDioException(error) as MalformedResponse).message;
+
+    expect(
+      messageOf(DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.unknown,
+        error: const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+      )),
+      messageOf(DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.badCertificate,
+      )),
+    );
+  });
+
+  test('a genuine transport failure is still Offline', () {
+    // Anti-vacuity. The fix must not turn every errorless exception into a certificate
+    // problem: no signal remains the normal state of a field device.
+    final failure = failureFromDioException(
+      DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.unknown,
+        error: const SocketException('Network is unreachable'),
+      ),
+    );
+    expect(failure, isA<Offline>());
   });
 }

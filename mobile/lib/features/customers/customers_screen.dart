@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../settings/settings_action.dart';
 import '../../core/as_of.dart';
 import '../../domain/customer/customer.dart';
 import '../../domain/visit/visit_outcome.dart';
@@ -45,7 +46,10 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
     final state = ref.watch(customerListProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Customers')),
+      appBar: AppBar(
+        title: const Text('Customers'),
+        actions: const [SettingsAction()],
+      ),
       body: RefreshIndicator(
         onRefresh: ref.read(customerListProvider.notifier).load,
         child: Column(

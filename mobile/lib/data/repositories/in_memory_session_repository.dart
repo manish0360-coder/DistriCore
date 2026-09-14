@@ -22,6 +22,11 @@ final class InMemorySessionRepository implements SessionRepository {
   @override
   Stream<Session?> changes() => _controller.stream;
 
+  /// Sign out, in memory. Emits `null` exactly as the real one does, so a suite that
+  /// exercises the redirect does not need a keystore.
+  @override
+  Future<void> signOut() async => set(null);
+
   /// Used by task 4's sign-in flow and by tests. Not part of the domain interface —
   /// the presentation layer may read a session, never install one.
   void set(Session? session) {

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 
 import '../../core/failure.dart';
@@ -33,6 +35,26 @@ Failure failureFromDioException(DioException error) {
     case DioExceptionType.badResponse:
     case DioExceptionType.unknown:
       break;
+  }
+
+  // **A rejected certificate is not "no signal", and reporting it as one cost a session.**
+  //
+  // Dio only raises `badCertificate` when a `badCertificateCallback` returns false. This
+  // codebase deliberately has none (M8 P-9; `test_no_certificate_verification_is_bypassed`
+  // fails the build if one appears), so a failed TLS handshake arrives here as `unknown`
+  // wrapping a `HandshakeException` — with no response, which fell through to `Offline`.
+  //
+  // The app then said "No connection. Check your signal and try again." while the device
+  // had a working connection and had completed the TCP handshake. On the emulator that
+  // points the developer at networking when the fault is the trust anchor; in the field it
+  // tells a salesman standing in full signal that they have none.
+  //
+  // This is the same argument `transformTimeout` above already makes — *"Calling it
+  // `Offline` would tell a salesman standing in signal that they have none"* — applied to
+  // the case that was missed. The verdict matches `badCertificate` because the cause is
+  // identical: the chain did not verify.
+  if (error.error is HandshakeException) {
+    return const MalformedResponse('The server certificate was rejected.');
   }
 
   final response = error.response;

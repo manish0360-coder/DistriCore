@@ -14,6 +14,7 @@ import '../data/db/platform_database_key.dart';
 import '../data/identity/platform_secure_storage.dart';
 import '../data/identity/secure_token_store.dart';
 import '../domain/identity/session.dart';
+import '../features/settings/settings_providers.dart';
 import '../features/auth/auth_providers.dart';
 import '../features/companion/companion_providers.dart';
 import '../features/customers/customer_providers.dart';
@@ -168,6 +169,10 @@ ProviderContainer buildRootContainer({
         // the screen names the `domain` interface and this is the one place that knows the
         // implementation is an HTTP client rather than a cache.
         companionPortProvider.overrideWith((ref) => ref.watch(companionRepositoryProvider)),
+        // Settings' one port. `M8_Design_Review` §3.1 requires sign-out on this screen;
+        // the feature names `SessionRepository` and this is the one place that knows the
+        // implementation clears a keystore rather than a map.
+        settingsPortProvider.overrideWith((ref) => ref.watch(tokenSessionRepositoryProvider)),
         // Last, so a caller's binding wins over anything above it.
         ...overrides,
       ],

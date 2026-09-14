@@ -131,7 +131,7 @@ void main() {
 
   group('DISTRICORE_OFFLINE_WINDOW_DAYS (D-D2)', () {
     AppConfig parse(String days) =>
-        AppConfig.parse('https://api.example.com', rawOfflineWindowDays: days);
+        AppConfig.parse('https://api.example.com/api/v1', rawOfflineWindowDays: days);
 
     test('absent means OI-5 seven days', () {
       expect(parse('').offlineWindow, const Duration(days: 7));
