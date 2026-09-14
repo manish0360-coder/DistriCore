@@ -39,6 +39,11 @@ BACKUP = ROOT / "ops" / "backup.sh"
 TIMER = ROOT / "ops" / "districore-backup.timer"
 SERVICE = ROOT / "ops" / "districore-backup.service"
 DEPLOY = ROOT / "docs" / "runbooks" / "deploy.md"
+RUNBOOKS = ROOT / "docs" / "runbooks" / "README.md"
+MAKEFILE = ROOT / "Makefile"
+BOOTSTRAP = (
+    ROOT / "backend" / "identity" / "management" / "commands" / "bootstrap_owner.py"
+)
 
 #: Read from outside `backend/`; they arrive by bind-mount (`docker/compose.dev.yml`).
 REQUIRED_PATHS = (
@@ -49,7 +54,17 @@ REQUIRED_PATHS = (
     "ops/districore-backup.timer",
     "ops/districore-backup.service",
     "docs/runbooks/deploy.md",
+    "docs/runbooks/README.md",
+    "docs/runbooks/first-owner.md",
+    "Makefile",
+    "backend/identity/management/commands/bootstrap_owner.py",
 )
+
+#: Operator commands an administrator runs on the **production** host. `exec` attaches to a
+#: running container, so neither overlay belongs in them — see `DCBASE` in the Makefile.
+OPERATOR_TARGETS = ("owner", "superuser", "logs")
+#: And the two that shell out to `ops/*.sh`, which require the backup environment.
+REHEARSAL_TARGETS = ("pitr-rehearsal", "restore-rehearsal")
 
 
 def test_every_path_this_suite_reads_is_visible_from_inside_the_container():
@@ -183,3 +198,164 @@ def test_the_comment_stripper_actually_strips():
     )
     assert "compose.prod.yml" not in stripped
     assert "docker/compose.yml" in stripped
+
+
+# ─────────────────────────────────── M11.5: the documented path must be executable
+#
+# M11.1 found a backup script nothing scheduled. M11.3 found an A-05 nothing provisioned.
+# This is the same shape a third time: mechanisms that are correct and that the documented
+# procedure could not actually invoke on a fresh host.
+
+
+def _recipe(target: str) -> str:
+    """A Make target's recipe — the tab-indented lines and their continuations."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    match = re.search(rf"^{re.escape(target)}:.*?\n((?:\t.*\n|\n)*)", text, re.MULTILINE)
+    assert match, f"Make target `{target}` is gone"
+    return match.group(1)
+
+
+def test_the_deploy_runbook_bootstraps_an_owner_before_the_rehearsals():
+    """**A fresh database has no users, and nothing said so.**
+
+    Before M11.5 `deploy.md` never created one. The smoke test asks the operator to sign in
+    and `ops/restore-pitr.sh` reports `max(audit_log.occurred_at)` as its evidence — so with
+    no owner there is nobody to sign in as, no audit row to recover, and **NFR-AVA-001
+    cannot be measured at all**.
+    """
+    deploy = DEPLOY.read_text(encoding="utf-8")
+    # **The command, not the prose.** The first draft searched for `make owner`, which the
+    # step's own explanatory sentence satisfies — so a mutation that moved the actual
+    # command after the rehearsals passed. `PHONE=` is the invocation and nothing else.
+    assert "make owner PHONE=" in deploy, "the deploy runbook never bootstraps an owner"
+    assert "first-owner.md" in deploy, "it does not point at the runbook that explains this"
+
+    owner_at = deploy.find("make owner PHONE=")
+    rehearse_at = deploy.find("Rehearse both recoveries")
+    assert owner_at < rehearse_at, (
+        "the owner is bootstrapped after the rehearsals. The PITR rehearsal recovers "
+        "`audit_log` rows that only a login produces."
+    )
+    assert "changepassword" in deploy, (
+        "no recovery path for an owner created without a usable password — the exact "
+        "outcome a blank prompt produces, and Django's own command is the fix"
+    )
+
+
+def test_the_deploy_runbook_says_the_password_is_required_when_creating_the_owner():
+    """The defect that produced a locked-out owner in development, documented.
+
+    A blank password reaches `UserManager._create` with `password=None`, which calls
+    `set_unusable_password()`. Correct for retailers, who authenticate by OTP (`04` T-01);
+    for an owner it is an account that holds the role, is audited, and can never sign in.
+    """
+    deploy = DEPLOY.read_text(encoding="utf-8")
+    assert "set_unusable_password" in deploy, (
+        "the runbook does not warn that a blank password produces an unusable account"
+    )
+
+
+def test_the_bootstrap_prompt_no_longer_reads_as_optional_on_first_boot():
+    """Wording only, and it is the whole defect.
+
+    The prompt is issued *before* the service runs, so it cannot know whether the user
+    exists — it must describe both cases. It read "leave blank if the user exists", which is
+    sound for recovery and misleading on first boot, the path every new installation takes.
+    """
+    source = BOOTSTRAP.read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    prompt = re.search(r'getpass\.getpass\(\s*(?:"|\n\s*")(.*?)"\s*\)', code, re.S)
+    assert prompt, "the interactive password prompt is gone"
+    text = prompt.group(1)
+    assert "REQUIRED" in text, (
+        f"the prompt does not say a password is required for a new user: {text!r}"
+    )
+    assert not re.search(r"^Password \(leave blank if the user exists", text), (
+        "the misleading wording is back"
+    )
+
+
+@pytest.mark.parametrize("target", OPERATOR_TARGETS)
+def test_operator_targets_load_neither_compose_overlay(target: str):
+    """**The M11.2 ruling, applied to the Makefile.**
+
+    `ops/backup.sh` records it: *"the prod overlay is not loaded, deliberately … loading it
+    made this script depend on every variable the overlay interpolates, including
+    `DISTRICORE_DOMAIN`"* — the B-3 defect. `exec` attaches to a running container and the
+    project name is fixed by `name: districore`, so an overlay adds nothing.
+
+    `$(DC)` would load the **dev** overlay on the production host; `$(DCPROD)` would couple
+    an operator command to a certificate name and break the same command in development,
+    where `DISTRICORE_DOMAIN` is empty and `:?` fires. `$(DCBASE)` is neither.
+    """
+    recipe = _recipe(target)
+    assert "$(DCBASE)" in recipe, f"`make {target}` does not use the base compose file"
+    for wrong in ("$(DC)", "$(DCPROD)", "compose.dev.yml", "compose.prod.yml"):
+        assert wrong not in recipe, (
+            f"`make {target}` loads `{wrong}`. An operator runs this on the production "
+            "host; neither overlay belongs in a command that only execs."
+        )
+
+
+def test_the_base_compose_variable_really_loads_only_the_base_file():
+    """Anti-vacuity: `DCBASE` could be defined as anything."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    match = re.search(r"^DCBASE\s*:=\s*(.+)$", text, re.MULTILINE)
+    assert match, "`DCBASE` is no longer defined"
+    definition = match.group(1)
+    assert "-f docker/compose.yml" in definition
+    assert "--env-file .env" in definition
+    assert "compose.dev.yml" not in definition and "compose.prod.yml" not in definition, (
+        f"`DCBASE` loads an overlay: {definition}"
+    )
+
+
+@pytest.mark.parametrize("target", REHEARSAL_TARGETS)
+def test_rehearsal_targets_supply_the_backup_environment(target: str):
+    """The documented recovery command exited before it began.
+
+    `ops/restore-pitr.sh` and `ops/restore.sh` require `DISTRICORE_BACKUP_PASSPHRASE` and
+    `DISTRICORE_BACKUP_REMOTE` and refuse without them. The systemd units get those from
+    `EnvironmentFile=`; a manual `make` invocation had no equivalent — so
+    `restore-from-backup.md`'s `make pitr-rehearsal` died immediately on a production host.
+
+    `.env` relative to the repository root is the same file the units name absolutely: they
+    set `WorkingDirectory=/opt/districore`, so `/opt/districore/.env` **is** this `.env`.
+    """
+    recipe = _recipe(target)
+    assert ". ./.env" in recipe, f"`make {target}` does not source the environment"
+    assert "set -a" in recipe, (
+        f"`make {target}` sources `.env` without exporting it, so the child script sees "
+        "nothing"
+    )
+
+    text = MAKEFILE.read_text(encoding="utf-8")
+    assert re.search(rf"^{re.escape(target)}: \.env", text, re.MULTILINE), (
+        f"`{target}` does not require `.env`, so a missing file fails inside the script "
+        "rather than at the one line that explains how to create it"
+    )
+
+
+@pytest.mark.parametrize("target", REHEARSAL_TARGETS)
+def test_sourcing_the_environment_did_not_weaken_the_scripts_own_guards(target: str):
+    """Fail-closed stays in the script, by name. Sourcing supplies; it does not excuse."""
+    script = "restore-pitr.sh" if target == "pitr-rehearsal" else "restore.sh"
+    source = (ROOT / "ops" / script).read_text(encoding="utf-8")
+    assert re.search(r'\$\{DISTRICORE_BACKUP_PASSPHRASE:\?', source), (
+        f"`ops/{script}` no longer refuses without the passphrase"
+    )
+    assert "set -euo pipefail" in source
+
+
+def test_the_first_owner_runbook_is_reachable_from_the_index():
+    """A runbook nobody can find is a runbook nobody runs (B-4).
+
+    It existed, complete and correct, and was absent from the index — which is why the
+    locked-out-owner case was diagnosed from source rather than from the document written
+    for it.
+    """
+    assert "first-owner" in RUNBOOKS.read_text(encoding="utf-8"), (
+        "`first-owner.md` is not listed in `docs/runbooks/README.md`"
+    )

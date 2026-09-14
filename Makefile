@@ -3,6 +3,14 @@
 SHELL := /bin/bash
 DC     := docker compose -f docker/compose.yml -f docker/compose.dev.yml --env-file .env
 DCPROD := docker compose -f docker/compose.yml -f docker/compose.prod.yml --env-file .env
+# **Neither overlay, and that is the point (M11.5).** `exec` attaches to whatever is already
+# running: `app` and `db` are in the base file, and the project name is fixed by
+# `name: districore`, so an overlay adds nothing an exec consults. Loading `compose.prod.yml`
+# would couple an operator command to `DISTRICORE_DOMAIN:?` — the B-3 defect `ops/backup.sh`
+# records — and would break these targets in development, where that variable is empty.
+# Loading `compose.dev.yml` on the production host is the mirror-image mistake. So: base only,
+# exactly as ops/backup.sh, ops/ship-wal.sh and ops/basebackup.sh already do.
+DCBASE := docker compose -f docker/compose.yml --env-file .env
 # manage.py lives in backend/ -> that is the cwd for Django commands.
 RUN    := $(DC) exec -T app
 # Quality tools must run from the PROJECT ROOT so that the command is byte-identical
@@ -108,7 +116,7 @@ rebuild: ## Rebuild images from scratch
 
 .PHONY: logs
 logs: ## Tail application logs
-	$(DC) logs -f app
+	$(DCBASE) logs -f app
 
 .env:
 	@echo "ERROR: .env missing. Run: cp .env.example .env" && exit 1
@@ -147,7 +155,7 @@ lock: ## Regenerate uv.lock. Commit the result — the build now requires it (TD
 
 .PHONY: superuser
 superuser: ## Create a login. Does NOT grant a role — run `make owner` next
-	$(DC) exec app python manage.py createsuperuser
+	$(DCBASE) exec app python manage.py createsuperuser
 	@echo ""
 	@echo "  A login is not an authorisation. createsuperuser writes app_user only;"
 	@echo "  the admin needs an OWNER role (FR-IAM-005). Grant it with:"
@@ -158,7 +166,7 @@ superuser: ## Create a login. Does NOT grant a role — run `make owner` next
 .PHONY: owner
 owner: ## Grant OWNER (FR-IAM-014). Creates the user if absent. PHONE=... [NAME=...] [REASON=...]
 	@test -n "$(PHONE)" || { echo "PHONE is required, e.g. make owner PHONE=7903324153"; exit 1; }
-	$(DC) exec app python manage.py bootstrap_owner \
+	$(DCBASE) exec app python manage.py bootstrap_owner \
 		--phone "$(PHONE)" --full-name "$(NAME)" --reason "$(REASON)"
 
 # --- quality ----------------------------------------------------------------
@@ -744,8 +752,20 @@ basebackup: ## Physical base backup — the PITR anchor; also prunes offsite WAL
 #
 #   make pitr-rehearsal TARGET_TIME='2026-09-12 14:35:00+00'
 #
+# **Both rehearsal targets source `.env` (M11.5).** `ops/restore-pitr.sh` and
+# `ops/restore.sh` require DISTRICORE_BACKUP_PASSPHRASE and DISTRICORE_BACKUP_REMOTE and
+# refuse without them (`:?`). The systemd units get those from `EnvironmentFile=`; a manual
+# `make` invocation had no equivalent, so the documented command in
+# `docs/runbooks/restore-from-backup.md` exited immediately on a production host.
+#
+# `.env` relative to the repository root is the same file in both places: the units set
+# `WorkingDirectory=/opt/districore`, so `/opt/districore/.env` IS this `.env` on the server.
+# One path, no absolute, correct on a workstation too.
+#
+# `set -a` exports for the child process only. The scripts' own `:?` guards are untouched —
+# a `.env` that is present but incomplete still fails closed, in the script, by name.
 .PHONY: pitr-rehearsal
-pitr-rehearsal: ## NFR-AVA-001: recover base + WAL to a chosen instant and measure the result
+pitr-rehearsal: .env ## NFR-AVA-001: recover base + WAL to a chosen instant and measure the result
 	@test -n "$(TARGET_TIME)" || { \
 	  echo "TARGET_TIME is required — the instant to recover to."; \
 	  echo "  make pitr-rehearsal TARGET_TIME='$$(date -u +'%Y-%m-%d %H:%M:%S+00')'"; \
@@ -757,6 +777,7 @@ pitr-rehearsal: ## NFR-AVA-001: recover base + WAL to a chosen instant and measu
 	@echo "==> NFR-AVA-001 PITR rehearsal"
 	@started=$$(date -u +%s); \
 	 started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	 set -a; . ./.env; set +a; \
 	 if ./ops/restore-pitr.sh "$(TARGET_TIME)"; then outcome=PASS; else outcome=FAIL; fi; \
 	 elapsed=$$(( $$(date -u +%s) - started )); \
 	 echo ""; \
@@ -793,7 +814,7 @@ pitr-rehearsal: ## NFR-AVA-001: recover base + WAL to a chosen instant and measu
 #   make restore-rehearsal ARCHIVE=/srv/backups/districore-20260907T0300Z.dump.gpg
 #
 .PHONY: restore-rehearsal
-restore-rehearsal: ## B-3: restore the latest backup into a scratch DB and time it
+restore-rehearsal: .env ## B-3: restore the latest backup into a scratch DB and time it
 	@test -n "$(ARCHIVE)" || { \
 	  echo "ARCHIVE is required."; \
 	  echo "  make restore-rehearsal ARCHIVE=/srv/backups/districore-<stamp>.dump.gpg"; \
@@ -808,6 +829,7 @@ restore-rehearsal: ## B-3: restore the latest backup into a scratch DB and time 
 	@echo "    target  : $(or $(TARGET_DB),districore_restore_test)  (scratch, never live)"
 	@started=$$(date -u +%s); \
 	 started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	 set -a; . ./.env; set +a; \
 	 if ./ops/restore.sh "$(ARCHIVE)" "$(or $(TARGET_DB),districore_restore_test)"; then \
 	   outcome=PASS; \
 	 else \

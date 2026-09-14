@@ -7,6 +7,8 @@ the moment things go wrong, which is when judgement is worth more than automatio
 
 Everything below this heading is done once. A repeat deploy starts at *Before*.
 
+**Steps 1–2 prepare the host. Steps 3–7 need the stack running**, so run the *Deploy* section below once before them — `up -d --build --wait` is idempotent and you will run it again for the release itself. Step 3 already assumed this: `ops/backup.sh` takes a `pg_dump` through a running `db`.
+
 **Operator-provisioned, and not in this repository** — `00` §2.5 and §2.6 schedule each at
 M11: **A-03** VPS · **A-04** domain, DNS A record pointed at the host · **A-05** offsite
 target reachable by `rclone` · **S-04** deploy key · **S-05** SSH key · **S-07** backup
@@ -174,11 +176,50 @@ database, disk, backup age and `recovery_ready`; the monitor polling it is what 
 of `00` §13.1's four alerts into email. Without it nothing watches, whatever the endpoint
 says.
 
-**6. Rehearse both recoveries** — `docs/runbooks/restore-from-backup.md`. B-1: a backup that
+**6. Bootstrap the first owner.** A fresh database has **no users at all**, so nothing can
+sign in — and `bootstrap_owner` exists because `grant_role` requires an OWNER to act, which
+is a deadlock on a new installation (FR-IAM-014). Full background:
+[first-owner](first-owner.md).
+
+```bash
+cd /opt/districore
+make owner PHONE=<10-digit number> NAME="<owner's name>"
+```
+
+**You will be prompted for a password. Give one.** It is required when the user is being
+created, which is always the case here. **Leaving it blank creates an owner who holds the
+role, is audited, and can never sign in** — `UserManager._create` calls
+`set_unusable_password()` when no password is supplied, and the only symptom is *"Incorrect
+phone number or password"* at the login screen. That branch is correct for retailers, who
+authenticate by OTP (`04` T-01); it is not what you want for the owner.
+
+`make owner` uses the **base** compose file — neither overlay — so it is the same command on
+this host and on a workstation. Any spelling of the number works: `7903324153`,
+`917903324153` and `+917903324153` normalise to one canonical form before the lookup.
+
+Then **sign in at `https://<domain>/`** and confirm you reach the dashboard. A login is not
+an authorisation: if you see *"This account cannot sign in here"*, the password was accepted
+and the OWNER role is missing — re-read the output of the command above.
+
+If the account already exists without a usable password, Django's own command sets one:
+
+```bash
+docker compose -f docker/compose.yml --env-file .env \
+  exec app python manage.py changepassword +91<10-digit number>
+```
+
+Use the canonical `+91…` form there — `changepassword` is Django's and looks the user up
+verbatim, unlike the login path, which normalises first.
+
+**7. Rehearse both recoveries** — `docs/runbooks/restore-from-backup.md`. B-1: a backup that
 has never been restored does not count as one, and the first real one on a new host is the
 one worth proving. **Two rehearsals, not one:** the logical restore (B-3) and the **PITR
 rehearsal**, which is the only thing that can discharge NFR-AVA-001. Its log is empty until
 you run it here.
+
+**The PITR rehearsal depends on step 6.** It recovers to an instant and reports
+`max(audit_log.occurred_at)` — the newest business fact that survived. Without an owner who
+can sign in, there is no audit row to recover and the rehearsal measures nothing.
 
 ---
 

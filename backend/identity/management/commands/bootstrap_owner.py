@@ -64,7 +64,28 @@ class Command(BaseCommand):
         password = os.environ.get(PASSWORD_ENV) or None
         if password is None and not options["noinput"]:
             # Only asked for when one is actually needed; an existing user keeps theirs.
-            password = getpass.getpass("Password (leave blank if the user exists): ") or None
+            # **Wording only, and it is load-bearing (M11.5).** This read "leave blank if
+            # the user exists", which is sound advice for recovery and actively misleading
+            # on first boot — the more common path, and the one a new installation always
+            # takes. The prompt is issued *before* the service is called, so it cannot know
+            # which case it is in; it must therefore describe both.
+            #
+            # A blank on first boot reaches `UserManager._create` with `password=None`,
+            # which takes the `set_unusable_password()` branch. That branch is correct —
+            # retailers authenticate by OTP and a placeholder hash would be a lie in the
+            # data (`04` T-01) — but for a new *owner* it produces an account that holds
+            # OWNER, is audited, and can never sign in. The only symptom is "Incorrect
+            # phone number or password", which is true and tells the operator nothing.
+            #
+            # Nothing below this line changed: not the manager, the service, the hashing,
+            # the models, the permissions or the command's semantics.
+            password = (
+                getpass.getpass(
+                    "Password — REQUIRED for a new user, leave blank only if this "
+                    "number already has one: "
+                )
+                or None
+            )
 
         try:
             result = bootstrap_owner(

@@ -1,5 +1,61 @@
 # Next Task
 
+## Done 2026-09-14 — M11.5, the deploy path that could not be followed
+
+**The audit before this milestone asked one question: is A-03 really next?** It was not.
+Following `docs/runbooks/deploy.md` on a fresh host produced a system **nobody could sign in
+to**, and then could not measure NFR-AVA-001 — every defect discoverable only on a paid
+machine, mid-deploy.
+
+**This is the M11.1/M11.3 shape a third time:** a mechanism that is correct and that the
+documented procedure cannot invoke. M11.1 found a backup script nothing scheduled. M11.3
+found an A-05 nothing provisioned. M11.5 found an owner nobody creates.
+
+| # | Defect | Fix |
+| --- | --- | --- |
+| 1 | **`deploy.md` never bootstrapped an owner.** A fresh database has no users, so smoke-test steps 1–3 and 6 were impossible — and `ops/restore-pitr.sh` reports `max(audit_log.occurred_at)` as its evidence, so with no login there is **no audit row to recover and NFR-AVA-001 cannot be measured at all** | New **step 6**, before the rehearsals, with the `changepassword` recovery path and a pointer to `first-owner.md` |
+| 2 | **A blank password silently creates a locked-out owner.** The prompt read *"leave blank if the user exists"* — sound for recovery, misleading on first boot, which is the path every new installation takes. `UserManager._create` then calls `set_unusable_password()`; the account holds OWNER, is audited, and can never sign in. The only symptom is *"Incorrect phone number or password"* | **Wording only.** The prompt now says a password is REQUIRED for a new user. No manager, service, hashing, model, permission or command-semantics change |
+| 3 | **`owner`, `superuser`, `logs` loaded the dev overlay** — the first commands an operator runs on the production host | `$(DCBASE)`, base compose only |
+| 4 | **`make pitr-rehearsal` and `make restore-rehearsal` sourced nothing.** The scripts require `DISTRICORE_BACKUP_PASSPHRASE` and `DISTRICORE_BACKUP_REMOTE` via `:?`; the systemd units get them from `EnvironmentFile=`, a manual invocation had no equivalent — so `restore-from-backup.md`'s documented command **exited immediately** on a production host | `set -a; . ./.env; set +a`, plus `.env` as a prerequisite |
+| 5 | **`first-owner.md` was not in the runbook index** — which is why the locked-out-owner case was diagnosed from source rather than from the document written for it | Listed |
+
+### The instruction that repository evidence overrode
+
+M11.5 was specified as *"make `owner`/`superuser`/`logs` use the production compose
+configuration"*. **`$(DCPROD)` would have been wrong twice over**, and the repository had
+already ruled on it — `ops/backup.sh` records the M11.2 finding verbatim: *"the prod overlay
+is not loaded, deliberately … loading it made this script depend on every variable the
+overlay interpolates, including `DISTRICORE_DOMAIN`"*, the B-3 defect, with
+`test_deployment_readiness` enforcing it.
+
+Beyond that, `compose.prod.yml` declares `DISTRICORE_DOMAIN: ${DISTRICORE_DOMAIN:?…}` and
+`:?` fires on **empty**, which `.env.example` ships — so `$(DCPROD)` would have broken
+`make owner` on every development machine. **`$(DCBASE)` loads neither overlay**, which is
+what `exec` actually needs: it attaches to a running container under the fixed project name
+`districore`. Raised before implementing; confirmed by the Product Architect.
+
+**`.env` needed no absolute path either.** The units set `WorkingDirectory=/opt/districore`,
+so `/opt/districore/.env` **is** the repository-root `.env`. One relative path, correct on
+the server and on a workstation.
+
+### 9 contracts, 18 mutations proved
+
+Two found defects in this work: a mutation that moved the owner command after the rehearsals
+**passed**, because the ordering check matched the step's own explanatory prose rather than
+the command — now keyed on `make owner PHONE=`. And three mutations initially failed to fire
+because `replace(…, 1)` hit an earlier occurrence; re-run precisely, all three proved.
+
+Fail-closed is unchanged and contract-protected: sourcing `.env` **supplies** the
+environment, it does not excuse it — `ops/restore-pitr.sh` and `ops/restore.sh` still refuse
+by name via `:?`.
+
+**Unchanged:** identity behaviour, authentication, hashing, models, permissions, business
+logic, views, URLs, serializers, the frontend and visual system, backup design, retention,
+and NFR-AVA-001 — still **binding at RPO ≤ 15 min / RTO ≤ 4 h, and still NOT MEASURED.**
+Nothing here measures anything; it makes the measurement reachable.
+
+---
+
 ## Done 2026-09-14 — M11.4, the visual system: "instrument, not ornament"
 
 **There was no design system to redesign.** The audit found 71 lines of CSS in four
